@@ -4,7 +4,7 @@ Plataforma modular de reservas y turnos. Monorepo con pnpm workspaces y Turborep
 
 ## Requisitos
 
-- Node.js 20.19.0 o superior
+- Node.js 24 LTS o superior
 - pnpm (`npm i -g pnpm`)
 
 ## Arranque
