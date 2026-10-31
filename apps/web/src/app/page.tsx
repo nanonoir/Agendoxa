@@ -1,4 +1,8 @@
+import { healthResponseSchema } from "@agendoxa/shared";
 import Image from "next/image";
+
+// Verifica que web puede importar y ejecutar código de @agendoxa/shared (REP-01).
+healthResponseSchema.parse({ status: "ok" });
 
 export default function Home() {
   return (
