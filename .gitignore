@@ -23,3 +23,6 @@ next-env.d.ts
 
 # Generado por TypeScript (incremental)
 *.tsbuildinfo
+
+# Configuración personal de Claude Code (permisos locales)
+.claude/settings.local.json
