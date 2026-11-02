@@ -7,6 +7,7 @@ This catalog points to the behavioral references and their declared status. No r
 | [MVP definition](mvp.md) | Product scope, exclusions, delivery stages, acceptance criteria, risks, and open questions | Proposed consolidated MVP definition for team review, v0.2 |
 | [UC-01 actors and catalog](uc-01/actors.md) | Actors, channels, permissions, and CU-01 through CU-16 catalog | In Review; contains an explicitly labeled Confirmed Decisions section |
 | [UC-01 functional flows](uc-01/flows.md) | Main scenarios, exceptions, shared rules, diagrams, and deferred decisions | In review; not final persistence/API/UI contracts |
+| [UC-02 use cases](uc-02/use-cases.md) | Detailed specifications of CU-01 through CU-22, MVP obligation, proposed implementation priority, dependencies, and delivery order | In Review; priorities and CU-17 through CU-22 are proposals |
 | [UC-03 business rules](uc-03/business-rules.md) | Business rules by area, the origin of each rule, and pending decisions P-01 through P-27 | In Review; proposals and pending decisions are marked |
 | [UC-03 invariants](uc-03/invariants.md) | Guarantees that must always hold, status of each booking transition, and verifiable examples | In Review; mechanisms that depend on pending decisions are not fixed |
 
