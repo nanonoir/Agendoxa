@@ -107,7 +107,7 @@ flowchart LR
     end
 
     CUS --> CU01 & CU02 & CU03 & CU04 & CU05 & CU06 & CU07 & CU08 & CU09 & CU19
-    STF --> CU17 & CU21 & CU02 & CU04 & CU08 & CU09 & CU10 & CU11 & CU12 & CU14
+    STF --> CU17 & CU21 & CU02 & CU03 & CU04 & CU08 & CU09 & CU10 & CU11 & CU12 & CU14
     AUT --> CU13
     AUT -.->|availability only| CU15
     ADM --> CU13 & CU15 & CU18
@@ -131,7 +131,7 @@ All 22 cases are **Required** by `mvp.md` v0.2. The implementation priority is a
 | [CU-02](#cu-02) | Create a booking without a deposit | Customer; Staff/Admin | WhatsApp / CRM | Required — §5.1 Bookings; §12 #3, #5, #6 | 1 → 2 → 4 | **P0** | Core booking; highest risk (overlapping occupancy). |
 | [CU-22](#cu-22) | Expire an unconfirmed HOLD | System | Scheduled job | Required — §6.3.6; §12 #6 | 1 | **P0** | Without it, HOLDs keep slots blocked. |
 | [CU-11](#cu-11) | Record, verify or correct a payment | Staff/Admin | CRM | Required — §5.1 Payments; §12 #11 | 3 | **P1** | Needed by CU-03, CU-09, CU-10 and CU-13. |
-| [CU-03](#cu-03) | Create a booking with a transfer deposit | Customer; Staff/Admin verify | WhatsApp / CRM | Required — §5.1 Holds and deposits; §12 #4 | 3 → 4 | **P1** | Core value; carries the accepted review risk. |
+| [CU-03](#cu-03) | Create a booking with a transfer deposit | Customer; Staff/Admin (CRM booking, verification) | WhatsApp / CRM | Required — §5.1 Holds and deposits; §12 #4 | 3 → 4 | **P1** | Core value; carries the accepted review risk. |
 | [CU-10](#cu-10) | Complete a service/rental or record a no-show | Staff/Admin | CRM | Required — §5.1 Bookings; §12 #10 | 3 | **P1** | Daily close of bookings; feeds CU-12. |
 | [CU-08](#cu-08) | Cancel a booking | Customer; Staff/Admin | WhatsApp / CRM | Required — §5.1 Bookings; §12 #8 | 2 → 3 → 4 | **P1** | Main source of released slots. |
 | [CU-09](#cu-09) | Reschedule a booking | Customer; Staff/Admin | WhatsApp / CRM | Required — §5.1 Bookings; §12 #8 | 2 → 3 → 4 | **P1** | Most complex flow (atomic move, deposits). |
@@ -171,6 +171,7 @@ flowchart TD
     CU01 -->|WhatsApp path| CU02[CU-02 Book without deposit]
     CU21 -->|CRM path| CU02
     CU01 --> CU03[CU-03 Book with deposit]
+    CU21 -->|CRM path| CU03
     CU11[CU-11 Payments] --> CU03
     CU21 --> CU11
     CU02 --> CU04[CU-04 Book for others]
@@ -209,7 +210,7 @@ These are runtime chains, not dependencies. Some of them loop (a released slot b
 | Event | Raised by | Starts or continues |
 |---|---|---|
 | A slot is actually released | CU-08 (cancellation), CU-09 (old slot), CU-22 (expiry), CU-11 (rejected receipt, see CU-03 A3), CU-15 (lifted block) | CU-06, if an eligible waitlist entry exists |
-| A receipt arrives within the HOLD | CU-03 step 5 | Review in CU-11 (A1) |
+| A receipt arrives within the HOLD, or is recorded as pending from the CRM | CU-03 step 5; CU-03 CRM step 2b | Review in CU-11 (A1) |
 | An offer is created | CU-06 step 2 | Notice in CU-16 |
 | An offer is accepted | CU-06 step 4 | CU-02 step 3 or CU-03 step 3 |
 | A HOLD deadline is reached | CU-02, CU-03, CU-06 | CU-22 |
@@ -230,7 +231,7 @@ Follows `mvp.md` v0.2 §11. A case that spans several stages is listed where eac
 |---|---|---|
 | **1. Core booking domain** | CU-20; CU-17 (memberships, roles); CU-15 (catalog and hours as data); CU-02 (conflict-safe booking); CU-22; CU-04 (requester/attendee data) | Two isolated tenants; bookings and HOLDs that cannot overlap; idempotent expiry. |
 | **2. Business-facing web** | CU-17 (CRM sign-in); CU-15 (CRM configuration); CU-21; CU-02 (walk-in); CU-08, CU-09 (CRM, without policies) | Staff run the agenda of both verticals manually; the landing links to WhatsApp. |
-| **3. Deposits and operations** | CU-03 (review queue, verification); CU-08, CU-09 (notice, exceptions, deposits); CU-10; CU-11; CU-12; CU-13; CU-05, CU-06 (mechanics) | Transfer review, partial/mixed payments, cash close with difference, no-show label and restrictions, exclusive offers. |
+| **3. Deposits and operations** | CU-03 (review queue, verification, CRM booking with deposit); CU-08, CU-09 (notice, exceptions, deposits); CU-10; CU-11; CU-12; CU-13; CU-05, CU-06 (mechanics) | Transfer review, partial/mixed payments, cash close with difference, no-show label and restrictions, exclusive offers. |
 | **4. WhatsApp + AI** | CU-18; CU-01; CU-02, CU-03, CU-04, CU-07, CU-08, CU-09 (WhatsApp); CU-05, CU-06 (conversation); CU-14; CU-16; CU-19 | End-to-end conversational booking with and without deposit, handoff, reminders and waitlist messages. |
 | **5. Pilot validation** | All | `mvp.md` §12 acceptance criteria. |
 
@@ -270,8 +271,8 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 
 #### Alternatives and Exceptions
 - **A1 — Information only:** At step 2, if no availability check is needed (address, hours, prices), the AI answers from configuration and the case ends.
-- **A2 — Preferred slot unavailable:** At step 3, the AI proposes alternatives. If one is accepted, resume at step 5; otherwise go to A3.
-- **A3 — Fixed time:** At step 3, if the time is non-negotiable, the AI offers [CU-05](#cu-05) directly.
+- **A2 — Preferred slot unavailable, flexible customer:** At step 3, the AI proposes alternatives first. If one is accepted, resume at step 5; if the customer rejects them all, the AI offers [CU-05](#cu-05).
+- **A3 — Fixed time:** At step 3, if the customer can only make that specific time, the AI offers [CU-05](#cu-05) directly, without proposing alternatives.
 - **A4 — No selection:** At step 4, the case ends **without a HOLD**.
 - **A5 — Query failure:** At step 3, the AI invents no slots, says so and offers [CU-14](#cu-14).
 
@@ -312,8 +313,9 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 - **A4 — Full prepayment restriction:** At step 1, the flow switches to [CU-03](#cu-03) with a 100% requirement.
 - **A5 — Blocked customer:** At step 1, the booking is declined without revealing the internal label; human contact is offered.
 - **A6 — Future-booking limit reached:** At step 1, the booking is declined and the limit explained.
-- **A7 — CRM walk-in:** Staff/Admin enter name (required), phone (optional), service, resource, date and time. The same occupancy check runs, outside regular hours if the resource is free, and the booking is confirmed directly, without a HOLD, with origin CRM.
+- **A7 — CRM walk-in:** Staff/Admin enter name (required), phone (optional), service, resource, date and time. The same occupancy check runs and the booking is confirmed directly, without a HOLD, with origin CRM. If the backend determines that a deposit is required, the booking follows the [CU-03 CRM flow](#cu-03-crm).
 - **A8 — Booking for someone else:** At step 1, see [CU-04](#cu-04).
+- **A9 — Outside regular hours (CRM):** Only an Admin, or Staff with the delegated availability privilege ([ACT-04](../uc-01/actors.md#11-human-actors)), may book outside the resource's regular hours, and only if the booking overlaps no occupying booking, HOLD or offer. The booking records who authorized the exception. Other Staff members book only within regular hours. Whether such a booking may fall on an availability block — *pending (UC-03)*.
 
 #### Outcome / Postconditions
 - **Success:** A confirmed booking occupies the resource; it is linked to the requester's number (WhatsApp) or customer record (CRM), with its origin.
@@ -321,10 +323,10 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 
 #### Authorization
 - Matrix row "Create bookings for oneself or others": customer within their own context; any Staff/Admin of the tenant in the CRM.
+- Matrix row "Book outside regular hours (CRM)": Admin, or Staff with the availability privilege (A9).
 
 #### Open Questions
 - Whether Staff can book in the CRM for a `BLOCKED` customer without lifting the restriction — *pending (UC-03)*.
-- Whether a CRM booking for a service with a deposit rule must collect it — *pending (UC-03)*.
 
 ---
 
@@ -333,13 +335,13 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 
 **UC-01:** [summary](../uc-01/flows.md#cu-03) and [shared diagram](../uc-01/flows.md#booking-deposit-diagram) · **Priority:** P1 *(proposal)*
 
-- **Primary actor:** Customer.
-- **Participants:** AI agent; Staff/Admin (verification); business bank/wallet account (EXT-03).
-- **Channel:** WhatsApp (customer); CRM (verification).
+- **Primary actor:** Customer (WhatsApp), or Staff/Admin on behalf of a customer (CRM).
+- **Participants:** AI agent (WhatsApp); Staff/Admin (verification); business bank/wallet account (EXT-03).
+- **Channel:** WhatsApp (customer); CRM (booking on behalf of the customer, verification).
 - **Trigger:** The selected slot requires a deposit, by policy or because of a full-prepayment restriction.
 - **Preconditions:** Deposit rule and a default receiving alias configured ([CU-15](#cu-15)); eligible requester.
 
-#### Main Flow
+#### Main Flow (WhatsApp)
 1. The backend validates as in CU-02 step 1 and computes the required deposit.
 2. The system creates the exclusive **10-minute HOLD**.
 3. Before any transfer, the AI shows price, deposit, alias and holder, and the cancellation and forfeiture conditions.
@@ -347,6 +349,18 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 5. The receipt is attached as a transfer pending review; the booking moves to `PENDING_PAYMENT_REVIEW`, stays blocked with no review timeout, appears in the CRM review queue, and the customer is told that confirmation follows verification.
 6. Staff/Admin check the actual credit in the bank/wallet account ([CU-11](#cu-11)).
 7. On approval, the payment is recorded as verified with verifier and time, the booking is confirmed and the customer notified.
+
+<a id="cu-03-crm"></a>
+#### Main Flow (CRM)
+
+Staff/Admin book on behalf of the customer **without the 10-minute conversational HOLD**.
+
+1. From the agenda ([CU-21](#cu-21)), Staff/Admin enter the booking as in CU-02 A7; the backend validates as in CU-02 step 1 and computes the required deposit.
+2. The result depends on what the customer has provided, recorded through [CU-11](#cu-11):
+   - **a. Cash received, or a transfer whose credit the employee verified in the account:** the payment is recorded as verified and the booking is confirmed directly.
+   - **b. A transfer receipt not yet verified:** the receipt is recorded as pending; the booking enters `PENDING_PAYMENT_REVIEW` and blocks the slot until human review, continuing at step 6 of the WhatsApp flow.
+   - **c. No payment and no receipt:** the booking is not confirmed and does not occupy the slot. Only an Admin may authorize the exception and confirm it without the deposit, with a recorded reason.
+3. The occupancy check runs when the booking is created; the booking has origin CRM.
 
 #### Alternatives and Exceptions
 - **A1 — No receipt in time:** At step 4, [CU-22](#cu-22) expires the HOLD.
@@ -356,13 +370,16 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 - **A5 — Amount below the required deposit:** At step 6, Staff/Admin decide — *pending (UC-03)*.
 - **A6 — Full prepayment:** Same flow with 100% of the price.
 - **A7 — Customer withdraws:** At steps 3–4, the customer may cancel the HOLD with nothing to forfeit *(proposal)*.
+- **A8 — CRM, slot taken:** At CRM step 3, if the booking would overlap an occupying booking, HOLD or offer, nothing is created.
+- **A9 — CRM, amount below the required deposit:** At CRM step 2, as in A5 — *pending (UC-03)*.
 
 #### Outcome / Postconditions
-- **Success:** A confirmed booking with a verified deposit linked to it.
-- **Failure:** The slot is released and nothing counts as verified; a late receipt remains as an incident.
+- **Success:** A confirmed booking with a verified deposit linked to it or, from the CRM by Admin exception, without it and with a recorded reason.
+- **Failure:** The slot is released and nothing counts as verified; a late receipt remains as an incident. From the CRM, without payment, receipt or exception, no booking occupies the slot.
 
 #### Authorization
 - Matrix row "Verify bank-transfer receipt": Staff/Admin only. The AI never marks a payment as verified.
+- Matrix row "Authorize exceptions to commercial policies": Admin only, to confirm a CRM booking without its required deposit (CRM step 2c).
 
 #### Open Questions
 - What happens when the start time arrives while still under review, and how to limit abuse of indefinite review (accepted risk, `mvp.md` §9.2) — *pending (UC-03)*.
@@ -640,7 +657,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 4. The balance is updated without counting the deposit twice; optionally, the booking is completed through [CU-10](#cu-10).
 
 #### Alternatives and Exceptions
-- **A1 — Receipt from WhatsApp:** The pending transfer from CU-03 step 5 is verified (CU-03 step 7) or rejected (CU-03 A3).
+- **A1 — Pending receipt:** The pending transfer from CU-03 step 5 (WhatsApp) or CRM step 2b is verified (CU-03 step 7) or rejected (CU-03 A3).
 - **A2 — Payment without an image:** Cash or a bank-verified transfer can be recorded with no attachment.
 - **A3 — Correction during an open cash session:** Corrected with audit; nothing is deleted silently.
 - **A4 — Correction after the cash close:** Only an Admin records a new audited adjustment; the closed session is not rewritten.
@@ -778,7 +795,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 
 #### Main Flow
 1. The Admin configures the items listed in UC-01 (catalog, compatible resources, prices, hours, deposit rules and aliases, notice periods, limits, personnel and privileges, global AI).
-2. Staff with the delegated privilege change operational hours and availability blocks only.
+2. Staff with the delegated privilege change operational hours and availability blocks only; the same privilege allows booking outside regular hours ([CU-02](#cu-02) A9).
 3. The CRM shows the "today overview" with links to the agenda ([CU-21](#cu-21)) and cash ([CU-13](#cu-13)).
 
 #### Alternatives and Exceptions
@@ -971,7 +988,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 #### Main Flow
 1. The employee selects a day or week and one or more resources.
 2. The system shows bookings with their state, requester and attendee, balance, and availability blocks.
-3. From a booking or a free slot, the employee starts [CU-02](#cu-02) (walk-in), [CU-08](#cu-08), [CU-09](#cu-09), [CU-10](#cu-10) or [CU-11](#cu-11).
+3. From a booking or a free slot, the employee starts [CU-02](#cu-02) (walk-in), [CU-03](#cu-03-crm) (with a deposit), [CU-08](#cu-08), [CU-09](#cu-09), [CU-10](#cu-10) or [CU-11](#cu-11).
 
 #### Alternatives and Exceptions
 - **A1 — Highlights:** Bookings pending operational close and pending payment reviews are highlighted *(proposal)*.

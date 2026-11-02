@@ -10,8 +10,10 @@
 
 - **WhatsApp is the MVP's only customer self-service booking channel.** The public landing page is informational and links to WhatsApp; it does not create, cancel, or reschedule bookings.
 - Authenticated personnel use a **mobile-first CRM** for the business's day-to-day operations, including walk-in bookings. Personnel may also respond from the business's WhatsApp account, subject to reliable human-intervention detection.
+- Booking from the CRM **outside regular hours** is limited to Admin and Staff with the delegated availability privilege, never overlaps an occupying booking, HOLD or offer, and records who authorized it.
 - A **single booking core** enforces availability, business policies, and tenant isolation regardless of the entry channel.
 - Deposits, when required, are paid by bank/wallet transfer to the business's configured alias and **verified by a human**. Mercado Pago integration is deferred beyond the MVP.
+- From the CRM, Staff/Admin may book a service that requires a deposit **without the conversational HOLD**: cash received or a verified transfer confirms the booking; a receipt pending verification blocks the slot until human review; with no payment and no receipt the booking is not confirmed, unless an Admin authorizes the exception.
 - Customers may book on behalf of other people without collecting every attendee's phone number. The requester manages the bookings associated with their WhatsApp number.
 - The MVP includes voluntary waitlists and **five-minute exclusive offers**; reservation requests use a **ten-minute HOLD** as described in [flows.md](./flows.md).
 - The MVP records payments for services and court/resource rentals, with **one shared cash register per tenant**, but does not include a bar/shop POS or inventory system.
@@ -25,7 +27,7 @@
 | **ACT-01** | **Customer / requester** | Find availability and manage bookings for themselves or others. | Individual WhatsApp conversation; sender number identifies the requester within the business. May discover the business via its landing page or Google Maps. | Ask questions, book, confirm, cancel, reschedule, send payment receipts, join waitlists, and manage reminder consent. May manage only bookings associated with their number **in that tenant**. No CRM access. |
 | **ACT-02** | **Attendee / beneficiary** | Receive a service booked by a requester. | May have no direct channel or account; minimal identifying information when operationally necessary. | Can be different from the requester; does **not** acquire booking-management permissions merely by being named on a booking. |
 | **ACT-03** | **Staff member** | Run the schedule, serve customers, and register outcomes and payments. | Authenticated CRM; optionally the business's WhatsApp account. | Manage all bookings within their tenant, record attendance/no-shows, verify transfers, register payments, apply individual customer restrictions, and handle conversations. Cannot set prices or general commercial policies. |
-| **ACT-04** | **Authorized staff member** | Perform specifically delegated operational actions. | Authenticated CRM; explicit permission assigned by Admin. | Inherits Staff abilities and **only the granted privileges** to open/close cash sessions and/or edit operational schedules and availability. Not a blanket business-administrator role. |
+| **ACT-04** | **Authorized staff member** | Perform specifically delegated operational actions. | Authenticated CRM; explicit permission assigned by Admin. | Inherits Staff abilities and **only the granted privileges** to open/close cash sessions and/or edit operational schedules and availability, which includes booking outside regular hours from the CRM. Not a blanket business-administrator role. |
 | **ACT-05** | **Business administrator (Admin)** | Configure and oversee the business. | Authenticated CRM; optionally direct business WhatsApp. | Has Staff abilities; manages personnel, services, prices, resources, deposits, policies, receiving aliases, permissions, global AI mode, policy exceptions, and post-close adjustments. Multiple Admins may exist per tenant. |
 | **ACT-06** | **Agendoxa technical operator** | Keep pilot installations and integrations operational. | Operational and infrastructure tooling, outside the business CRM role model. | Maintains deployments, connectivity, and technical support. **No default business authorization** to view or alter bookings, customer data, or payments. |
 
@@ -67,8 +69,9 @@
 | View the requester's future bookings | Yes | Yes | Yes | Cond. | Customer/AI: only bookings associated with the sender number within this tenant. |
 | View the business's full schedule | No | Yes | Yes | No | Authenticated personnel only, tenant-scoped. |
 | Create bookings for oneself or others | Cond. | Yes | Yes | Cond. | Customer/AI: requester number, limits, policies and availability; CRM: authenticated personnel. |
+| Book outside regular hours (CRM) | No | Cond. | Yes | No | Staff requires the delegated availability privilege; never overlaps an occupying booking, HOLD or offer; records who authorized it. |
 | Cancel or reschedule a booking | Cond. | Yes | Yes | Cond. | Customer/AI: own managed bookings and applicable notice period; Admin alone can authorize exceptions. |
-| Authorize exceptions to commercial policies | No | No | Yes | No | Admin decision and recorded reason. |
+| Authorize exceptions to commercial policies | No | No | Yes | No | Admin decision and recorded reason; includes confirming a CRM booking without its required deposit. |
 | Join waitlist / receive exclusive offer | Yes | Cond. | Cond. | Cond. | Voluntary customer opt-in; one eligible exclusive offer at a time. |
 | Record service/rental completion | No | Yes | Yes | No | Human operational decision; no time-based inference. |
 | Record or correct `NO_SHOW` | No | Yes | Yes | No | Human action with audit trail. |
@@ -91,7 +94,7 @@
 1. A customer manages only bookings tied to **their WhatsApp sender number** in the relevant tenant, even when another person will attend. Requests from another number require business intervention.
 2. Staff can operate **all bookings within their tenant**, including those created by colleagues, but cannot change agreed commercial prices. Staff can record a partial payment.
 3. Staff may correct payments while the cash session is open; after close, only Admin may create an **audited adjustment**, without rewriting a closed session.
-4. Only Admin authorizes policy exceptions to cancellation/rescheduling; Staff and Admin may apply **individual** customer restrictions. Staff's ability to adjust operational hours is separately delegated.
+4. Only Admin authorizes policy exceptions to cancellation/rescheduling; Staff and Admin may apply **individual** customer restrictions. Staff's ability to adjust operational hours, and to book outside them, is separately delegated.
 5. There is **one logical cash register per tenant**. Authorized Staff and Admin may open/close sessions; every operation and close identifies its responsible employee.
 6. The AI agent's authorization is **limited to the customer/requester context**. A human joining the chat does not grant the AI any Staff/Admin permissions.
 
