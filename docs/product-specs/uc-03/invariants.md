@@ -20,7 +20,7 @@ Each invariant states **where it is guaranteed**:
 
 When the concrete mechanism depends on a decision that is still open, the invariant states the guarantee, names the pending decision and does not commit to a mechanism. All such cases are listed in [§14](#14-invariants-that-depend-on-pending-decisions).
 
-Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (ARQ §13). Money amounts are illustrative. Example numbers are stable for review; EJ-48 was added later and sits in §5.
+Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (ARQ §13). Money amounts are illustrative. Example numbers are stable for review; EJ-48 and EJ-49 were added later and sit in §5 and §4.
 
 ## 1. Tenant Isolation
 
@@ -45,6 +45,7 @@ The diagram shows confirmed transitions and, labeled as such, proposed and pendi
 stateDiagram-v2
     [*] --> HOLD: WhatsApp slot selected
     [*] --> CONFIRMED: CRM direct booking
+    [*] --> PENDING_PAYMENT_REVIEW: CRM booking with an unverified receipt
     HOLD --> CONFIRMED: explicit confirmation without deposit
     HOLD --> PENDING_PAYMENT_REVIEW: receipt before deadline
     HOLD --> EXPIRED: deadline without confirmation or receipt
@@ -68,8 +69,9 @@ stateDiagram-v2
 
 | Transition | Customer (WhatsApp, via the AI) | Staff | Admin | System (job) | Condition | Status |
 |---|---|---|---|---|---|---|
-| ∅ → `HOLD` | Yes | P-20 | P-20 | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. | Confirmed for the customer (MVP §6.3.3); Pending P-20 for personnel |
-| ∅ → `CONFIRMED` | No | Yes | Yes | No | CRM booking; slot free. | Confirmed (MVP §5.2); restricted customers Pending P-16, P-17 |
+| ∅ → `HOLD` | Yes | No | No | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. | Confirmed (MVP §6.3.3); the CRM never creates a HOLD (BR-SEN-09) |
+| ∅ → `CONFIRMED` | No | Yes | Yes, also without the required deposit with a reason | No | CRM booking; slot free; deposit, if required, verified (BR-SEN-09); outside regular hours only Admin or Staff with the availability privilege (BR-DISP-06). | Confirmed (MVP §5.2; UC-01 Confirmed Decisions); `BLOCKED` customers Pending P-16; Admin exception for `FULL_PREPAYMENT` Pending P-17 |
+| ∅ → `PENDING_PAYMENT_REVIEW` | No | Yes | Yes | No | CRM booking with a transfer receipt not yet verified; slot free. | Confirmed (UC-01 Confirmed Decisions; BR-SEN-09) |
 | `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
 | `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
 | `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, by sending the receipt | — | — | No | Receipt registered **before** the deadline. | Confirmed (MVP §6.3.5) |
@@ -91,8 +93,7 @@ These are **neither allowed nor forbidden** until their decision is taken. They 
 |---|---|
 | `COMPLETED` → `NO_SHOW` (correcting a completion) | P-05 |
 | From which moment `COMPLETED` / `NO_SHOW` can be recorded | P-06 |
-| ∅ → `HOLD` created from the CRM | P-20 |
-| ∅ → `CONFIRMED` for a `BLOCKED` customer, or a `FULL_PREPAYMENT` customer paying cash at the counter | P-16, P-17 |
+| ∅ → `CONFIRMED` for a `BLOCKED` customer, or for a `FULL_PREPAYMENT` customer by Admin exception without the 100% | P-16, P-17 |
 | Final state of a booking whose receipt was rejected (proposal: `CANCELLED`, reason `PAYMENT_REJECTED`) | P-21 |
 | `PENDING_PAYMENT_REVIEW` → `CANCELLED` requested by the customer or by personnel without rejecting the receipt | P-24 |
 
@@ -144,6 +145,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-DISP-02 | Ranges are `[start, end)`: a booking ending at 11:00 does not overlap one starting at 11:00. | DB + TX | BR-RES-02 |
 | INV-DISP-03 | Instants are stored unambiguously; business hours are interpreted in the tenant's timezone. | DB + UC | BR-TEN-04 |
 | INV-DISP-04 | No WhatsApp booking falls outside the resource's regular hours or on a block. | UC | BR-DISP-03, BR-DISP-07 |
+| INV-DISP-08 | A CRM booking outside the resource's regular hours is created only by an Admin or by Staff with the availability privilege, and records who authorized it. | UC | BR-DISP-06, BR-IAM-05 |
 | INV-DISP-05 | A booking's resource is compatible with its service. | UC (+ DB where the relation allows it) | BR-CAT-03 |
 | INV-DISP-06 | An availability query **never** creates occupancy. | UC | BR-DISP-04 |
 | INV-DISP-07 | No database transaction stays open while waiting for a human, an LLM or WhatsApp delivery. | TX | ARQ §6.5, §9.3 |
@@ -156,7 +158,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 
 **EJ-11 · Review occupies.** Given a booking in `PENDING_PAYMENT_REVIEW` for 18:00, when Staff try a walk-in booking at 18:00 on the same resource, then it is rejected with `conflict`.
 
-**EJ-12 · Off-hours only in the CRM.** Given a business that closes at 20:00, when Staff book 21:00 with the resource free, then it is accepted; when the AI lists options, then 21:00 does not appear.
+**EJ-12 · Off-hours only in the CRM.** Given a business that closes at 20:00, when Staff with the availability privilege book 21:00 with the resource free, then it is accepted and records who authorized it; when Staff without that privilege try it, then they get `forbidden`; when the AI lists options, then 21:00 does not appear.
 
 ## 4. HOLDs and Deposit Review
 
@@ -170,6 +172,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-SEN-06 | If the expiry job fails to enqueue, a **durable intention** in PostgreSQL lets it be reconciled: a HOLD never occupies a slot indefinitely. | TX + JOB | ARQ §6.5, §10.3 |
 | INV-SEN-07 | The required deposit is computed by the backend; with `FULL_PREPAYMENT` it is 100% of the charge. | UC | BR-SEN-04, BR-SEN-05 |
 | INV-SEN-08 | An `EXPIRED` HOLD never counts as a no-show. | UC | BR-RES-16 |
+| INV-SEN-09 | A CRM booking that requires a deposit reaches `CONFIRMED` only with the deposit verified or with a recorded Admin exception; with an unverified receipt it enters `PENDING_PAYMENT_REVIEW`; otherwise it occupies nothing. | TX + UC | BR-SEN-09 |
 
 **EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when the receipt arrives at 15:07, then the booking is `PENDING_PAYMENT_REVIEW` and the slot is still blocked at 15:30.
 
@@ -182,6 +185,8 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 **EJ-17 · Receipt image.** Given a customer who sends a $5,000 transfer screenshot, when the AI interprets it, then there is a `TRANSFER` payment in `PENDING_REVIEW` and the booking balance does not change.
 
 **EJ-18 · Expiry is not absence.** Given a customer with one expired HOLD and one cancellation within policy, then their own no-show count is 0.
+
+**EJ-49 · CRM booking with a deposit.** Given a service with a $3,000 deposit, when Staff book it in the CRM and record $3,000 in cash, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it with a reason.
 
 ## 5. Payments and Balances
 
@@ -367,7 +372,7 @@ The guarantee in the "Holds meanwhile" column is valid today; the rest waits for
 |---|---|---|
 | INV-DISP-01 | P-06, P-18, P-25 | `HOLD`, `PENDING_PAYMENT_REVIEW` and `CONFIRMED` never overlap, and an active offer is exclusive; the database mechanism is not fixed. |
 | INV-WL-01 | P-18 | At most one exclusive offer per released slot, guaranteed transactionally. |
-| INV-RES-01, INV-RES-02 | P-05, P-06, P-16, P-17, P-20, P-21, P-24 | Confirmed transitions and prohibitions (§2.1, §2.3). |
+| INV-RES-01, INV-RES-02 | P-05, P-06, P-16, P-17, P-21, P-24 | Confirmed transitions and prohibitions (§2.1, §2.3). |
 | INV-CAN-05 | P-25 | The original booking stays intact until the extra deposit is verified. |
 | INV-CLI-01 | Proposal (derived count); P-23 (third parties) | Own no-shows and third-party incidents are counted separately. |
 | INV-CLI-03 | P-16 | No new WhatsApp booking for a `BLOCKED` customer. |

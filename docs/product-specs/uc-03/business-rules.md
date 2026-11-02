@@ -5,7 +5,7 @@
 > **Scope:** Channels, tenants, roles and delegated privileges, customers, catalog, availability, booking lifecycle, cancellation and rescheduling, deposits, charges and payments, cash register, waitlist, AI and human handoff, notifications and audit.
 > **Out of scope:** Tables, enums, endpoints, DTOs and screens (DOM-01, DOM-02, CON-XX). Where each rule is guaranteed (database, transaction, job) is in [invariants.md](./invariants.md).
 > **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md) (authoritative); [UC-02 use cases](../uc-02/use-cases.md); [MVP definition](../mvp.md) v0.2; [target architecture](../../design-docs/target-architecture.md) v1.1 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); `rules.md` (30/10/2026, not stored in the repository, partly superseded — see [§17](#17-differences-with-earlier-documents)).
-> **Closing condition:** Team review of this document together with UC-02. No rule here resolves a `P-NN` pending decision.
+> **Closing condition:** Team review of this document together with UC-02. No rule here resolves a `P-NN` pending decision on its own; decisions taken in team review are recorded in [§16](#16-pending-decisions) with their source.
 
 ## 0. How to Read This Document
 
@@ -71,7 +71,7 @@
 | BR-IAM-02 | Roles: `Staff` and `Admin`. A tenant may have **several Admins**. Customers have no CRM access. | ACT-01, ACT-05; MVP §5.1 |
 | BR-IAM-03 | **Staff** may manage every booking of the tenant (including colleagues'), record completion and no-shows, verify transfers, record payments (including partial and mixed), correct payments while the cash session is open, register cash-in/cash-out with a reason, apply or remove individual customer restrictions, and handle conversations. | ACT-03; actors.md §2; ARQ §6.1 |
 | BR-IAM-04 | **Admin only**: services, prices, resources, deposit rules, commercial policies, receiving aliases, personnel and their privileges, the global AI mode, out-of-policy exceptions, price changes on agreed bookings, refunds and post-close adjustments. | ACT-05; actors.md §2; MVP §6.3.13 |
-| BR-IAM-05 | **Delegated privileges** (Authorized Staff, ACT-04), each granted separately by an Admin: (a) open/close cash sessions; (b) edit operational hours and availability blocks. They do **not** include prices or commercial policy. There is no general permission editor. | ACT-04; MVP §5.1; ARQ §6.1 |
+| BR-IAM-05 | **Delegated privileges** (Authorized Staff, ACT-04), each granted separately by an Admin: (a) open/close cash sessions; (b) edit operational hours and availability blocks, and book outside regular hours from the CRM (BR-DISP-06). They do **not** include prices or commercial policy. There is no general permission editor. | ACT-04; MVP §5.1; ARQ §6.1 |
 | BR-IAM-06 | Disabling a member **preserves the historical attribution** of everything they did. | CU-15 |
 | BR-IAM-07 | The AI acts **only in the requester's context**. A human joining the conversation grants the AI no Staff/Admin permission. | SYS-01; actors.md §2 (invariant 6) |
 
@@ -87,7 +87,7 @@
 | BR-CLI-06 | The requester's **own no-shows** are tracked separately from **incidents in bookings managed for other attendees**. | CU-10, CU-12; MVP §6.3.11 |
 | BR-CLI-07 | From **two own no-shows**, the CRM shows the internal **"Problematic customer"** label with reason and count. It is **never shown to the customer** and **does not sanction** on its own. | CU-12; MVP §6.3.12 |
 | BR-CLI-08 | Individual restrictions: `NONE` (normal service), `FULL_PREPAYMENT` or `BLOCKED`. **Staff or Admin** apply or remove them with a recorded reason and actor; the general restriction policy belongs to Admin. | CU-12; ARQ §9.4 |
-| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**. The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; cash at the counter: P-17) |
+| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**. The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; full prepayment in the CRM: BR-SEN-09, P-17) |
 | BR-CLI-10 | A tenant may configure a **limit of simultaneous future bookings** per requester. | actors.md open question 1; RG-17 (values and counting: P-01) |
 | BR-CLI-11 | The requester's name is captured when needed, **reused** in later conversations and may be updated. | MVP §5.1 |
 
@@ -113,7 +113,7 @@
 | BR-DISP-03 | A slot is offered only if it is within the resource's hours, outside blocks, compatible with the service, and **not overlapping** any occupying booking or active exclusive offer ([invariants.md §3](./invariants.md#3-availability-and-concurrency)). | MVP §6.3.2; ARQ §9.1 (which states occupy: P-06; how offers occupy: P-18) |
 | BR-DISP-04 | An availability query **never reserves** a slot; the final check runs inside the booking transaction. | FLW Shared Rules; ARQ §9.1 |
 | BR-DISP-05 | Over WhatsApp the customer may ask for a specific resource or "any compatible one". | ACT-01; CU-01 (assignment criterion: P-03) |
-| BR-DISP-06 | From the CRM, Staff/Admin may book **outside regular hours** if the resource is free; they can never create an overlap. | MVP §5.1; RG-18 (blocks: P-04) |
+| BR-DISP-06 | From the CRM, **Admins, and Staff with the availability privilege,** may book **outside regular hours** if the resource is free; they can never create an overlap, and the booking records who authorized it. Other Staff book only within regular hours. | ACT-04; CU-02 A9; MVP §5.1; RG-18 (blocks: P-04) |
 | BR-DISP-07 | The AI offers only slots **within regular hours**; the exception in BR-DISP-06 is CRM-only. | Proposal, derived from RG-18 |
 | BR-DISP-08 | A change of hours or blocks **preserves confirmed bookings**; the detailed policy for conflicts is deferred. | CU-15 A3 |
 
@@ -129,7 +129,7 @@
 | BR-RES-06 | A receipt received **within the HOLD** moves the booking to `PENDING_PAYMENT_REVIEW`. The slot stays blocked **with no automatic review timeout**, and the booking is visible in the CRM review queue. | MVP §6.3.5, §9.2 (accepted risk) |
 | BR-RES-07 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` only when Staff/Admin **verify the actual credit**. A rejection releases the slot and the customer is notified. | MVP §6.3.6; ARQ §9.3 (rejected state: P-21) |
 | BR-RES-08 | A HOLD with no confirmation (no deposit) or no receipt (deposit) by its deadline becomes `EXPIRED`; the slot is released and the waitlist is considered. | MVP §6.3.6 |
-| BR-RES-09 | From the CRM, Staff/Admin may create a booking **directly in `CONFIRMED`**, without a conversational HOLD, using the same occupancy check. | MVP §5.2; ARQ §6.4 (deposit in CRM: P-20) |
+| BR-RES-09 | From the CRM, Staff/Admin may create a booking **directly in `CONFIRMED`**, without a conversational HOLD, using the same occupancy check. When a deposit applies, BR-SEN-09 decides the resulting state. | MVP §5.2; ARQ §6.4; CU-03 (CRM flow) |
 | BR-RES-10 | `CONFIRMED` → `COMPLETED` is recorded by Staff/Admin. **Completing does not mean paid**: a booking may be completed with a balance due. | CU-10; MVP §6.3.11 |
 | BR-RES-11 | `CONFIRMED` → `NO_SHOW` is recorded by Staff/Admin, identifying **who was absent** when the attendee differs from the requester. | CU-10; MVP §6.3.11 (attribution: P-23) |
 | BR-RES-12 | A recorded no-show may be corrected (`NO_SHOW` → `COMPLETED`) by Staff/Admin, **with audit** of who, when and the previous state. | actors.md §2; RG-37 (reverse correction: P-05) |
@@ -175,6 +175,7 @@
 | BR-SEN-06 | In the MVP, deposits are paid by **bank/wallet transfer** to a configured alias. A tenant may have several aliases with **one default**; there is no automatic rotation. Aliases are Admin-only. | MVP §9.1; ARQ §9.3 |
 | BR-SEN-07 | **Only human verification of the actual credit** settles a deposit. A screenshot, OCR result or AI interpretation never does, and there is no bank API. | MVP §3.8, §9.1 |
 | BR-SEN-08 | Mercado Pago and other payment gateways are **not integrated** in the MVP. | EXT-05; MVP §5.3 |
+| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception with a recorded reason. | ACT Confirmed Decisions; CU-03 (CRM flow) (Admin exception for `FULL_PREPAYMENT`: P-17) |
 
 ## 10. Charges, Balances and Payments (`COB`)
 
@@ -273,7 +274,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 
 ## 16. Pending Decisions
 
-None is resolved by this document. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
+None is resolved by this document. P-17 (partly) and P-20 were resolved in the UC-02 review and recorded in UC-01. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
 
 | ID | Question | Status | Blocks |
 |---|---|---|---|
@@ -293,10 +294,10 @@ None is resolved by this document. **Blocking** means it affects the entity mode
 | P-14 | Is "recording payments" a separate permission? | **Resolved** — every Staff member records payments and verifies transfers (BR-IAM-03). | — |
 | P-15 | Does a reschedule modify the same booking (with history) or create a linked one? | **Proposed** — same booking with history (§8). Confirm in DOM-01. | **Yes** (DOM-01) |
 | P-16 | Can Staff create a CRM booking for a `BLOCKED` customer? Proposal: no; Staff lift the restriction first, with a reason. | Open | No |
-| P-17 | A `FULL_PREPAYMENT` customer paying in cash at the counter. Proposal: recording the cash payment verifies it and the booking is confirmed at once. | Open | No |
+| P-17 | A `FULL_PREPAYMENT` customer booking from the CRM. Can an Admin exception (BR-SEN-09 c) confirm without the 100%? | **Partly resolved** — paying 100% in cash at the counter verifies it and confirms the booking (BR-SEN-09 a, BR-COB-06). | No |
 | P-18 | How does an exclusive 5-minute offer occupy the slot (a kind of HOLD, or its own record in the same exclusion)? Until decided, exclusivity is guaranteed transactionally, without naming the mechanism. | Open | **Yes** (occupancy, DOM-01) |
 | P-19 | Waitlist expiry, queue limits, long offer chains, retries after a failed notice. | Open | No |
-| P-20 | Must a CRM booking for a service with a deposit rule collect it? Proposal: the CRM confirms directly; collecting a deposit is optional. | Open | No |
+| P-20 | Must a CRM booking for a service with a deposit rule collect it? | **Resolved** — no HOLD from the CRM; a verified deposit confirms, a pending receipt goes to review, and without payment only an Admin exception confirms (BR-SEN-09). | — |
 | P-21 | Final state of a booking whose receipt was rejected. Proposal: `CANCELLED` with reason `PAYMENT_REJECTED`. | **Proposed** | Partial (DOM-01) |
 | P-22 | Can Staff cancel or reschedule outside the notice window? | **Resolved** — only an Admin authorizes out-of-policy changes (MVP §6.3.9). | — |
 | P-23 | Minimum attendee data; how a third party's no-show is attributed and aggregated. | Open | Partial (DOM-01 needs the attendee) |
