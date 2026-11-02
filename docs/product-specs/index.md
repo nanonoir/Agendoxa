@@ -7,6 +7,7 @@ This catalog points to the behavioral references and their declared status. No r
 | [MVP definition](mvp.md) | Product scope, exclusions, delivery stages, acceptance criteria, risks, and open questions | Proposed consolidated MVP definition for team review, v0.2 |
 | [UC-01 actors and catalog](uc-01/actors.md) | Actors, channels, permissions, and CU-01 through CU-16 catalog | In Review; contains an explicitly labeled Confirmed Decisions section |
 | [UC-01 functional flows](uc-01/flows.md) | Main scenarios, exceptions, shared rules, diagrams, and deferred decisions | In review; not final persistence/API/UI contracts |
+| [UC-02 use cases](uc-02/use-cases.md) | Detailed specifications of CU-01 through CU-22, MVP obligation, proposed implementation priority, dependencies, and delivery order | In Review; priorities and CU-17 through CU-22 are proposals |
 
 Use these documents according to their stated status; the catalog does not approve proposals or resolve open decisions. The flow file retains explicit anchors, for example [CU-01](uc-01/flows.md#cu-01). The working application is much smaller: see [current architecture](../../ARCHITECTURE.md).
 
