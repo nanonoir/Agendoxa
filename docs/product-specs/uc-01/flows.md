@@ -9,7 +9,7 @@
 - **Channels:** Customer self-service is through **individual WhatsApp chats** only; the public landing is informational and links to `wa.me`. Authenticated Staff/Admin use the **mobile-first CRM**, including when WhatsApp is offline.
 - **Authority:** WhatsApp/AI and CRM call the **same tenant-scoped booking core**. The AI executes authorized customer-context tools, never Staff/Admin privileges. [Permission matrix](./actors.md#2-permissions-matrix).
 - **Exclusivity:** Availability inquiries do not reserve a slot; bookings, HOLDs and exclusive waitlist offers must prevent overlapping allocations for the same resource/time.
-- **Initial HOLD:** **10 minutes** after selecting a concrete slot (with or without deposit); no hold for information-only inquiries. A CRM employee can book/confirm directly.
+- **Initial HOLD:** **10 minutes** after selecting a concrete slot (with or without deposit); no hold for information-only inquiries. A CRM employee can book/confirm directly, without a HOLD; when a deposit applies, see the CRM path of [CU-03](#cu-03).
 - **Deposit:** Timely transfer receipt → `PENDING_PAYMENT_REVIEW`, with the slot **blocked until human verification and no automatic review timeout**. A receipt image never proves credit. No-deposit bookings require explicit customer confirmation during HOLD.
 - **Waitlist:** Voluntary; propose alternatives first unless a specific unavailable time is non-negotiable. Upon a real release, give the next eligible requester **5 minutes of exclusive priority**; acceptance starts a new standard HOLD.
 - **Operational truth:** Time passing never proves attendance or payment. Human-recorded completion, outstanding balance and cash closing are independent.
@@ -69,7 +69,7 @@ flowchart TB
 2. System queries live availability for a named professional/court or any compatible option.
 3. AI presents available times, price/duration and conditions; a selected concrete slot proceeds to [CU-02](#cu-02) or [CU-03](#cu-03).
 
-**Alternatives:** If preferred slot is unavailable, propose alternatives first; if the time is explicitly fixed, offer [CU-05](#cu-05) immediately. If the customer selects nothing, end inquiry **without HOLD**. On query failure, do not invent slots; offer [CU-14](#cu-14).
+**Alternatives:** If preferred slot is unavailable, propose alternatives first and offer [CU-05](#cu-05) if the customer rejects them all; if the time is explicitly fixed, offer [CU-05](#cu-05) immediately. If the customer selects nothing, end inquiry **without HOLD**. On query failure, do not invent slots; offer [CU-14](#cu-14).
 
 **Result:** Accurate information or transition to booking/waitlist; no slot is occupied by a query.
 
@@ -105,7 +105,7 @@ flowchart TD
 2. Show price, service/resource, date/time and conditions; customer explicitly confirms before expiry.
 3. Confirm and notify; no payment or human approval is inferred.
 
-**Alternatives:** Slot conflict → alternatives/[CU-05](#cu-05). No confirmation by deadline → expire/release, then consider [CU-06](#cu-06). An individually restricted customer may be denied or directed to a **100% prepayment** path. Staff/Admin can create a walk-in booking immediately through CRM, with **name required and phone optional**, using the same occupancy check.
+**Alternatives:** Slot conflict → alternatives/[CU-05](#cu-05). No confirmation by deadline → expire/release, then consider [CU-06](#cu-06). An individually restricted customer may be denied or directed to a **100% prepayment** path. Staff/Admin can create a walk-in booking immediately through CRM, with **name required and phone optional**, using the same occupancy check. Booking outside regular hours is limited to Admin and Staff with the delegated availability privilege, never overlaps, and records who authorized it.
 
 **Result:** Confirmed exclusive booking, or released HOLD without confirmation. Requester controls future WhatsApp management through the originating number.
 
@@ -114,12 +114,14 @@ flowchart TD
 <a id="cu-03"></a>
 ## CU-03 — Create a Booking With a Transfer Deposit
 
-**Actor/channel:** Customer → WhatsApp; Staff/Admin verify via CRM and bank/wallet. **Trigger:** Chosen slot requires deposit. **Preconditions:** Deposit rule and receiving alias configured; slot and requester eligible.
+**Actor/channel:** Customer → WhatsApp, or Staff/Admin → CRM on behalf of a customer; Staff/Admin verify via CRM and bank/wallet. **Trigger:** Chosen slot requires deposit. **Preconditions:** Deposit rule and receiving alias configured; slot and requester eligible.
 
 **Main flow**
 1. Validate and create a **10-minute HOLD**; display price, required deposit, bank alias/account holder and cancellation policy **before transfer**.
 2. Customer sends transfer receipt **within HOLD**; register it as **pending**, keeping the slot blocked **without automatic review expiry**.
 3. Staff/Admin verifies **actual credit** in the business account. Upon approval, record verified payment/verifier and confirm the booking.
+
+**CRM path (no HOLD):** Cash received or a bank-verified transfer → confirm directly. Receipt pending verification → block the slot until human review (step 3). No payment and no receipt → not confirmed, unless an Admin authorizes the exception, recording that no deposit was paid and the outstanding balance (reason optional).
 
 **Alternatives:** No timely receipt → HOLD expires and slot is released. Rejected/uncredited receipt → employee rejects, releases and notifies; consider [CU-06](#cu-06). Pending review → retain block. Late/unmatched transfer → **human financial incident**, never automatic reconfirmation. CRM may record ordinary cash/bank-verified payments without an uploaded image.
 
@@ -129,6 +131,8 @@ flowchart TD
 
 <a id="booking-deposit-diagram"></a>
 ### Shared Diagram — With / Without Deposit
+
+WhatsApp path. The CRM path of CU-03 has no HOLD.
 
 ```mermaid
 flowchart TD
