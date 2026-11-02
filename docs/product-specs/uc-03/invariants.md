@@ -1,9 +1,9 @@
 # UC-03 — Domain Invariants
 
-> **Status:** Draft
+> **Status:** In Review
 > **Objective:** State what the system must guarantee **always**, regardless of channel, event order, retries or partial failures, with examples that can become tests.
-> **Complements:** [business-rules.md](./business-rules.md) (rules `BR-*` and pending decisions `P-NN`) and [use-cases.md](./use-cases.md) (`CU-XX`).
-> **References:** [actors.md](./actors.md), [flows.md](./flows.md) (UC-01); [mvp.md](../../mvp.md) v0.2 §6.3; [architecture.md](../../architecture.md) v1.1 §9, §10, §13.
+> **Complements:** [business-rules.md](./business-rules.md) (rules `BR-*` and pending decisions `P-NN`) and [UC-02 use cases](../uc-02/use-cases.md) (`CU-XX`).
+> **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.2 §6.3; [target architecture](../../design-docs/target-architecture.md) v1.1 §9, §10, §13 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)).
 
 ## 0. What an Invariant Is Here
 
@@ -18,7 +18,9 @@ Each invariant states **where it is guaranteed**:
 | `UC` | Validation of the use case (authorization, policy). |
 | `JOB` | Idempotent, state-aware `pg-boss` job. |
 
-Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (ARQ §13). Money amounts are illustrative.
+When the concrete mechanism depends on a decision that is still open, the invariant states the guarantee, names the pending decision and does not commit to a mechanism. All such cases are listed in [§14](#14-invariants-that-depend-on-pending-decisions).
+
+Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (ARQ §13). Money amounts are illustrative. Example numbers are stable for review; EJ-48 was added later and sits in §5.
 
 ## 1. Tenant Isolation
 
@@ -37,64 +39,91 @@ Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (A
 
 ## 2. Booking Lifecycle
 
+The diagram shows confirmed transitions and, labeled as such, proposed and pending ones. The status of each transition is in §2.1–§2.3.
+
 ```mermaid
 stateDiagram-v2
-    [*] --> HOLD: WhatsApp slot selected (BR-RES-03)
-    [*] --> CONFIRMED: CRM direct booking (BR-RES-09)
-    HOLD --> CONFIRMED: explicit confirmation without deposit, or deposit verified directly (BR-RES-04, BR-RES-07)
-    HOLD --> PENDING_PAYMENT_REVIEW: receipt before deadline (BR-RES-06)
-    HOLD --> EXPIRED: deadline without confirmation or receipt (BR-RES-08)
-    HOLD --> CANCELLED: withdrawn by customer or personnel
-    PENDING_PAYMENT_REVIEW --> CONFIRMED: credit verified by personnel (BR-RES-07)
-    PENDING_PAYMENT_REVIEW --> CANCELLED: receipt rejected (P-21)
-    CONFIRMED --> CONFIRMED: reschedule (BR-CAN-08 to BR-CAN-12)
-    CONFIRMED --> CANCELLED: cancellation (BR-CAN-01 to BR-CAN-06)
-    CONFIRMED --> COMPLETED: personnel complete (BR-RES-10)
-    CONFIRMED --> NO_SHOW: personnel record absence (BR-RES-11)
-    NO_SHOW --> COMPLETED: audited correction (BR-RES-12)
+    [*] --> HOLD: WhatsApp slot selected
+    [*] --> CONFIRMED: CRM direct booking
+    HOLD --> CONFIRMED: explicit confirmation without deposit
+    HOLD --> PENDING_PAYMENT_REVIEW: receipt before deadline
+    HOLD --> EXPIRED: deadline without confirmation or receipt
+    HOLD --> CANCELLED: withdrawn (proposal)
+    PENDING_PAYMENT_REVIEW --> CONFIRMED: credit verified by personnel
+    PENDING_PAYMENT_REVIEW --> CANCELLED: receipt rejected (final state pending P-21)
+    CONFIRMED --> CONFIRMED: reschedule (model pending P-15)
+    CONFIRMED --> CANCELLED: cancellation
+    CONFIRMED --> COMPLETED: personnel complete
+    CONFIRMED --> NO_SHOW: personnel record absence
+    NO_SHOW --> COMPLETED: audited correction
+    COMPLETED --> NO_SHOW: pending P-05
     EXPIRED --> [*]
     CANCELLED --> [*]
     COMPLETED --> [*]
 ```
 
-### 2.1 Allowed Transitions and Actors
+### 2.1 Allowed Transitions
 
-| Transition | Customer (WhatsApp, through the AI) | Staff | Admin | System (job) | Condition |
-|---|---|---|---|---|---|
-| ∅ → `HOLD` | Yes | P-20 | P-20 | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. |
-| ∅ → `CONFIRMED` | No | Yes | Yes | No | CRM booking; slot free; restrictions respected (P-16, P-17). |
-| `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Yes | Yes | No | No deposit required; HOLD still valid. |
-| `HOLD` → `CONFIRMED` (deposit) | No | Yes, verifying the credit directly | Yes | No | Required amount verified; HOLD still valid. |
-| `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, sending the receipt | — | — | No | Receipt registered **before** the deadline. |
-| `HOLD` → `EXPIRED` | No | No | No | **Yes** | Deadline reached and still `HOLD`. |
-| `HOLD` → `CANCELLED` | Yes | Yes | Yes | No | Reason `CUSTOMER` or `BUSINESS`. |
-| `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified (amount: P-27). |
-| `PENDING_PAYMENT_REVIEW` → `CANCELLED` | P-24 | Yes (rejection); P-24 (cancellation) | Yes (rejection); P-24 (cancellation) | **No** | Rejection: reason `PAYMENT_REJECTED` (P-21). |
-| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes, within policy | Yes, within policy | Yes, also out of policy with a reason | No | New slot available; extra deposit verified (BR-CAN-10). |
-| `CONFIRMED` → `CANCELLED` | Yes, within policy, after the deposit warning | Yes, within policy | Yes, also out of policy with a reason | No | Explicit confirmation from the customer. |
-| `CONFIRMED` → `COMPLETED` | No | Yes | Yes | **No** | Proposal: after the start (P-06). |
-| `CONFIRMED` → `NO_SHOW` | No | Yes | Yes | **No** | Proposal: after the start (P-06); absent person identified. |
-| `NO_SHOW` → `COMPLETED` | No | Yes | Yes | No | Audited. |
+**Status:** *Confirmed* = stated in UC-01 or `mvp.md` v0.2; *Proposal* = UC-03 interpretation awaiting approval; *Pending* = depends on an open `P-NN`.
 
-Any transition not in this table is **forbidden**. In particular, `PENDING_PAYMENT_REVIEW` → `EXPIRED` does not exist.
+| Transition | Customer (WhatsApp, via the AI) | Staff | Admin | System (job) | Condition | Status |
+|---|---|---|---|---|---|---|
+| ∅ → `HOLD` | Yes | P-20 | P-20 | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. | Confirmed for the customer (MVP §6.3.3); Pending P-20 for personnel |
+| ∅ → `CONFIRMED` | No | Yes | Yes | No | CRM booking; slot free. | Confirmed (MVP §5.2); restricted customers Pending P-16, P-17 |
+| `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
+| `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
+| `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, by sending the receipt | — | — | No | Receipt registered **before** the deadline. | Confirmed (MVP §6.3.5) |
+| `HOLD` → `EXPIRED` | No | No | No | **Yes** | Deadline reached and still `HOLD`. | Confirmed (MVP §6.3.6) |
+| `HOLD` → `CANCELLED` | Yes | Yes | Yes | No | Withdrawn before confirmation. | Proposal (UC-01 does not cover withdrawing a HOLD) |
+| `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified (amount: P-27). | Confirmed (MVP §6.3.5) |
+| `PENDING_PAYMENT_REVIEW` → released (rejection) | No | Yes | Yes | **No** | Credit not found; the slot is released. | Confirmed that it releases (MVP §6.3.6); final state Pending P-21 |
+| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes, within policy | Yes, within policy | Yes, also out of policy with a reason | No | New slot available; extra deposit verified (BR-CAN-10). | Confirmed (MVP §6.3.9, §6.3.10); model Pending P-15 |
+| `CONFIRMED` → `CANCELLED` | Yes, within policy, after the deposit warning | Yes, within policy | Yes, also out of policy with a reason | No | Explicit confirmation from the customer. | Confirmed (MVP §6.3.9) |
+| `CONFIRMED` → `COMPLETED` | No | Yes | Yes | **No** | Recorded by personnel. | Confirmed (MVP §6.3.11); timing Pending P-06 |
+| `CONFIRMED` → `NO_SHOW` | No | Yes | Yes | **No** | Absent person identified. | Confirmed (MVP §6.3.11); timing Pending P-06 |
+| `NO_SHOW` → `COMPLETED` | No | Yes | Yes | No | Audited correction. | Confirmed (actors.md §2) |
 
-### 2.2 Occupying States
+### 2.2 Pending Transitions
 
-| State | Occupies the resource? | Origin |
+These are **neither allowed nor forbidden** until their decision is taken. They are not implemented meanwhile.
+
+| Transition or question | Decision |
+|---|---|
+| `COMPLETED` → `NO_SHOW` (correcting a completion) | P-05 |
+| From which moment `COMPLETED` / `NO_SHOW` can be recorded | P-06 |
+| ∅ → `HOLD` created from the CRM | P-20 |
+| ∅ → `CONFIRMED` for a `BLOCKED` customer, or a `FULL_PREPAYMENT` customer paying cash at the counter | P-16, P-17 |
+| Final state of a booking whose receipt was rejected (proposal: `CANCELLED`, reason `PAYMENT_REJECTED`) | P-21 |
+| `PENDING_PAYMENT_REVIEW` → `CANCELLED` requested by the customer or by personnel without rejecting the receipt | P-24 |
+
+### 2.3 Confirmed Prohibitions
+
+| Prohibition | Origin |
+|---|---|
+| `PENDING_PAYMENT_REVIEW` → `EXPIRED` never happens: review has no automatic timeout. | MVP §6.3.5, §9.2 |
+| No automatic transition other than `HOLD` → `EXPIRED`: time never confirms, completes, marks a no-show or cancels a confirmed booking. | MVP §6.3.11, §6.3.14; FLW Shared Rules |
+| `EXPIRED` and `CANCELLED` never return to an occupying state; a late payment never rebooks. | MVP §6.3.6 |
+| The AI never performs a transition that requires verifying a payment or recording an outcome. | SYS-01 |
+
+A transition that appears in none of §2.1–§2.3 is outside the MVP; adding one requires a decision.
+
+### 2.4 Occupying States
+
+| State | Occupies the resource? | Status |
 |---|---|---|
-| `HOLD` | **Yes** | MVP §6.3.2 |
-| `PENDING_PAYMENT_REVIEW` | **Yes**, with no timeout | MVP §6.3.5 |
-| `CONFIRMED` | **Yes** | MVP §6.3.2 |
-| Active exclusive offer (not a booking state) | **Yes**, for 5 minutes | MVP §6.3.7; ARQ §9.1 (model: P-18) |
-| `COMPLETED`, `NO_SHOW` | P-06 | — |
-| `EXPIRED`, `CANCELLED` | No | — |
-| Target slot of a reschedule waiting for an extra deposit | P-25 | — |
+| `HOLD` | **Yes** | Confirmed (MVP §6.3.2) |
+| `PENDING_PAYMENT_REVIEW` | **Yes**, with no timeout | Confirmed (MVP §6.3.5) |
+| `CONFIRMED` | **Yes** | Confirmed (MVP §6.3.2) |
+| Active exclusive offer (not a booking state) | **Yes**, for 5 minutes | Confirmed functionally (MVP §6.3.7); mechanism Pending P-18 |
+| `COMPLETED`, `NO_SHOW` | — | Pending P-06 |
+| `EXPIRED`, `CANCELLED` | No | Confirmed |
+| Target slot of a reschedule waiting for an extra deposit | — | Pending P-25 |
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-RES-01 | Only the transitions in §2.1 run, and only by the actors listed. | UC | MVP §6.3; BR-RES-* |
-| INV-RES-02 | `EXPIRED`, `CANCELLED` and `COMPLETED` are terminal. `NO_SHOW` is terminal except for its audited correction (P-05). | UC | BR-RES-12 |
-| INV-RES-03 | The **only automatic transition** is `HOLD` → `EXPIRED`. No job confirms, completes, marks a no-show or cancels a confirmed booking. | UC + JOB | BR-RES-13; MVP §6.3.14 |
+| INV-RES-01 | Only the transitions in §2.1 run, by the actors listed. Rows marked *Proposal* run only after approval; §2.2 stays unimplemented until each decision is taken. | UC | MVP §6.3; BR-RES-* |
+| INV-RES-02 | `EXPIRED` and `CANCELLED` are terminal. `COMPLETED` is terminal unless P-05 allows correcting it. `NO_SHOW` is terminal except for its audited correction. | UC | BR-RES-12 |
+| INV-RES-03 | The **only automatic transition** is `HOLD` → `EXPIRED`. | UC + JOB | BR-RES-13; MVP §6.3.14 |
 | INV-RES-04 | Every transition records actor, time, previous state and reason when applicable. | TX | BR-AUD-01 |
 | INV-RES-05 | Booking state and payment state are **independent**: `CONFIRMED` and `COMPLETED` may both have a balance due. | UC | BR-RES-10, BR-COB-09 |
 | INV-RES-06 | A booking in `PENDING_PAYMENT_REVIEW` never changes state because time passes. | UC + JOB | BR-RES-06 |
@@ -111,8 +140,8 @@ Any transition not in this table is **forbidden**. In particular, `PENDING_PAYME
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-DISP-01 | Two occupying claims (§2.2) **never** overlap on the same resource of the same tenant. | **DB** (GiST exclusion on tenant, resource and `tstzrange`, covering bookings in occupying states and active offers — P-18) | MVP §6.3.2; ARQ §9.1 |
-| INV-DISP-02 | Ranges are `[start, end)`: a booking ending at 11:00 does not overlap one starting at 11:00. | DB | BR-RES-02 |
+| INV-DISP-01 | Two occupying claims (§2.4) **never** overlap on the same resource of the same tenant. The guarantee is enforced **transactionally** whenever a claim is created or moved. The target architecture points to a database exclusion over `[start, end)` ranges for bookings; the concrete mechanism is not fixed here, because how exclusive offers occupy the slot (P-18) and whether `COMPLETED`/`NO_SHOW` occupy it (P-06) are still open. | TX (database mechanism: pending P-18, P-06) | MVP §6.3.2; ARQ §9.1 |
+| INV-DISP-02 | Ranges are `[start, end)`: a booking ending at 11:00 does not overlap one starting at 11:00. | DB + TX | BR-RES-02 |
 | INV-DISP-03 | Instants are stored unambiguously; business hours are interpreted in the tenant's timezone. | DB + UC | BR-TEN-04 |
 | INV-DISP-04 | No WhatsApp booking falls outside the resource's regular hours or on a block. | UC | BR-DISP-03, BR-DISP-07 |
 | INV-DISP-05 | A booking's resource is compatible with its service. | UC (+ DB where the relation allows it) | BR-CAT-03 |
@@ -134,7 +163,7 @@ Any transition not in this table is **forbidden**. In particular, `PENDING_PAYME
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-SEN-01 | `HOLD` → `CONFIRMED` without a deposit requires an explicit confirmation recorded **while the HOLD is valid**, checked in the same transaction. | TX | BR-RES-04 |
-| INV-SEN-02 | `HOLD` → `PENDING_PAYMENT_REVIEW` happens only if the receipt is registered **while the HOLD is valid**. Expiry and receipt are serialized: whichever commits first wins. | TX | BR-RES-06 |
+| INV-SEN-02 | `HOLD` → `PENDING_PAYMENT_REVIEW` happens only if the receipt is registered **while the HOLD is valid**. Expiry and receipt cannot both succeed for the same HOLD. | TX | BR-RES-06 |
 | INV-SEN-03 | HOLD expiry is idempotent: if the booking is no longer `HOLD` when the job runs, it does nothing. | JOB | ARQ §10.3 |
 | INV-SEN-04 | A receipt or payment that arrives **after** expiry never reactivates the booking or takes the slot; it is recorded as a financial incident. | TX | BR-COB-12 |
 | INV-SEN-05 | A deposit becomes verified **only** through a recorded human verification. Nothing created by the AI or by an image is verified. | UC | BR-SEN-07, BR-COB-07 |
@@ -160,27 +189,32 @@ Any transition not in this table is **forbidden**. In particular, `PENDING_PAYME
 stateDiagram-v2
     [*] --> PENDING_REVIEW: receipt received by WhatsApp
     [*] --> VERIFIED: cash recorded, or transfer verified in the CRM
-    PENDING_REVIEW --> VERIFIED: personnel verify the actual credit (BR-COB-05)
+    PENDING_REVIEW --> VERIFIED: personnel verify the actual credit
     PENDING_REVIEW --> REJECTED: credit not found
     VERIFIED --> [*]
     REJECTED --> [*]
 ```
 
+The status labels are a proposal (BR-COB-04).
+
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-PAY-01 | Every payment has a **method** and a **verification status**, recorded separately. Only `VERIFIED` payments reduce the balance. | DB + UC | BR-COB-03, BR-COB-04 |
-| INV-PAY-02 | Retries or repeated submissions never create two payments or two verifications for the same money. | DB + TX | ARQ §9.3, §6.5 |
+| INV-PAY-02 | A **retry of the same operation** — the same request sent again, a repeated verification of the same pending payment, a duplicated incoming message — never creates a second payment or a second verification. This holds when the operation carries an identifier (an idempotency key, the pending payment's ID, the message ID). | DB + TX | BR-COB-16; ARQ §6.5, §9.3 |
 | INV-PAY-03 | A verified transfer records who verified it and when. | DB + UC | BR-COB-05 |
 | INV-PAY-04 | The AI cannot create or leave a payment in `VERIFIED`. | UC | BR-COB-07 |
 | INV-PAY-05 | Every payment belongs to a booking of the same tenant (its origin). | DB | BR-COB-02 |
 | INV-PAY-06 | No payment is ever deleted. While its session is open, Staff/Admin correct it with audit; after the close, only an Admin adds a new adjustment entry. | UC + DB | BR-COB-11 |
 | INV-PAY-07 | Balance = charge − verified payments; a deposit is counted exactly once. | UC | BR-COB-03 |
+| INV-PAY-08 | Two **separate manual entries** that may be the same money (for example, two cash payments with the same amount on the same booking a few minutes apart) are both kept: the system cannot prove they are duplicates. They are flagged for human review and corrected through INV-PAY-06. | UC | BR-COB-16 (Proposal) |
 
 **EJ-19 · Mixed methods.** Given a $12,000 booking, when a $4,000 transfer deposit is verified and $8,000 is paid in cash, then the balance is $0 and each payment keeps its method and responsible employee.
 
 **EJ-20 · Double verification.** Given a transfer pending review, when two employees press "verify" at the same moment, then there is one verified payment and one transition to `CONFIRMED`.
 
 **EJ-21 · Correction after close.** Given a payment whose cash session is closed, when a Staff member tries to correct it, then they get `forbidden`; when an Admin does, then a new adjustment is recorded and the closed session is unchanged.
+
+**EJ-48 · Possible manual duplicate.** Given Staff recorded $5,000 in cash on a booking at 18:00, when another employee records $5,000 in cash on the same booking at 18:02, then both payments exist, they are flagged as a possible duplicate, and the balance reflects both until someone corrects one with audit.
 
 ## 6. Cancellation, Rescheduling and Ownership
 
@@ -190,7 +224,7 @@ stateDiagram-v2
 | INV-CAN-02 | A failed reschedule (no availability, out of policy, extra deposit not verified, conflict) leaves the original booking **intact**. | TX | BR-CAN-08 |
 | INV-CAN-03 | A successful reschedule occupies the new slot and releases the old one **in the same transaction**. | TX | BR-CAN-12 |
 | INV-CAN-04 | After a reschedule, verified payments stay linked to the booking. | TX | BR-CAN-09 |
-| INV-CAN-05 | If more deposit is required, the change is applied only after that difference is verified. | TX | BR-CAN-10 |
+| INV-CAN-05 | If more deposit is required, the change is applied only after that difference is verified. Whether the target slot is held meanwhile is pending (P-25). | TX | BR-CAN-10 |
 | INV-CAN-06 | Cancelling or rescheduling voids the reminders scheduled for the old slot. | TX + JOB | BR-NOT-03 |
 | INV-CAN-07 | An out-of-policy change happens only with a recorded Admin authorization and reason. | UC | BR-CAN-03 |
 
@@ -210,7 +244,7 @@ stateDiagram-v2
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-WL-01 | There is **at most one active exclusive offer** per released slot. | DB + TX (P-18) | BR-WL-07 |
+| INV-WL-01 | There is **at most one active exclusive offer** per released slot, and it never overlaps another occupying claim. | TX (mechanism pending P-18) | BR-WL-07 |
 | INV-WL-02 | An offer is created only for a slot that is free at that moment, and it never displaces an occupying claim. | TX | BR-WL-05, BR-WL-07 |
 | INV-WL-03 | An offer ends at 5 minutes; its expiry job is idempotent and **never affects the HOLD created by accepting it**. | JOB | BR-WL-08; ARQ §13.3 |
 | INV-WL-04 | An acceptance after the offer expired is not accepted. | TX | BR-WL-08 |
@@ -234,14 +268,14 @@ stateDiagram-v2
 |---|---|---|---|
 | INV-CLI-01 | The own no-show count equals the requester's own `NO_SHOW` bookings in that tenant; third-party incidents are counted separately. | UC (derived — proposal) | BR-CLI-06 |
 | INV-CLI-02 | The "Problematic customer" label appears if and only if the own count is ≥ 2, and on its own restricts nothing. | UC | BR-CLI-07 |
-| INV-CLI-03 | With `BLOCKED`, no new booking is created in any channel (CRM: P-16). | UC | BR-CLI-09 |
+| INV-CLI-03 | With `BLOCKED`, no new booking is created over WhatsApp. In the CRM, pending P-16. | UC | BR-CLI-09 |
 | INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified. | TX | BR-CLI-09 |
 | INV-CLI-05 | Every restriction change records actor and reason; only Staff/Admin may make it. | UC | BR-CLI-08 |
 | INV-CLI-06 | Internal labels never appear in customer-facing messages. | UC | BR-AGT-03 |
 
 **EJ-33 · Label without sanction.** Given a customer with 2 own no-shows and restriction `NONE`, when they book by WhatsApp, then the normal deposit rule applies and the CRM shows "Problematic customer".
 
-**EJ-34 · Full prepayment.** Given a `FULL_PREPAYMENT` customer and an $8,000 service with a 30% default deposit, when they book, then $8,000 is required and the booking stays in `HOLD`/`PENDING_PAYMENT_REVIEW` until it is verified.
+**EJ-34 · Full prepayment.** Given a `FULL_PREPAYMENT` customer and an $8,000 service with a 30% default deposit, when they book by WhatsApp, then $8,000 is required and the booking stays in `HOLD`/`PENDING_PAYMENT_REVIEW` until it is verified.
 
 **EJ-35 · A friend's no-show.** Given a booking made by requester X for attendee "Ana", when Staff record that Ana did not come, then X's own count does not change and a third-party incident is recorded.
 
@@ -289,16 +323,16 @@ stateDiagram-v2
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-NOT-01 | Each confirmed booking slot has **at most one logical reminder** (deduplication key). | DB + JOB | BR-NOT-01; ARQ §10.3 |
-| INV-NOT-02 | Before sending, the job re-checks: booking `CONFIRMED`, same slot, consent granted and unrevoked, channel enabled, phone present. If anything fails, it does not send. | JOB | BR-NOT-03 |
-| INV-NOT-03 | Delivery status is recorded and never changes the booking. | JOB | BR-NOT-04 |
+| INV-NOT-01 | Each confirmed booking slot has **at most one logical reminder** (deduplication key). This is an internal guarantee: WhatsApp delivery is not exactly once. | DB + JOB | BR-NOT-01; ARQ §10.3 |
+| INV-NOT-02 | Before each attempt, the job re-checks: booking `CONFIRMED`, same slot, consent granted and unrevoked, channel enabled, phone present. If anything fails, it does not send. | JOB | BR-NOT-03 |
+| INV-NOT-03 | Every attempt and its result are recorded, and none of them changes the booking. | JOB | BR-NOT-04 |
 | INV-NOT-04 | A reminder is sent only with reminder consent, and a waitlist notice only with waitlist consent. | JOB | BR-NOT-02, BR-WL-02 |
 
 **EJ-44 · Cancelled booking.** Given a booking with a reminder scheduled for 9:00, when it is cancelled at 8:00, then nothing is sent at 9:00.
 
-**EJ-45 · Retry without duplicate.** Given a reminder whose first attempt failed, when the retry succeeds, then the customer receives one message and the failed attempt stays recorded.
+**EJ-45 · Retry after a failure.** Given a reminder whose first attempt failed, when a retry succeeds, then there is still one logical reminder with two recorded attempts (failed, sent), and no new reminder is created for that slot. The system does not guarantee that the customer receives exactly one message: if WhatsApp delivered the first attempt without confirming it, the customer may see it twice.
 
-**EJ-46 · WhatsApp down.** Given WhatsApp disconnected, when Staff create a booking in the CRM, then it is confirmed normally and its reminder is recorded as not sent, with the reason.
+**EJ-46 · WhatsApp down when booking.** Given WhatsApp disconnected, when Staff create a booking in the CRM, then it is confirmed normally and its reminder is scheduled as usual. If the connection is back when the reminder is due, it is sent; if it is still down, the attempt is recorded as failed with its reason and retried within the configured limits.
 
 **EJ-47 · Consent revoked.** Given a customer who revoked reminder consent at 8:00, when the 9:00 reminder job runs, then nothing is sent.
 
@@ -311,7 +345,7 @@ stateDiagram-v2
 
 ## 13. Mapping to the Mandatory Architecture Tests
 
-`architecture.md` v1.1 §13 lists nine outcomes that must be verified.
+The target architecture v1.1 §13 lists nine outcomes that must be verified.
 
 | ARQ §13 outcome | Invariants | Examples |
 |---|---|---|
@@ -324,3 +358,20 @@ stateDiagram-v2
 | 7. Privileged operations restricted; post-close correction Admin-only with immutable history | INV-CAJA-02, INV-CAJA-05, INV-PAY-06 | EJ-21, EJ-38 |
 | 8. Takeover prevents competing AI messages; the 60-minute return respects global AI | INV-MSG-04, INV-MSG-05 | EJ-41, EJ-42, EJ-43 |
 | 9. CRM and core work with Evolution/AI down; independent installation | BR-CH-06, INV-NOT-03 | EJ-46 (independent installation: operations, outside UC-03) |
+
+## 14. Invariants That Depend on Pending Decisions
+
+The guarantee in the "Holds meanwhile" column is valid today; the rest waits for the decision.
+
+| Invariant | Depends on | Holds meanwhile |
+|---|---|---|
+| INV-DISP-01 | P-06, P-18, P-25 | `HOLD`, `PENDING_PAYMENT_REVIEW` and `CONFIRMED` never overlap, and an active offer is exclusive; the database mechanism is not fixed. |
+| INV-WL-01 | P-18 | At most one exclusive offer per released slot, guaranteed transactionally. |
+| INV-RES-01, INV-RES-02 | P-05, P-06, P-16, P-17, P-20, P-21, P-24 | Confirmed transitions and prohibitions (§2.1, §2.3). |
+| INV-CAN-05 | P-25 | The original booking stays intact until the extra deposit is verified. |
+| INV-CLI-01 | Proposal (derived count); P-23 (third parties) | Own no-shows and third-party incidents are counted separately. |
+| INV-CLI-03 | P-16 | No new WhatsApp booking for a `BLOCKED` customer. |
+| INV-PAY-08 | Proposal | Payments are never deleted (INV-PAY-06). |
+| INV-WL-05 | Proposal | Offers follow arrival order. |
+
+**Blocking for DOM-01 or the occupancy model:** P-06, P-08, P-10, P-15, P-18, P-25 (see [business-rules.md §16](./business-rules.md#16-pending-decisions)).

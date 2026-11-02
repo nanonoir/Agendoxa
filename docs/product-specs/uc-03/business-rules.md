@@ -1,18 +1,18 @@
 # UC-03 — Business Rules
 
-> **Status:** Draft
+> **Status:** In Review
 > **Objective:** Turn the agreed product decisions into verifiable business rules: what must hold and who may do it.
 > **Scope:** Channels, tenants, roles and delegated privileges, customers, catalog, availability, booking lifecycle, cancellation and rescheduling, deposits, charges and payments, cash register, waitlist, AI and human handoff, notifications and audit.
 > **Out of scope:** Tables, enums, endpoints, DTOs and screens (DOM-01, DOM-02, CON-XX). Where each rule is guaranteed (database, transaction, job) is in [invariants.md](./invariants.md).
-> **References:** [actors.md](./actors.md) and [flows.md](./flows.md) (UC-01, authoritative); [use-cases.md](./use-cases.md) (UC-02); [mvp.md](../../mvp.md) v0.2; [architecture.md](../../architecture.md) v1.1; `rules.md` (30/10/2026, partly superseded — see [§17](#17-differences-with-earlier-documents)).
+> **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md) (authoritative); [UC-02 use cases](../uc-02/use-cases.md); [MVP definition](../mvp.md) v0.2; [target architecture](../../design-docs/target-architecture.md) v1.1 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); `rules.md` (30/10/2026, not stored in the repository, partly superseded — see [§17](#17-differences-with-earlier-documents)).
 > **Closing condition:** Team review of this document together with UC-02. No rule here resolves a `P-NN` pending decision.
 
 ## 0. How to Read This Document
 
 - Each rule has an identifier `BR-<AREA>-NN` and an **origin**:
-  - `ACT` / `FLW` / `CU-XX`: [actors.md](./actors.md), [flows.md](./flows.md) or a use case in [use-cases.md](./use-cases.md).
-  - `MVP §x` / `ARQ §x`: a section of `mvp.md` v0.2 or `architecture.md` v1.1. `MVP §6.3.n` is item *n* of the invariant list in `mvp.md` §6.3; `ARQ §13.n` is outcome *n* of `architecture.md` §13.
-  - `RG-XX`: a rule from `rules.md` that is still valid.
+  - `ACT` / `FLW` / `CU-XX`: [actors.md](../uc-01/actors.md), [flows.md](../uc-01/flows.md) or a use case in [use-cases.md](../uc-02/use-cases.md).
+  - `MVP §x` / `ARQ §x`: a section of [`mvp.md`](../mvp.md) v0.2 or of the [target architecture](../../design-docs/target-architecture.md) v1.1. `MVP §6.3.n` is item *n* of the invariant list in `mvp.md` §6.3; `ARQ §13.n` is outcome *n* of the target architecture §13. `ARQ` never refers to `ARCHITECTURE.md`, which describes what is implemented today.
+  - `RG-XX`: a rule from `rules.md` that is still valid. `rules.md` is a team document from 30/10/2026 that is **not stored in the repository**; RG citations are kept only for traceability.
   - **Proposal**: an interpretation needed to make the rule implementable. **It is not an agreed decision** and must be validated in review.
 - Pending decisions are `P-NN` in [§16](#16-pending-decisions). Their numbering is kept from the first draft; resolved ones stay listed with their resolution.
 - State names (`HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `EXPIRED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`) are **conceptual** (MVP §6.1, ARQ §9.1), not persisted enums. Their transitions are in [invariants.md §2](./invariants.md#2-booking-lifecycle).
@@ -87,7 +87,7 @@
 | BR-CLI-06 | The requester's **own no-shows** are tracked separately from **incidents in bookings managed for other attendees**. | CU-10, CU-12; MVP §6.3.11 |
 | BR-CLI-07 | From **two own no-shows**, the CRM shows the internal **"Problematic customer"** label with reason and count. It is **never shown to the customer** and **does not sanction** on its own. | CU-12; MVP §6.3.12 |
 | BR-CLI-08 | Individual restrictions: `NONE` (normal service), `FULL_PREPAYMENT` or `BLOCKED`. **Staff or Admin** apply or remove them with a recorded reason and actor; the general restriction policy belongs to Admin. | CU-12; ARQ §9.4 |
-| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**. The AI applies them without revealing the label. | CU-12; MVP §6.3.12 |
+| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**. The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; cash at the counter: P-17) |
 | BR-CLI-10 | A tenant may configure a **limit of simultaneous future bookings** per requester. | actors.md open question 1; RG-17 (values and counting: P-01) |
 | BR-CLI-11 | The requester's name is captured when needed, **reused** in later conversations and may be updated. | MVP §5.1 |
 
@@ -110,7 +110,7 @@
 |---|---|---|
 | BR-DISP-01 | Each resource has **recurring hours** per weekday in the tenant's timezone. | MVP §5.1 |
 | BR-DISP-02 | Admins, and Staff with the availability privilege, register **blocks** (absences, maintenance) and one-off exceptions. | BR-IAM-05; RG-19 |
-| BR-DISP-03 | A slot is offered only if it is within the resource's hours, outside blocks, compatible with the service, and **not overlapping** any occupying booking or active exclusive offer ([invariants.md §3](./invariants.md#3-availability-and-concurrency)). | MVP §6.3.2; ARQ §9.1 |
+| BR-DISP-03 | A slot is offered only if it is within the resource's hours, outside blocks, compatible with the service, and **not overlapping** any occupying booking or active exclusive offer ([invariants.md §3](./invariants.md#3-availability-and-concurrency)). | MVP §6.3.2; ARQ §9.1 (which states occupy: P-06; how offers occupy: P-18) |
 | BR-DISP-04 | An availability query **never reserves** a slot; the final check runs inside the booking transaction. | FLW Shared Rules; ARQ §9.1 |
 | BR-DISP-05 | Over WhatsApp the customer may ask for a specific resource or "any compatible one". | ACT-01; CU-01 (assignment criterion: P-03) |
 | BR-DISP-06 | From the CRM, Staff/Admin may book **outside regular hours** if the resource is free; they can never create an overlap. | MVP §5.1; RG-18 (blocks: P-04) |
@@ -185,7 +185,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 | BR-COB-01 | In the MVP only charges **linked to bookings** of services or rentals are recorded. No products, bar or shop. | MVP §5.1; RG-29, RG-47 |
 | BR-COB-02 | Every payment identifies its **origin**; in the MVP it is always a booking of the same tenant. The design leaves room for a future POS sale origin without duplicating payments or cash. | RG-50; MVP §14 |
 | BR-COB-03 | A booking accepts **several payments** (deposit, partial payments, mixed methods). **Balance = charge − verified payments**; the deposit is never counted twice. | CU-11; MVP §9.1 |
-| BR-COB-04 | Methods: `CASH` and `TRANSFER` (bank/wallet). The **method** is recorded separately from the **verification status** (`PENDING_REVIEW`, `VERIFIED`, `REJECTED`). | MVP §9.1; RG-30 |
+| BR-COB-04 | Methods: `CASH` and `TRANSFER` (bank/wallet). The **method** is recorded separately from the **verification status** (`PENDING_REVIEW`, `VERIFIED`, `REJECTED`). | MVP §9.1; RG-30 (status labels: Proposal) |
 | BR-COB-05 | A transfer is verified when Staff/Admin **check that the money arrived**; amount, verifier and time are recorded. | ACT-03; RG-31 |
 | BR-COB-06 | A cash payment is recorded by the employee who **physically receives** it, and is verified when recorded. | CU-11 step 3 |
 | BR-COB-07 | The AI may interpret a receipt and attach it to the booking as a transfer **pending review**. **The AI never verifies a payment.** | SYS-01; RG-32 |
@@ -197,6 +197,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 | BR-COB-13 | Changing an agreed price is **Admin-only**, with a reason, and needs **customer acceptance** when the price increases. | CU-11 A5; CU-15 A2 |
 | BR-COB-14 | Refunds are **manual**, recorded by an Admin; there are no automated bank refunds. | CU-11 A6; MVP §5.3 |
 | BR-COB-15 | Overpayments are resolved manually, with traceability. | MVP §9.1 |
+| BR-COB-16 | A **retry of the same payment operation** (repeated request, repeated verification, duplicated message) never records the payment twice. Two **separate manual entries** that may be the same money cannot be told apart automatically: both are kept and flagged for human review, and corrected through BR-COB-11. | MVP §6.3.14; ARQ §9.3; CU-11 A9 (flagging: Proposal) |
 
 **Proposal:** the **charge** is fixed when the booking is created, from the price in force (snapshot), and does not change if the Admin later edits the service price. It changes only through BR-COB-13 or a reschedule (BR-CAN-09).
 
@@ -224,7 +225,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 | BR-WL-01 | The waitlist is **voluntary**. Available alternatives are offered first, unless the customer says the time is non-negotiable. | MVP §6.3.7 |
 | BR-WL-02 | Joining needs an **explicit opt-in**; the requested conditions and a **waitlist-specific consent** are recorded under the requester and tenant, with arrival time. | CU-05; MVP §8.3 |
 | BR-WL-03 | A waitlist entry **does not reserve or guarantee** a slot. | CU-05; ARQ §9.2 |
-| BR-WL-04 | A requester has at most one entry for the same conditions; a repeated request keeps the original arrival order. | CU-05 A3 |
+| BR-WL-04 | A requester has at most one entry for the same conditions; a repeated request keeps the original arrival order. | FLW CU-05; CU-05 A3 (arrival order: Proposal) |
 | BR-WL-05 | An offer starts only when a compatible slot is **actually released**: cancellation, reschedule, expired HOLD, rejected receipt or lifted block. | CU-06 |
 | BR-WL-06 | The next eligible entry **in arrival order** receives an **exclusive 5-minute offer**, with its expiry time stated. | MVP §6.3.7; ARQ §9.2 |
 | BR-WL-07 | There is **at most one exclusive offer** per released slot at a time; an offer never displaces a confirmed booking. | MVP §6.3.7 |
@@ -272,7 +273,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 
 ## 16. Pending Decisions
 
-None is resolved by this document. **Blocking** means it affects the entity model (DOM-01) or the occupancy constraint. Resolved ones keep their number for traceability.
+None is resolved by this document. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
 
 | ID | Question | Status | Blocks |
 |---|---|---|---|
@@ -281,7 +282,7 @@ None is resolved by this document. **Blocking** means it affects the entity mode
 | P-03 | With "any compatible resource", how is the resource assigned? | Open | No |
 | P-04 | Can a CRM booking outside regular hours fall on a **block**, or only outside the usual hours? | Open | No |
 | P-05 | Can `COMPLETED` be corrected to `NO_SHOW`, or only the reverse? | Open | No |
-| P-06 | When can `COMPLETED`/`NO_SHOW` be recorded (proposal: after the start)? Do they keep occupying the slot, or does an early no-show free the rest of it? | Open | **Yes** (occupancy constraint) |
+| P-06 | When can `COMPLETED`/`NO_SHOW` be recorded (proposal: after the start)? Do they keep occupying the slot, or does an early no-show free the rest of it? | Open | **Yes** (occupancy) |
 | P-07 | Business-caused cancellation outside the notice window: who may do it? Legally required refunds; how a forfeited deposit shows in cash. | **Partly resolved** — no automatic forfeiture; refunds manual by Admin; reschedule uses the new price. | Partial |
 | P-08 | Precedence when the **service** and the **resource** have different deposit rules. | Open | **Yes** (deposit calculation) |
 | P-09 | Mercado Pago down with a deposit required. | **Obsolete** — no Mercado Pago in the MVP. | — |
@@ -293,22 +294,22 @@ None is resolved by this document. **Blocking** means it affects the entity mode
 | P-15 | Does a reschedule modify the same booking (with history) or create a linked one? | **Proposed** — same booking with history (§8). Confirm in DOM-01. | **Yes** (DOM-01) |
 | P-16 | Can Staff create a CRM booking for a `BLOCKED` customer? Proposal: no; Staff lift the restriction first, with a reason. | Open | No |
 | P-17 | A `FULL_PREPAYMENT` customer paying in cash at the counter. Proposal: recording the cash payment verifies it and the booking is confirmed at once. | Open | No |
-| P-18 | How does an exclusive 5-minute offer occupy the slot (a kind of HOLD, or its own record in the same exclusion)? | Open | **Yes** (occupancy constraint) |
+| P-18 | How does an exclusive 5-minute offer occupy the slot (a kind of HOLD, or its own record in the same exclusion)? Until decided, exclusivity is guaranteed transactionally, without naming the mechanism. | Open | **Yes** (occupancy, DOM-01) |
 | P-19 | Waitlist expiry, queue limits, long offer chains, retries after a failed notice. | Open | No |
 | P-20 | Must a CRM booking for a service with a deposit rule collect it? Proposal: the CRM confirms directly; collecting a deposit is optional. | Open | No |
 | P-21 | Final state of a booking whose receipt was rejected. Proposal: `CANCELLED` with reason `PAYMENT_REJECTED`. | **Proposed** | Partial (DOM-01) |
 | P-22 | Can Staff cancel or reschedule outside the notice window? | **Resolved** — only an Admin authorizes out-of-policy changes (MVP §6.3.9). | — |
 | P-23 | Minimum attendee data; how a third party's no-show is attributed and aggregated. | Open | Partial (DOM-01 needs the attendee) |
 | P-24 | Pending review edge cases: the booking start arrives while still pending; the customer cancels while pending; safeguards against abuse of indefinite review (accepted risk, MVP §9.2). | Open | No |
-| P-25 | During a reschedule that waits for an extra deposit, is the target slot protected? | Open | **Yes** (occupancy constraint) |
+| P-25 | During a reschedule that waits for an extra deposit, is the target slot protected? | Open | **Yes** (occupancy) |
 | P-26 | Final resolution of late or unmatched transfers and overpayments (refund, credit to another booking). | Open | No |
 | P-27 | Deposit evidence without an image; a receipt for less than the required amount. | Open | No |
 
-**Blocking for DOM-01 or the occupancy constraint:** P-06, P-08, P-10, P-15, P-18, P-25 (and partly P-21, P-23).
+**Blocking for DOM-01 or the occupancy model:** P-06, P-08, P-10, P-15, P-18, P-25 (and partly P-21, P-23).
 
 ## 17. Differences With Earlier Documents
 
-`mvp.md` v0.2 and `architecture.md` v1.1 are aligned with UC-01; **no contradiction was found with them**. The remaining differences are with `rules.md` and with issues written before UC-01:
+`mvp.md` v0.2 and the target architecture v1.1 are aligned with UC-01; **no contradiction was found with them**. The remaining differences are with `rules.md` (not in the repository) and with issues written before UC-01:
 
 | Document | Says | Current decision |
 |---|---|---|
@@ -319,6 +320,6 @@ None is resolved by this document. **Blocking** means it affects the entity mode
 | `rules.md` RG-23 | Personnel exceptions to be defined later. | Only an Admin authorizes out-of-policy changes (BR-CAN-03). |
 | `rules.md` RG-41 | Mechanics of automatic opening to be defined. | Carries the cash declared at the previous close (BR-CAJA-03). |
 | Issue CON-02 (#11) | The public API creates, consults, cancels and reschedules bookings. | Public endpoints are read-only landing information (ARQ §11). |
-| Issue UC-02 — Scope | "Contemplar … reservas públicas". | Excluded from the MVP (MVP §5.3); see [use-cases.md §7](./use-cases.md#7-excluded-and-deferred-use-cases). |
+| Issue UC-02 — Scope | "Contemplar … reservas públicas". | Excluded from the MVP (MVP §5.3); see [use-cases.md §7](../uc-02/use-cases.md#7-excluded-and-deferred-use-cases). |
 
 **Recommendation:** mark `rules.md` as superseded by UC-01 and `mvp.md` v0.2, or update it, so that the team does not work from two sources.
