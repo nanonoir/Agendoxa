@@ -87,7 +87,7 @@
 | BR-CLI-06 | The requester's **own no-shows** are tracked separately from **incidents in bookings managed for other attendees**. | CU-10, CU-12; MVP §6.3.11 |
 | BR-CLI-07 | From **two own no-shows**, the CRM shows the internal **"Problematic customer"** label with reason and count. It is **never shown to the customer** and **does not sanction** on its own. | CU-12; MVP §6.3.12 |
 | BR-CLI-08 | Individual restrictions: `NONE` (normal service), `FULL_PREPAYMENT` or `BLOCKED`. **Staff or Admin** apply or remove them with a recorded reason and actor; the general restriction policy belongs to Admin. | CU-12; ARQ §9.4 |
-| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**. The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; full prepayment in the CRM: BR-SEN-09, P-17) |
+| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**, except by an Admin exception from the CRM (BR-SEN-09 c). The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; full prepayment in the CRM: BR-SEN-09, P-17) |
 | BR-CLI-10 | A tenant may configure a **limit of simultaneous future bookings** per requester. | actors.md open question 1; RG-17 (values and counting: P-01) |
 | BR-CLI-11 | The requester's name is captured when needed, **reused** in later conversations and may be updated. | MVP §5.1 |
 
@@ -175,7 +175,7 @@
 | BR-SEN-06 | In the MVP, deposits are paid by **bank/wallet transfer** to a configured alias. A tenant may have several aliases with **one default**; there is no automatic rotation. Aliases are Admin-only. | MVP §9.1; ARQ §9.3 |
 | BR-SEN-07 | **Only human verification of the actual credit** settles a deposit. A screenshot, OCR result or AI interpretation never does, and there is no bank API. | MVP §3.8, §9.1 |
 | BR-SEN-08 | Mercado Pago and other payment gateways are **not integrated** in the MVP. | EXT-05; MVP §5.3 |
-| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception. The exception records that no deposit was paid and the outstanding balance, so the full charge remains due; a reason is optional. | ACT Confirmed Decisions; CU-03 (CRM flow) (Admin exception for `FULL_PREPAYMENT`: P-17) |
+| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception. The exception records that no deposit was paid and the outstanding balance, so the full charge remains due; a reason is optional. The exception also applies to a `FULL_PREPAYMENT` customer (P-17). | ACT Confirmed Decisions; CU-03 (CRM flow); P-17 |
 
 ## 10. Charges, Balances and Payments (`COB`)
 
@@ -274,7 +274,7 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 
 ## 16. Pending Decisions
 
-None is resolved by this document. P-17 (partly) and P-20 were resolved in the UC-02 review and recorded in UC-01. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
+None is resolved by this document. P-17 and P-20 were resolved in the UC-02 review; P-20 is recorded in UC-01. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
 
 | ID | Question | Status | Blocks |
 |---|---|---|---|
@@ -294,7 +294,7 @@ None is resolved by this document. P-17 (partly) and P-20 were resolved in the U
 | P-14 | Is "recording payments" a separate permission? | **Resolved** — every Staff member records payments and verifies transfers (BR-IAM-03). | — |
 | P-15 | Does a reschedule modify the same booking (with history) or create a linked one? | **Proposed** — same booking with history (§8). Confirm in DOM-01. | **Yes** (DOM-01) |
 | P-16 | Can Staff create a CRM booking for a `BLOCKED` customer? Proposal: no; Staff lift the restriction first, with a reason. | Open | No |
-| P-17 | A `FULL_PREPAYMENT` customer booking from the CRM. Can an Admin exception (BR-SEN-09 c) confirm without the 100%? | **Partly resolved** — paying 100% in cash at the counter verifies it and confirms the booking (BR-SEN-09 a, BR-COB-06). | No |
+| P-17 | A `FULL_PREPAYMENT` customer booking from the CRM. Can an Admin exception (BR-SEN-09 c) confirm without the 100%? | **Resolved** — paying 100% in cash at the counter verifies it and confirms the booking (BR-SEN-09 a, BR-COB-06); an Admin exception may also confirm without the 100%, recording that it was not paid and the outstanding balance (BR-SEN-09 c). | — |
 | P-18 | How does an exclusive 5-minute offer occupy the slot (a kind of HOLD, or its own record in the same exclusion)? Until decided, exclusivity is guaranteed transactionally, without naming the mechanism. | Open | **Yes** (occupancy, DOM-01) |
 | P-19 | Waitlist expiry, queue limits, long offer chains, retries after a failed notice. | Open | No |
 | P-20 | Must a CRM booking for a service with a deposit rule collect it? | **Resolved** — no HOLD from the CRM; a verified deposit confirms, a pending receipt goes to review, and without payment only an Admin exception confirms (BR-SEN-09). | — |

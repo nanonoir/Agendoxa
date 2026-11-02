@@ -70,7 +70,7 @@ stateDiagram-v2
 | Transition | Customer (WhatsApp, via the AI) | Staff | Admin | System (job) | Condition | Status |
 |---|---|---|---|---|---|---|
 | ∅ → `HOLD` | Yes | No | No | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. | Confirmed (MVP §6.3.3); the CRM never creates a HOLD (BR-SEN-09) |
-| ∅ → `CONFIRMED` | No | Yes | Yes, also without the required deposit (records that no deposit was paid and the outstanding balance) | No | CRM booking; slot free; deposit, if required, verified (BR-SEN-09); outside regular hours only Admin or Staff with the availability privilege (BR-DISP-06). | Confirmed (MVP §5.2; UC-01 Confirmed Decisions); `BLOCKED` customers Pending P-16; Admin exception for `FULL_PREPAYMENT` Pending P-17 |
+| ∅ → `CONFIRMED` | No | Yes | Yes, also without the required deposit (records that no deposit was paid and the outstanding balance) | No | CRM booking; slot free; deposit, if required, verified (BR-SEN-09); outside regular hours only Admin or Staff with the availability privilege (BR-DISP-06). | Confirmed (MVP §5.2; UC-01 Confirmed Decisions); `BLOCKED` customers Pending P-16; the Admin exception also applies to `FULL_PREPAYMENT` customers (P-17, resolved) |
 | ∅ → `PENDING_PAYMENT_REVIEW` | No | Yes | Yes | No | CRM booking with a transfer receipt not yet verified; slot free. | Confirmed (UC-01 Confirmed Decisions; BR-SEN-09) |
 | `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
 | `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
@@ -93,7 +93,7 @@ These are **neither allowed nor forbidden** until their decision is taken. They 
 |---|---|
 | `COMPLETED` → `NO_SHOW` (correcting a completion) | P-05 |
 | From which moment `COMPLETED` / `NO_SHOW` can be recorded | P-06 |
-| ∅ → `CONFIRMED` for a `BLOCKED` customer, or for a `FULL_PREPAYMENT` customer by Admin exception without the 100% | P-16, P-17 |
+| ∅ → `CONFIRMED` for a `BLOCKED` customer | P-16 |
 | Final state of a booking whose receipt was rejected (proposal: `CANCELLED`, reason `PAYMENT_REJECTED`) | P-21 |
 | `PENDING_PAYMENT_REVIEW` → `CANCELLED` requested by the customer or by personnel without rejecting the receipt | P-24 |
 
@@ -274,7 +274,7 @@ The status labels are a proposal (BR-COB-04).
 | INV-CLI-01 | The own no-show count equals the requester's own `NO_SHOW` bookings in that tenant; third-party incidents are counted separately. | UC (derived — proposal) | BR-CLI-06 |
 | INV-CLI-02 | The "Problematic customer" label appears if and only if the own count is ≥ 2, and on its own restricts nothing. | UC | BR-CLI-07 |
 | INV-CLI-03 | With `BLOCKED`, no new booking is created over WhatsApp. In the CRM, pending P-16. | UC | BR-CLI-09 |
-| INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified. | TX | BR-CLI-09 |
+| INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified, unless an Admin exception from the CRM records that it was not paid and the outstanding balance (INV-SEN-09). | TX | BR-CLI-09, BR-SEN-09 |
 | INV-CLI-05 | Every restriction change records actor and reason; only Staff/Admin may make it. | UC | BR-CLI-08 |
 | INV-CLI-06 | Internal labels never appear in customer-facing messages. | UC | BR-AGT-03 |
 
@@ -372,7 +372,7 @@ The guarantee in the "Holds meanwhile" column is valid today; the rest waits for
 |---|---|---|
 | INV-DISP-01 | P-06, P-18, P-25 | `HOLD`, `PENDING_PAYMENT_REVIEW` and `CONFIRMED` never overlap, and an active offer is exclusive; the database mechanism is not fixed. |
 | INV-WL-01 | P-18 | At most one exclusive offer per released slot, guaranteed transactionally. |
-| INV-RES-01, INV-RES-02 | P-05, P-06, P-16, P-17, P-21, P-24 | Confirmed transitions and prohibitions (§2.1, §2.3). |
+| INV-RES-01, INV-RES-02 | P-05, P-06, P-16, P-21, P-24 | Confirmed transitions and prohibitions (§2.1, §2.3). |
 | INV-CAN-05 | P-25 | The original booking stays intact until the extra deposit is verified. |
 | INV-CLI-01 | Proposal (derived count); P-23 (third parties) | Own no-shows and third-party incidents are counted separately. |
 | INV-CLI-03 | P-16 | No new WhatsApp booking for a `BLOCKED` customer. |
