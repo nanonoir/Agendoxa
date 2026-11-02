@@ -91,6 +91,8 @@ docs/
 
 ## Documentación y colaboración
 
+- [Contribuir al proyecto](CONTRIBUTING.md): Issues, Projects, ramas, Pull Requests y Definition of Done.
+
 - [Especificaciones de producto](docs/product-specs/index.md): alcance, actores y flujos, con sus estados.
 - [Diseños técnicos](docs/design-docs/index.md): dirección propuesta y límites de lectura.
 - [Arquitectura actual](ARCHITECTURE.md): implementación y dependencias observables.
