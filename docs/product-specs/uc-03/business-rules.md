@@ -175,7 +175,7 @@
 | BR-SEN-06 | In the MVP, deposits are paid by **bank/wallet transfer** to a configured alias. A tenant may have several aliases with **one default**; there is no automatic rotation. Aliases are Admin-only. | MVP §9.1; ARQ §9.3 |
 | BR-SEN-07 | **Only human verification of the actual credit** settles a deposit. A screenshot, OCR result or AI interpretation never does, and there is no bank API. | MVP §3.8, §9.1 |
 | BR-SEN-08 | Mercado Pago and other payment gateways are **not integrated** in the MVP. | EXT-05; MVP §5.3 |
-| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception with a recorded reason. | ACT Confirmed Decisions; CU-03 (CRM flow) (Admin exception for `FULL_PREPAYMENT`: P-17) |
+| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception. The exception records that no deposit was paid and the outstanding balance, so the full charge remains due; a reason is optional. | ACT Confirmed Decisions; CU-03 (CRM flow) (Admin exception for `FULL_PREPAYMENT`: P-17) |
 
 ## 10. Charges, Balances and Payments (`COB`)
 

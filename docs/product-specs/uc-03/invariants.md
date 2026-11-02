@@ -70,7 +70,7 @@ stateDiagram-v2
 | Transition | Customer (WhatsApp, via the AI) | Staff | Admin | System (job) | Condition | Status |
 |---|---|---|---|---|---|---|
 | ∅ → `HOLD` | Yes | No | No | No (an accepted offer creates the HOLD for the customer) | Concrete slot, eligible requester, slot free. | Confirmed (MVP §6.3.3); the CRM never creates a HOLD (BR-SEN-09) |
-| ∅ → `CONFIRMED` | No | Yes | Yes, also without the required deposit with a reason | No | CRM booking; slot free; deposit, if required, verified (BR-SEN-09); outside regular hours only Admin or Staff with the availability privilege (BR-DISP-06). | Confirmed (MVP §5.2; UC-01 Confirmed Decisions); `BLOCKED` customers Pending P-16; Admin exception for `FULL_PREPAYMENT` Pending P-17 |
+| ∅ → `CONFIRMED` | No | Yes | Yes, also without the required deposit (records that no deposit was paid and the outstanding balance) | No | CRM booking; slot free; deposit, if required, verified (BR-SEN-09); outside regular hours only Admin or Staff with the availability privilege (BR-DISP-06). | Confirmed (MVP §5.2; UC-01 Confirmed Decisions); `BLOCKED` customers Pending P-16; Admin exception for `FULL_PREPAYMENT` Pending P-17 |
 | ∅ → `PENDING_PAYMENT_REVIEW` | No | Yes | Yes | No | CRM booking with a transfer receipt not yet verified; slot free. | Confirmed (UC-01 Confirmed Decisions; BR-SEN-09) |
 | `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
 | `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
@@ -172,7 +172,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-SEN-06 | If the expiry job fails to enqueue, a **durable intention** in PostgreSQL lets it be reconciled: a HOLD never occupies a slot indefinitely. | TX + JOB | ARQ §6.5, §10.3 |
 | INV-SEN-07 | The required deposit is computed by the backend; with `FULL_PREPAYMENT` it is 100% of the charge. | UC | BR-SEN-04, BR-SEN-05 |
 | INV-SEN-08 | An `EXPIRED` HOLD never counts as a no-show. | UC | BR-RES-16 |
-| INV-SEN-09 | A CRM booking that requires a deposit reaches `CONFIRMED` only with the deposit verified or with a recorded Admin exception; with an unverified receipt it enters `PENDING_PAYMENT_REVIEW`; otherwise it occupies nothing. | TX + UC | BR-SEN-09 |
+| INV-SEN-09 | A CRM booking that requires a deposit reaches `CONFIRMED` only with the deposit verified or with an Admin exception that records that no deposit was paid and the outstanding balance (reason optional); with an unverified receipt it enters `PENDING_PAYMENT_REVIEW`; otherwise it occupies nothing. | TX + UC | BR-SEN-09 |
 
 **EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when the receipt arrives at 15:07, then the booking is `PENDING_PAYMENT_REVIEW` and the slot is still blocked at 15:30.
 
@@ -186,7 +186,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 
 **EJ-18 · Expiry is not absence.** Given a customer with one expired HOLD and one cancellation within policy, then their own no-show count is 0.
 
-**EJ-49 · CRM booking with a deposit.** Given a service with a $3,000 deposit, when Staff book it in the CRM and record $3,000 in cash, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it with a reason.
+**EJ-49 · CRM booking with a deposit.** Given a $10,000 service with a $3,000 deposit, when Staff book it in the CRM and record $3,000 in cash, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it; in that case the booking records that no deposit was paid and a $10,000 balance due, with or without a reason.
 
 ## 5. Payments and Balances
 
