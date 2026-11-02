@@ -13,7 +13,7 @@
 - Booking from the CRM **outside regular hours** is limited to Admin and Staff with the delegated availability privilege, never overlaps an occupying booking, HOLD or offer, and records who authorized it.
 - A **single booking core** enforces availability, business policies, and tenant isolation regardless of the entry channel.
 - Deposits, when required, are paid by bank/wallet transfer to the business's configured alias and **verified by a human**. Mercado Pago integration is deferred beyond the MVP.
-- From the CRM, Staff/Admin may book a service that requires a deposit **without the conversational HOLD**: cash received or a verified transfer confirms the booking; a receipt pending verification blocks the slot until human review; with no payment and no receipt the booking is not confirmed, unless an Admin authorizes the exception.
+- From the CRM, Staff/Admin may book a service that requires a deposit **without the conversational HOLD**: cash received or a verified transfer confirms the booking; a receipt pending verification blocks the slot until human review; with no payment and no receipt the booking is not confirmed, unless an Admin authorizes the exception, which records that no deposit was paid and the outstanding balance (a reason is optional).
 - Customers may book on behalf of other people without collecting every attendee's phone number. The requester manages the bookings associated with their WhatsApp number.
 - The MVP includes voluntary waitlists and **five-minute exclusive offers**; reservation requests use a **ten-minute HOLD** as described in [flows.md](./flows.md).
 - The MVP records payments for services and court/resource rentals, with **one shared cash register per tenant**, but does not include a bar/shop POS or inventory system.
@@ -71,7 +71,7 @@
 | Create bookings for oneself or others | Cond. | Yes | Yes | Cond. | Customer/AI: requester number, limits, policies and availability; CRM: authenticated personnel. |
 | Book outside regular hours (CRM) | No | Cond. | Yes | No | Staff requires the delegated availability privilege; never overlaps an occupying booking, HOLD or offer; records who authorized it. |
 | Cancel or reschedule a booking | Cond. | Yes | Yes | Cond. | Customer/AI: own managed bookings and applicable notice period; Admin alone can authorize exceptions. |
-| Authorize exceptions to commercial policies | No | No | Yes | No | Admin decision and recorded reason; includes confirming a CRM booking without its required deposit. |
+| Authorize exceptions to commercial policies | No | No | Yes | No | Admin decision and recorded reason; confirming a CRM booking without its required deposit instead records that no deposit was paid and the outstanding balance, with an optional reason. |
 | Join waitlist / receive exclusive offer | Yes | Cond. | Cond. | Cond. | Voluntary customer opt-in; one eligible exclusive offer at a time. |
 | Record service/rental completion | No | Yes | Yes | No | Human operational decision; no time-based inference. |
 | Record or correct `NO_SHOW` | No | Yes | Yes | No | Human action with audit trail. |

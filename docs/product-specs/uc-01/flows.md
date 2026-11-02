@@ -121,7 +121,7 @@ flowchart TD
 2. Customer sends transfer receipt **within HOLD**; register it as **pending**, keeping the slot blocked **without automatic review expiry**.
 3. Staff/Admin verifies **actual credit** in the business account. Upon approval, record verified payment/verifier and confirm the booking.
 
-**CRM path (no HOLD):** Cash received or a bank-verified transfer → confirm directly. Receipt pending verification → block the slot until human review (step 3). No payment and no receipt → not confirmed, unless an Admin authorizes the exception with a reason.
+**CRM path (no HOLD):** Cash received or a bank-verified transfer → confirm directly. Receipt pending verification → block the slot until human review (step 3). No payment and no receipt → not confirmed, unless an Admin authorizes the exception, recording that no deposit was paid and the outstanding balance (reason optional).
 
 **Alternatives:** No timely receipt → HOLD expires and slot is released. Rejected/uncredited receipt → employee rejects, releases and notifies; consider [CU-06](#cu-06). Pending review → retain block. Late/unmatched transfer → **human financial incident**, never automatic reconfirmation. CRM may record ordinary cash/bank-verified payments without an uploaded image.
 

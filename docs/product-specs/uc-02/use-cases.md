@@ -359,7 +359,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 2. The result depends on what the customer has provided, recorded through [CU-11](#cu-11):
    - **a. Cash received, or a transfer whose credit the employee verified in the account:** the payment is recorded as verified and the booking is confirmed directly.
    - **b. A transfer receipt not yet verified:** the receipt is recorded as pending; the booking enters `PENDING_PAYMENT_REVIEW` and blocks the slot until human review, continuing at step 6 of the WhatsApp flow.
-   - **c. No payment and no receipt:** the booking is not confirmed and does not occupy the slot. Only an Admin may authorize the exception and confirm it without the deposit, with a recorded reason.
+   - **c. No payment and no receipt:** the booking is not confirmed and does not occupy the slot. Only an Admin may authorize the exception and confirm it without the deposit. The booking records that no deposit was paid and the outstanding balance, so the full price is still collected; a reason is optional.
 3. The occupancy check runs when the booking is created; the booking has origin CRM.
 
 #### Alternatives and Exceptions
@@ -374,7 +374,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A9 — CRM, amount below the required deposit:** At CRM step 2, as in A5 — *pending (UC-03)*.
 
 #### Outcome / Postconditions
-- **Success:** A confirmed booking with a verified deposit linked to it or, from the CRM by Admin exception, without it and with a recorded reason.
+- **Success:** A confirmed booking with a verified deposit linked to it or, from the CRM by Admin exception, without it, recording that no deposit was paid and the outstanding balance.
 - **Failure:** The slot is released and nothing counts as verified; a late receipt remains as an incident. From the CRM, without payment, receipt or exception, no booking occupies the slot.
 
 #### Authorization
