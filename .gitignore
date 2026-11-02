@@ -17,3 +17,12 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+
+# Generado por Next.js
+next-env.d.ts
+
+# Generado por TypeScript (incremental)
+*.tsbuildinfo
+
+# Configuración personal de Claude Code (permisos locales)
+.claude/settings.local.json
