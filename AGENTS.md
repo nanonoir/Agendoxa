@@ -6,6 +6,8 @@ Agendoxa is a modular booking and customer-service platform. This repository cur
 
 Read [README.md](README.md) for installation and environment setup, then follow the relevant reference:
 
+Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. It is the shared source for Issues/Projects, branches, commits, PRs, review, coordination, and the Definition of Done. Its proposal status and team approval apply equally to assistants and human contributors.
+
 | Question | Source |
 |---|---|
 | How is the system structured today? | [ARCHITECTURE.md](ARCHITECTURE.md) |
