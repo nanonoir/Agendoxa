@@ -18,13 +18,6 @@ Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. It is 
 
 Existing product and target-architecture documents are proposals/in review, with explicitly confirmed UC-01 decisions and deferred questions inside them. Do not treat a proposal, illustrative directory tree, or conceptual state label as approved or implemented behavior. The indexes identify the authoritative paths for these documents.
 
-## Personal configuration and collaboration
-
-- Personal/global instructions should complement the repository agreement, not replace it. Configure your tool accordingly; repository files cannot enforce instruction precedence across tools. If a conflict cannot be reconciled, report it before the affected action and continue independent work where possible.
-- Do not add approval gates, mandatory tools, subagents, or artifacts based only on personal preferences. Communicate shared-impact decisions without waiting for prior approval; their acceptance is reviewed in the PR. Do not invent unresolved product requirements.
-- Follow the current `develop` integration flow and team review requirements in CONTRIBUTING.md. Do not push, create PRs, or merge without user authorization. Never bypass repository restrictions or claim checks that were not run.
-- No assistant-specific workflow replaces the shared agreement. Keep technical context here and collaboration policy in CONTRIBUTING.md rather than duplicating it.
-
 ## Operational stack and roots
 
 Manifests, lockfile, and configuration are authoritative for dependencies and versions.

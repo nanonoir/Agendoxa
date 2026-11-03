@@ -26,7 +26,15 @@ Este documento reúne el acuerdo de colaboración para personas y asistentes. La
 
 ### Base de trabajo
 
-Por el momento, **`develop` es la rama de integración**. Las ramas de tarea parten de ella y sus PRs la tienen como destino. `main` se conserva como rama principal; la promoción de entregas a `main` se acordará más adelante. No hagas pushes directos a las ramas compartidas ni reescribas su historial.
+El flujo es **rama de tarea → `develop` → `staging` → `main`**. Las ramas de tarea parten de `develop`; el término feature incluye también correcciones, documentación y mantenimiento.
+
+| PR | Propósito | Revisión requerida |
+|---|---|---|
+| Rama de tarea → `develop` | Integrar el cambio de una tarea | Al menos una aprobación de otro integrante |
+| `develop` → `staging` | Preparar y validar una entrega integrada | Al menos una aprobación de otro integrante |
+| `staging` → `main` | Promover la entrega validada a la rama principal | Al menos una aprobación de otro integrante, distinto del autor del PR |
+
+Cada promoción se realiza mediante un PR que describe el contenido de la entrega y su validación. La aprobación de una etapa no reemplaza la revisión de la siguiente: **pasar de `staging` a `main` requiere su propia revisión y aprobación de otro integrante**. No hagas pushes directos a las ramas compartidas ni reescribas su historial. Este flujo no presupone despliegues automáticos ni protecciones ya configuradas.
 
 Antes de crear una rama, revisá `git status`. Conservá los cambios pendientes mediante un commit en su rama o un stash que incluya los archivos nuevos pertinentes. No descartes trabajo para actualizarte.
 
@@ -53,6 +61,23 @@ Usá `<tipo>/<identificador>-<descripcion-breve>`, con descripción en minúscul
 | `docs/18-collaboration-conventions` | Documentación |
 
 Preferí [Conventional Commits](https://www.conventionalcommits.org/): `<tipo>(<scope opcional>): <resumen>`. Por ejemplo, `docs: document collaboration conventions` o `fix(api): validate booking input`. Usá commits coherentes y descriptivos, no un archivo por commit ni mensajes genéricos como “cambios”. No mezcles refactorizaciones ajenas a la tarea.
+
+Los tipos permitidos para los commits escritos por el equipo son:
+
+| Tipo | Uso |
+|---|---|
+| `feat` | Nueva funcionalidad |
+| `fix` | Corrección de un defecto |
+| `docs` | Documentación |
+| `refactor` | Reorganización de código sin cambiar su comportamiento |
+| `test` | Incorporación o ajuste de pruebas |
+| `perf` | Mejora de rendimiento |
+| `build` | Sistema de compilación, empaquetado o dependencias |
+| `ci` | Configuración de integración y automatización de CI/CD |
+| `chore` | Mantenimiento sin cambio funcional que no encaja en un tipo más específico |
+| `revert` | Reversión de un cambio anterior |
+
+**`chore` está permitido**, pero no reemplaza tipos más precisos: un cambio exclusivo de documentación es `docs`, uno de dependencias es `build` y uno de workflows es `ci`. Los mensajes de merge generados por Git o GitHub no necesitan reescribirse para seguir este formato.
 
 ## Coordinación y conflictos
 
@@ -91,6 +116,22 @@ Integrá únicamente cuando se cumplan los criterios previos a la integración d
 - Seguí las convenciones locales de imports y resolución de módulos. Agregá módulos y capas cuando sean necesarios, no para reproducir estructuras propuestas.
 - Consultá las especificaciones antes de cambiar reglas de negocio y actualizá su fuente correspondiente cuando una decisión acordada las modifique. Evitá copiar reglas entre documentos, frontend y herramientas de IA.
 
+### Nombres de archivos, carpetas y módulos
+
+| Elemento | Convención | Ejemplo |
+|---|---|---|
+| Carpetas de features y módulos | `kebab-case`, agrupadas por responsabilidad | `booking-management/` |
+| Archivos TypeScript generales | `kebab-case.ts` | `booking-policy.ts` |
+| Archivos de NestJS | Nombre en `kebab-case` más sufijo de responsabilidad | `booking.controller.ts`, `booking.service.ts`, `booking.module.ts` |
+| Módulos de NestJS | Clase en `PascalCase` con sufijo `Module`; agrupar por capacidad, no crear módulos vacíos | `BookingModule` en `booking.module.ts` |
+| Componentes React propios | Nombre y archivo en `PascalCase` | `BookingCard` en `BookingCard.tsx` |
+| Clases, interfaces y tipos | `PascalCase` | `BookingService`, `BookingInput` |
+| Variables y funciones | `camelCase` | `bookingId`, `createBooking` |
+| Tests unitarios | Nombre del archivo probado más `.spec.ts`, sustituyendo `.ts` | `booking.service.spec.ts` |
+| Tests E2E | Nombre del escenario o área más `.e2e-spec.ts` | `booking.e2e-spec.ts` |
+
+Los nombres especiales del framework o del tooling conservan su forma requerida, como `page.tsx`, `layout.tsx`, `route.ts`, `index.ts` o `package.json`. Respetá también las convenciones de rutas de Next.js. Estas reglas se aplican al código nuevo; no implican renombrar código existente ni mover archivos ajenos al cambio.
+
 ## Uso de asistentes y configuración personal
 
 Cada integrante puede elegir su herramienta, modelo y configuración local. No se requieren agentes, skills ni comandos personales de otro integrante.
@@ -115,7 +156,7 @@ Una tarea está terminada cuando:
 - [ ] Se comunicaron los impactos compartidos y se registraron decisiones relevantes.
 - [ ] No se incluyen secretos, cambios ajenos ni archivos temporales.
 - [ ] El PR está vinculado al Issue, recibió al menos una aprobación de otro integrante y no tiene observaciones bloqueantes ni conflictos pendientes.
-- [ ] El cambio se integró en `develop` y se verificó el resultado de la integración.
+- [ ] El cambio se integró en la rama de destino y se verificó el resultado: `develop` para tareas, `staging` o `main` para promociones, respetando la revisión requerida en cada etapa.
 - [ ] El Issue y su seguimiento en Projects reflejan el resultado real, con cierre solo cuando corresponde.
 
 Esta DoD evalúa el resultado final. Antes del merge, la plantilla del PR permite verificar que esté listo para integrarse; las dos últimas comprobaciones se completan después.
