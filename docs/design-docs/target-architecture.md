@@ -4,7 +4,7 @@
 > **Project:** Devlights bootcamp · Shared codebase with independently operated deployments.  
 > **Product scope:** [`mvp.md`](../product-specs/mvp.md) v0.3
 > **Functional references (UC-01):** [`uc-01/actors.md`](../product-specs/uc-01/actors.md) and [`uc-01/flows.md`](../product-specs/uc-01/flows.md)  
-> **Decision basis:** [2026-11-04 product-owner handoff](../../agendoxa_audit_handoff.md), reconciled through the canonical [UC-03 rules](../product-specs/uc-03/business-rules.md) and [38-entity ERD](./erd.md). Incompatible earlier architecture/functional proposals are superseded for this iteration, **not collectively approved by the team**.
+> **Decision basis:** Historical [2026-11-04 handoff](../../agendoxa_audit_handoff.md) and later product-owner agreements, reconciled in [UC-03](../product-specs/uc-03/business-rules.md) and the [38-entity ERD](./erd.md). Current rules supersede incompatible earlier portions; still **not collectively approved or implemented**.
 
 ## 1. Purpose and Documentation Boundaries
 
@@ -128,7 +128,7 @@ The following are **logical responsibilities**, not a requirement to create a Ne
 | `catalog` | Services, prices/durations, preconfigured combinations, resources and compatibility. | Build separate booking engines for barbershops and sports clubs. |
 | `availability` | Resource working hours, blocks, exceptions, compatible time windows. | Treat an availability read as an exclusive lock. |
 | `bookings` | Booking lifecycle, requester ownership, holds, reschedules, cancellation and occupancy coordination. | Depend on WhatsApp, Next.js, or an LLM to enforce business rules. |
-| `waitlist` | Voluntary interest, eligibility, ordered offers, five-minute exclusive priority. | Promise a slot before it is transactionally secured. |
+| `waitlist` | Voluntary interest, initial five-minute priority, progressive/broadcast invitations and atomic claims. | Give later invitees false exclusivity, freeze capacity with nonexclusive notices or request payment before HOLD acquisition. |
 | `payments` / `billing` | Commercial charges, verified payments, manual allocations, evidence review, separate refunds and financial correction history. | Credit an image, mutate original paid amounts, use negative Payments for refunds or exceed funds/debt. |
 | `cash-register` | One tenant-shared register, opening/closing sessions, attributed cash movements, discrepancies. | Sell inventory/POS items or rewrite a closed session. |
 | `notifications` | One logical notice and individual NotificationAttempt outcomes, independent reminder/waitlist consent and delivery correlation. | Duplicate notices on retry, send revoked/stale notices or audit every delivery as a consent event. |
@@ -290,25 +290,27 @@ Both installations use the **same code and tenant-aware data model**. A dedicate
 - For exclusive resources, represent time intervals consistently (e.g., `[start, end)` with `tstzrange`) and enforce incompatible overlaps at the **database/transaction boundary**, not only in API checks.
 - `SlotClaim` is the single occupancy authority, with one Booking or ExclusiveOffer owner (XOR). Include initial HOLD, active initial-deposit review, the guarded rejected-evidence correction window, confirmed bookings, offers and private terminal remainders. [DOM-01](./erd.md#24-module-4--bookings-exclusive-occupancy-and-waitlist) specifies the conceptual claim lifecycle; no competing Booking lock.
 - A read-only availability query does **not** reserve a time. A customer selecting a concrete slot starts a **ten-minute HOLD** in the WhatsApp flow, whether or not a deposit applies.
-- Without deposit, explicit confirmation within the HOLD confirms. Timely initial evidence starts review without a human-inactivity timeout. First rejection protects a 15-minute correction opportunity; timely distinct evidence starts another review, and a second distinct human rejection cancels before start. Started bookings escalate manually; the worker rechecks active review, deadline and current state. See [UC-03 lifecycle](../product-specs/uc-03/business-rules.md#7-booking-lifecycle-res).
-- HOLD expiry, offer expiry and rejected-initial-evidence correction expiry are different guarded, idempotent operations. None can release a confirmed booking, a genuinely pending review, a newer HOLD or a started slot's remainder.
+- Timely evidence starts review without inactivity timeout. Without verified partial funds, initial rejection uses guarded 15-minute/second-distinct-rejection cancellation before start. Any verified partial deposit retains occupied/unconfirmed capacity without automatic missing-remainder/rejection release. Atomically recheck funds/review/start; explicit authorized cancellation releases immediately and financial review/refund continues separately. No late financial event rebooks a released slot.
+- HOLD expiry, initial priority expiry and no-funds correction expiry are distinct guarded/idempotent operations. None releases confirmed, pending-review, verified-partial, newer-HOLD or started private occupancy; initial priority expiry does not invalidate otherwise valid late invitations.
 - A permitted reschedule with a partially verified deposit acquires the new slot and releases the old one atomically, keeping the booking confirmed and requesting any difference afterwards. A failed move preserves the original. Prior policy approval creates no destination claim while pending; full-prepayment restrictions and Admin exceptions still apply.
 - Early COMPLETED/NO_SHOW keeps remaining capacity private. An authorized explicit CRM walk-in operation may replace only its chosen portion atomically, preserving original history and restricted residual intervals. Outcome correction never displaces that walk-in. This is not a public release/waitlist event; the ERD's inferred fragment representation remains subject to technical review.
 - Effective regular calendars inherit the general schedule when no resource schedule exists; authorized extraordinary openings are usable by both channels but never bypass explicit blocks or active claims. Removing a block is a separate authorized action, not an effect of opening or rescheduling.
 
 **State labels** `HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`, and `EXPIRED` are **conceptual labels from UC-01**, not finalized DB enums or exhaustive state transitions.
 
-### 9.2 Waitlist Exclusive Priority
+Booking lead time defaults to 0, never past start; future cap defaults off and counts future occupying bookings including third parties when enabled. Recheck selection/cap/occupancy atomically; any-resource assignment uses tenant preference-order or rotation mode. BLOCKED CRM exception uses existing booking permission with warning/actor, not an unblock or other commercial exception. Completion is manual from start, no-show from start + 15 minutes; corrections both ways need permission, mandatory reason/history and destination timing guard, never automatic financial changes or walk-in eviction.
+
+### 9.2 Waitlist Priority and Competing Invitations
 
 - First offer available alternatives unless the customer explicitly requires one fixed day/time. Joining a waitlist requires consent; the entry **does not block** a resource.
-- When a slot is genuinely released, choose the next eligible waiter in arrival order and establish a **single exclusive five-minute opportunity** for that resource/interval.
-- An entry may target one same-tenant compatible resource or any compatible resource. Acceptance within five minutes closes the offer claim and creates a **different claim for a new ten-minute booking HOLD**, preserving the historical owner and the offer-to-booking link in one transaction.
-- Coordinate offers and ordinary bookings transactionally so the same interval cannot be promised exclusively to two parties. If a WhatsApp notification fails, do not block indefinitely; detailed retry/failure behavior remains an open design item.
-- Queue entry expiry, limits, long chains, and undelivered messages are not invented here; defer precise decisions to domain design.
+- For 1–4 eligible people only first gets five-minute exclusivity; invite another every five minutes while earlier recipients may still claim. With 5+, notify simultaneously. Only initial priority owns an offer claim; later/broadcast invitations have none. Preserve priority deadline separately from claim eligibility.
+- A preferred resource is compatible/same-tenant; otherwise any compatible one. Atomic arbitration across all channels closes any initial priority claim and creates one distinct ten-minute booking HOLD for the winning invitation, without mutating claim ownership. Only winner receives transfer instructions; late/concurrent losers get alternatives, never displace a newer claim.
+- Initial priority expires regardless of connection; later invitations do not freeze public availability. Confirmed failure gets one valid retry then advance without deleting the entry; unknown outcome follows §10.3. Entry expires when no future requested-range slot remains, or closes on fulfilled booking/withdrawal, not unanswered notice alone.
+- Round/cohort/restart persistence and concurrency stay ERD T-01/T-05, without new entities or the rejected three-offer cap. Queue-size caps remain open. Never promise later recipients exclusive priority.
 
 ### 9.3 Manual Deposits and Financial Records
 
-- Payments in this MVP are **verified commercial cash and bank/wallet transfers**, not unidentified/personal bank activity. Multiple ReceivingAccounts support a default and optional configured rotation. Persist the receiving instruction before payment; later rotation/editing cannot rewrite what was presented. Selection strategy is a remaining technical choice, not an automatic reconciliation integration.
+- Verified commercial payments use three modes: all professional (default), business deposit/professional remainder, all business. Professional Resource may select an account without a CRM user. Missing account falls back to business, never another professional; absent fallback requires personnel. Business pool uses default or sequential active-account rotation at instruction issue. Preserve booking mode, stage, receiver/account and issued instruction; retries/config changes never rewrite them. Concurrent binding remains T-02/T-05, not bank integration.
 - Resolve each policy field by Resource > Service > Tenant, distinguishing inherit/set/disable. FULL_PREPAYMENT dominates ordinary deposit rules unless the permitted Admin CRM exception applies. Preserve agreed commercial conditions when future configuration changes.
 - `PaymentReview` evaluates evidence; `Payment` records verified commercial funds. Directly verified CRM cash/transfers may have no review. One review may yield at most one Payment; repeated approval cannot duplicate money. Initial evidence and supplemental reschedule collection follow different lifecycle rules.
 - **No image/OCR/AI-only accreditation.** A transfer arriving after the slot is released or an unmatched amount is a human financial incident, never a silent reconfirmation.
@@ -316,6 +318,8 @@ Both installations use the **same code and tenant-aware data model**. A dedicate
 - `Refund` is a separate Admin-managed operation linked to Payment. Executed returns reduce retained funds without mutating original receipts; pending returns and allocations must compete safely for the same funds. A cash return requires an open-session outflow; a manual bank return has no physical CashMovement. AuditEvent is not the financial ledger.
 - A permitted partially prepaid reschedule retains verified funds and stays confirmed after moving even if the supplemental difference remains unpaid. Do not reuse initial-deposit rejection timers for this collection; nonpayment is manual follow-up, not automatic cancellation or return to the old slot.
 - Do not hold an open DB transaction during bank-app review. **Risk accepted:** genuinely pending review has no inactivity timeout; explicit rejections follow the correction workflow. No financial incident silently reactivates an expired booking.
+
+Professional changes preserve client credit/actual receiver history; collect only remaining debt and manage internal compensation manually, without blocking an otherwise valid move or automatic commissions/distribution. Recording corrections need permission/reason/immutable linked financial history, recompute debt without fictitious refund/movement or auto-cancellation, and preserve the Admin boundary for closed physical cash. Ledger mechanics remain T-03. Operational business cancellation uses cancellation permission/reason/customer notice; customer policy exceptions remain Admin-only, and financial review cannot freeze an authorized cancelled slot.
 
 ### 9.4 Shared Cash Register and Attendance
 
@@ -327,6 +331,8 @@ Both installations use the **same code and tenant-aware data model**. A dedicate
 - Authorized personnel record/correct Booking outcomes. Every NO_SHOW counts against Booking.customer_id, regardless of attendee; CustomerIncident records only other booking-related incidents. BookingEvent preserves corrections; never sum incidents into the no-show count.
 - Two current no-show bookings trigger an **internal indicator**, not an automatic penalty. Manual restrictions require role permission, actor and reason; an outcome correction recalculates the indicator without displacing a reused walk-in.
 - The register covers service and rental payments, **not** a bar POS, inventory, product sales, tax invoicing or full accounting.
+
+The same CashSession survives midnight until manual close; collections continue with actual timestamps and visible opening time. No automatic daily close or extra professional cash registers is implied.
 
 ## 10. LangGraph, WhatsApp, Human Handoff, and Durable Jobs
 
@@ -345,7 +351,7 @@ The LLM is **an orchestrator and conversation interface**, not an independent bu
 
 - The messaging module receives Evolution API webhooks, validates their origin and tenant connection, deduplicates event IDs, and stores important incoming messages durably.
 - Group consecutive incoming messages after **five seconds with no additional incoming messages**, without relying solely on in-memory timers. Each processed message/intent must remain attributable.
-- Support **individual text messages and receipt images**. No WhatsApp groups, voice-note workflows, or mass-marketing campaigns in the MVP.
+- Support individual text/images and PDF transfer evidence first; text-only reporting only on explicit inability to attach. No file interpretation proves credit. Groups, voice notes and marketing remain out of scope.
 - Maintain **persistent, authoritative per-conversation routing state**: AI eligible, human-taken-over, or globally disabled as appropriate. A human takeover suppresses bot replies to the same conversation.
 - **Admin controls global AI** (temporary disable or indefinite until reenabled). **Staff/Admin control individual handoff** from the CRM shared inbox.
 - On manual handback or **60 minutes without a human reply**, AI may resume **only if globally enabled**; each new human reply resets the inactivity interval. AI reactivation cannot clear pending payment review.
@@ -357,11 +363,13 @@ The LLM is **an orchestrator and conversation interface**, not an independent bu
 - Use `pg-boss` for ten-minute HOLD expiry, five-minute exclusive-offer expiry, waitlist progression, reminders, AI/human return timing where scheduled, and controlled retries.
 - Jobs must be **idempotent and state-aware**. A stale expiry or retry cannot cancel a confirmed booking, release an approved slot, double-register a payment, or send a false confirmation.
 - Persist intent and a deduplication key for critical tasks; reconcile when a DB commit succeeds but a follow-up enqueue fails. A formal outbox is optional if its added complexity becomes justified.
-- A Notification is one logical notice, with zero or more NotificationAttempts; each attempt may reference zero or one Message in a Conversation. Retry the work, not the logical notice. Provider acceptance is not delivery; reconcile uncertain results before retry when possible. Retention is operationally bounded and still needs a concrete policy, not an invented duration.
+- Persist logical Notification/intention before send and recover after restart, with actual NotificationAttempts and optional Message correlation. Confirmed failure gets one valid retry; sent/delivered/read get none. Interrupted unknown result requires status recovery where supported, otherwise CRM attention without automatic resend. Queue durability is not end-to-end exactly-once delivery; validate actual adapter correlation/deduplication support.
 - Schedule the configured lead-time reminder only when its due instant is after confirmation; otherwise record omission without an attempt. Confirmation is a different notice. Reprogramming invalidates the old reminder; cancellation suppresses it. Calendar rules use tenant timezone and persisted instants use UTC, including day crossings.
-- Reminder state belongs to Customer; waitlist opt-in belongs to WaitlistEntry. They are independent. Only consent grants/revocations create consent AuditEvents, atomically with state; do not audit every reminder/message/retry or add a consent entity.
+- Customer retains independent reminder/waitlist choices, including refusal, from one four-option question. Entry stores specific interest/provenance; current preference gates delivery. No repeated per-operation question; chat changes and scoped grant/revocation AuditEvents are atomic, no consent entity/per-message consent audit.
 - Before every attempt, check current consent, slot/offer validity, expiry, connection, recipient and tenant. Persist attempts and correlate delivery outcomes; a delivery failure does not roll back the booking.
 - Never assume that 600–800 monthly reminders or a specified number of WhatsApp connections is a provider-approved limit or guaranteed capacity; measure the pilot.
+
+Do not extend priority or send stale offers due to outages/restarts. Purge attempt technical details after 90 days while retaining final Notification result; other chats/assets/payments/consent-audit retention remains separate. CRM confirmed bookings have transactional confirmation with phone/available channel, not dependent on reminder consent.
 
 ## 11. Internal API and Integration Boundaries
 

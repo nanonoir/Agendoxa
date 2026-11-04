@@ -56,7 +56,7 @@ UC-01 assumes these behaviors (as preconditions or alternatives) but does not ca
 |---|---|---|---|---|
 | [CU-17](#cu-17) Sign in to the CRM | ACT-03/ACT-05 use an "authenticated CRM", but no case covers access or tenant context. | `mvp.md` §5.1 Tenants and identity; §12 #1 | Other CRM cases take it as a precondition; none describes it. | Not revealing whether an account exists (A1). |
 | [CU-18](#cu-18) Connect the WhatsApp channel | EXT-02 is mandatory, but no case connects or monitors it. | `mvp.md` §5.1 WhatsApp | CU-15 configures the AI mode, not the connection. | **Actor (Admin)**; rejecting a number already linked to another tenant (A4). |
-| [CU-19](#cu-19) Grant or revoke reminder consent | CU-16 requires consent and ACT-01/SYS-01 "manage" it, but no case obtains it. | `mvp.md` §8.3; actors.md §5 | CU-16 consumes consent; CU-05 handles waitlist consent separately. | When consent is asked; recording it from the CRM. |
+| [CU-19](#cu-19) Manage reminder/waitlist preferences | One four-option question obtains independent reusable preferences; CU-05 enrolls specific interest. | UC-03 BR-NOT-09 | CU-16 consumes current scope; no repeated consent question in CU-05. | Recording in-person consent from CRM remains a proposal; question/timing resolved. |
 | [CU-20](#cu-20) Onboard a new business | No case creates a tenant or its first Admin. | `mvp.md` §5.1 Tenants and identity; ACT-06 | CU-15 configures an existing tenant; CU-20 only creates it. | **Actor (technical operator)**; minimum setup to accept bookings. |
 | [CU-21](#cu-21) View and operate the agenda | Several CRM cases start "from the agenda", which is not specified. | `mvp.md` §7.1 | CU-15's "today overview" is a summary; CU-21 is the operational schedule. | What is highlighted (A1). |
 | [CU-22](#cu-22) Expire an unconfirmed HOLD | Expiry appears as an alternative in CU-02, CU-03 and CU-06. | flows.md CU-02, CU-03; `mvp.md` §6.3.6 | Consolidates those alternatives into one system-initiated case with its own trigger; adds no behavior. | Concurrency details, *pending (UC-03)*. |
@@ -78,11 +78,11 @@ flowchart LR
         CU03[CU-03 Book with transfer deposit]
         CU04[CU-04 Book for other attendees]
         CU05[CU-05 Join waitlist]
-        CU06[CU-06 Accept exclusive offer]
+        CU06[CU-06 Claim waitlist invitation]
         CU07[CU-07 Consult own future bookings]
         CU08[CU-08 Cancel booking]
         CU09[CU-09 Reschedule booking]
-        CU19[CU-19 Grant or revoke reminder consent]
+        CU19[CU-19 Manage notice preferences]
     end
 
     subgraph OPS[CRM operations]
@@ -138,13 +138,13 @@ All 22 cases are **Required** by `mvp.md` v0.3. The implementation priority is a
 | [CU-01](#cu-01) | Consult business information and availability | Customer | WhatsApp | Required — §5.1 Bookings, AI; §12 #3, #9 | 4 | **P1** | Entry point of self-service. |
 | [CU-07](#cu-07) | Consult the requester's future bookings | Customer | WhatsApp | Required — §5.1 Bookings; §12 #7 | 4 | **P1** | Needed for customer cancel/reschedule. |
 | [CU-14](#cu-14) | Take over and return a conversation | Staff/Admin | CRM / direct WhatsApp | Required — CRM takeover (§12 #13); Could — direct WhatsApp detection | 4 | **P1** | Safety net when the AI cannot resolve. |
-| [CU-19](#cu-19) | Grant or revoke reminder consent | Customer | WhatsApp | Required — §8.3; §12 #12 | 4 | **P1** | CU-16 reminders require it; waitlist notices use independent CU-05 opt-in. |
+| [CU-19](#cu-19) | Manage independent notice preferences in one question | Customer | WhatsApp | Required — §8.3; §12 #12 | 4 | **P1** | Reusable preferences gate both notice kinds independently; CU-05 records voluntary specific interest. |
 | [CU-16](#cu-16) | Send a consented reminder or waitlist notice | System | WhatsApp | Required — §5.1 Notifications; §12 #12 | 4 | **P1** (reminder) · **P2** (waitlist notice) | Reminder is core; the waitlist notice follows CU-06. |
 | [CU-04](#cu-04) | Create bookings for other attendees | Customer requester; Staff/Admin | WhatsApp / CRM | Required — §5.1 Customers; §12 #7, #10 | 1 (data) → 4 | **P2** | Extends CU-02/CU-03; its data is needed from P0. |
 | [CU-12](#cu-12) | Manage customer incidents and restrictions | Staff/Admin | CRM | Required — §5.1 Customers; §12 #10 | 3 | **P2** | Needs no-show history from CU-10. |
 | [CU-13](#cu-13) | Open and close the shared cash register | Admin / permitted personnel | CRM | Required — §5.1 Cash register; §12 #11; Could — automatic opening | 3 | **P1** | Cash collection in CU-11 requires an open session. |
 | [CU-05](#cu-05) | Join a voluntary waitlist | Customer | WhatsApp | Required — §5.1 Waitlist; §12 #9 | 3 → 4 | **P2** | Prerequisite for eligible offers in CU-06. |
-| [CU-06](#cu-06) | Receive and accept an exclusive slot offer | System; Customer responds | WhatsApp | Required — §5.1 Waitlist; §12 #6, #9 | 3 → 4 | **P2** | Feature last; its occupancy must be considered in the model from P0. |
+| [CU-06](#cu-06) | Receive invitation and claim a slot | System; Customer responds | WhatsApp | Required — §5.1 Waitlist; §12 #6, #9 | 3 → 4 | **P2** | Progressive/broadcast races require a single atomic winner; initial priority has distinct occupancy. |
 
 Cash requires an open session; verified transfers do not. Priorities remain proposals for team review.
 
@@ -185,9 +185,9 @@ flowchart TD
     CU21 --> CU10[CU-10 Complete / no-show]
     CU10 --> CU12[CU-12 Incidents and restrictions]
     CU13[CU-13 Cash register] -->|cash collection only| CU11
-    CU19 -->|reminders only| CU16[CU-16 Notices]
+    CU19 -->|independent reminder or waitlist preference| CU16[CU-16 Notices]
     CU01 --> CU05[CU-05 Join waitlist]
-    CU05 --> CU06[CU-06 Exclusive offer]
+    CU05 --> CU06[CU-06 Waitlist invitation]
     CU16 -->|notice capability, not reminder consent| CU06
 ```
 
@@ -200,8 +200,8 @@ flowchart TD
 | CU-07 → CU-08, CU-09 (WhatsApp) | The customer can act only on bookings the system shows as theirs. From the CRM, the agenda (CU-21) is the entry point. |
 | CU-10 → CU-12 | The internal indicator derives from the requester's current no-show bookings. |
 | CU-13 → CU-11 | Only cash collection requires an open cash session. |
-| CU-19 → CU-16 (reminders only) | A reminder needs recorded, unrevoked reminder consent. |
-| CU-05, CU-16 → CU-06 | An offer needs its own waitlist opt-in and notice capability, not reminder consent. |
+| CU-19 → CU-16 (scope-specific) | One combined question stores independent reusable reminder/waitlist preferences. Reminder consent is never a prerequisite for a waitlist notice. |
+| CU-05, CU-16 → CU-06 | Specific voluntary interest, current waitlist preference and notice capability; no second consent prompt. |
 
 ### 4.2 Triggering Events
 
@@ -214,7 +214,7 @@ These are runtime chains, not dependencies. Some of them loop (a released slot b
 | An offer is created | CU-06 step 2 | Notice in CU-16 |
 | An offer is accepted | CU-06 step 4 | CU-02 step 3 or CU-03 step 3 |
 | A HOLD deadline is reached | CU-02, CU-03, CU-06 | CU-22 |
-| A booking is confirmed or moved | CU-02, CU-03, CU-09 | Reminder scheduling for CU-16; consent request in CU-19 if never asked *(proposal)* |
+| A booking is confirmed or moved | CU-02, CU-03, CU-09 | State-aware notice/reminder scheduling; first four-option preference question if no recorded choice, no repeated prompts |
 | No acceptable slot, or a fixed time | CU-01 A2/A3 | CU-05 |
 | The AI cannot resolve, a tool fails, or a human is requested | Any WhatsApp case | CU-14 |
 | A no-show is recorded or corrected | CU-10 | Label recalculated, visible in CU-12 |
@@ -245,7 +245,7 @@ Only **sub-features** are listed: dropping a whole case would break an `mvp.md` 
 2. CU-13 — automatic cash opening (manual opening stays).
 3. CU-15 — the "today overview" (the agenda in CU-21 stays).
 4. CU-04 — several attendees in one conversation (one attendee per request stays).
-5. CU-06 — retries after a failed waitlist notice (moving to the next requester stays).
+5. CU-06 — any proposed cut to the agreed one failed-send retry requires a new product decision; it is not an implicit optional behavior.
 
 ## 6. Functional Specifications
 
@@ -267,7 +267,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 #### Main Flow
 1. The customer writes one or more messages; they are grouped as described in UC-01 before the AI replies.
 2. The AI identifies service or resource, day and time, and asks only for missing details.
-3. The system queries live availability, in the tenant's timezone, for the named resource or any compatible one.
+3. Query actual availability in tenant timezone. Any-resource assignment uses the tenant's active preference-order or rotation mode; apply configured booking lead time (default 0), never past-start slots.
 4. The AI presents the options with price, duration and the applicable conditions, all taken from configuration.
 5. The customer selects a concrete slot; the flow continues in [CU-02](#cu-02) or [CU-03](#cu-03). The backend, not the AI, decides whether a deposit applies.
 
@@ -286,7 +286,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 - Matrix row "View catalog and availability". Restrictions apply only when booking.
 
 #### Open Questions
-- How the resource is assigned when the customer accepts "any compatible one" — *pending (UC-03)*.
+- Only the physical concurrent implementation of resource rotation remains technical design; the two configurable modes are agreed (BR-DISP-05).
 
 ---
 
@@ -306,14 +306,14 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 2. The system creates the exclusive **10-minute HOLD**.
 3. The AI shows the summary (service/resource, attendee, date/time, price, cancellation notice) and asks for explicit confirmation.
 4. The customer confirms before the HOLD expires.
-5. The booking is confirmed and the customer notified. If reminder consent was never asked, [CU-19](#cu-19) follows *(proposal)*.
+5. Confirm and notify; if no recorded preferences, ask the optional four-option question in [CU-19](#cu-19). Never re-prompt recorded refusal/choices. CRM confirmation is transactional, not reminder consent.
 
 #### Alternatives and Exceptions
 - **A1 — Concurrent conflict:** At step 2, if the slot was taken by another booking, HOLD or offer, no HOLD is created and the AI returns to CU-01 A2.
 - **A2 — No confirmation in time:** At step 4, [CU-22](#cu-22) expires the HOLD.
 - **A3 — Customer declines:** At step 4, the HOLD is released at once and [CU-06](#cu-06) may start *(proposal: recorded as a customer cancellation)*.
 - **A4 — Full prepayment restriction:** At step 1, the flow switches to [CU-03](#cu-03) with a 100% requirement.
-- **A5 — Blocked customer:** At step 1, the booking is declined without revealing the internal label; human contact is offered.
+- **A5 — Blocked customer:** WhatsApp creation is denied without exposing the internal label. CRM personnel with booking-creation permission may create an exceptional booking after an internal warning; record actor/exception and leave restriction active. No extra exception permission or unblock step; other policies still apply.
 - **A6 — Future-booking limit reached:** At step 1, the booking is declined and the limit explained.
 - **A7 — CRM walk-in:** Staff/Admin enter name (required), phone (optional), service, resource, date and time. The same occupancy check runs and the booking is confirmed directly, without a HOLD, with origin CRM. If the backend determines that a deposit is required, the booking follows the [CU-03 CRM flow](#cu-03-crm).
 - **A8 — Booking for someone else:** At step 1, see [CU-04](#cu-04).
@@ -328,7 +328,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 - Matrix row "Book outside regular hours (CRM)": the applicable tenant-role capability and authorized availability (A9).
 
 #### Open Questions
-- Whether Staff can book in the CRM for a `BLOCKED` customer without lifting the restriction — *pending (UC-03)*.
+- P-16 is resolved by A5, not deferred.
 
 ---
 
@@ -346,11 +346,11 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 #### Main Flow (WhatsApp)
 1. The backend validates as in CU-02 step 1 and computes the required deposit.
 2. The system creates the exclusive **10-minute HOLD**.
-3. Before any transfer, the AI shows price, deposit, alias and holder, and the cancellation and forfeiture conditions.
-4. The customer transfers and sends the receipt **before the HOLD expires**.
+3. After HOLD acquisition, show price, required deposit, modality-selected receiver/account and cancellation conditions. Never request a transfer merely for a waitlist invitation; freeze issued instructions.
+4. Request PDF/image evidence before HOLD expiry; only on explicit inability to attach it accept transfer details by text within that same deadline. No AI interpretation verifies funds.
 5. The receipt is attached as a transfer pending review; the booking moves to `PENDING_PAYMENT_REVIEW`, stays blocked with no review timeout, appears in the CRM review queue, and the customer is told that confirmation follows verification.
 6. Staff/Admin check the actual credit in the bank/wallet account ([CU-11](#cu-11)).
-7. On approval of the `PaymentReview`, record the verified `Payment` with verifier and time. Authorized personnel then explicitly manually allocate funds to the booking's charge to meet the required deposit threshold, confirm the booking and notify the customer. Verification alone does not reduce the charge balance or confirm the booking.
+7. Record verified Payment, actor and time, then explicit manual allocation. Confirm only at the required threshold. If insufficient, preserve occupied/unconfirmed partial-deposit waiting without automatic release; show missing amount/contact action and allow completion through more payments.
 
 <a id="cu-03-crm"></a>
 #### Main Flow (CRM)
@@ -359,7 +359,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 1. From the agenda ([CU-21](#cu-21)), Staff/Admin enter the booking as in CU-02 A7; the backend validates as in CU-02 step 1 and computes the required deposit.
 2. The result depends on what the customer has provided, recorded through [CU-11](#cu-11):
-   - **a. Cash received in an open session, or a transfer whose credit the employee verified in the account:** record the verified payment; authorized personnel explicitly manually allocate it to the booking's charge to meet the required deposit threshold, then confirm directly. Verification alone does not reduce the charge balance.
+   - **a. Verified cash/transfer:** record funds and manual allocations; threshold met confirms directly, insufficient verified deposit retains an occupied/unconfirmed booking without automatic timeout. Cash requires an open session.
    - **b. A transfer receipt not yet verified:** the receipt is recorded as pending; the booking enters `PENDING_PAYMENT_REVIEW` and blocks the slot until human review, continuing at step 6 of the WhatsApp flow.
    - **c. No payment and no receipt:** the booking is not confirmed and does not occupy the slot. Only an Admin may authorize the exception and confirm it without the deposit. The booking records that no deposit was paid and the outstanding balance, so the full price is still collected; a reason is optional.
 3. The occupancy check runs when the booking is created; the booking has origin CRM.
@@ -367,13 +367,13 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Alternatives and Exceptions
 - **A1 — No receipt in time:** At step 4, [CU-22](#cu-22) expires the HOLD.
 - **A2 — Receipt after expiry:** At step 4, the booking is not reactivated; the receipt becomes a financial incident (CU-11 A8) and the customer is told the slot was released.
-- **A3 — Initial evidence rejected:** First human rejection notifies the customer and retains occupancy for 15 minutes for new evidence or valid staff resolution. Timely new evidence creates a new review and suspends cancellation while pending. A second human rejection of distinct evidence cancels and releases immediately if not started, notifying customer and staff; expiration without valid resolution also cancels atomically. Once started, escalate manually without cancellation or public release. Technical duplicates do not count. Preserve verified partial payments. Supplemental rescheduling deposits are excluded ([CU-09](#cu-09)).
+- **A3 — Initial evidence rejected:** With no verified partial deposit, first rejection opens 15-minute correction; pending distinct review suspends timeout. Second distinct rejection/expiry may cancel only before start after atomic current-state/funds/review checks. Verified partial funds instead retain occupied/unconfirmed capacity for manual handling; started slots and supplemental reschedule collection also never auto-release. Technical duplicates do not count. See BR-SEN-10–11.
 - **A4 — Unreadable or non-receipt attachment:** At step 5, the AI asks again; the HOLD deadline does not change *(proposal)*.
-- **A5 — Amount below the required deposit:** At step 6, Staff/Admin decide — *pending (UC-03)*.
+- **A5 — Amount below required deposit:** Retain verified funds/occupied unconfirmed slot, allow additional payments, show missing amount. No automatic missing-remainder or rejected-subsequent-evidence release. Personnel may release manually under applicable permission/policy; explicitly confirmed authorized customer cancellation releases via CU-08.
 - **A6 — Full prepayment:** Same flow with 100% of the price.
 - **A7 — Customer withdraws:** At steps 3–4, the customer may cancel the HOLD with nothing to forfeit *(proposal)*.
 - **A8 — CRM, slot taken:** At CRM step 3, if the booking would overlap an occupying booking, HOLD or offer, nothing is created.
-- **A9 — CRM, amount below the required deposit:** At CRM step 2, as in A5 — *pending (UC-03)*.
+- **A9 — CRM, amount below required deposit:** Same as A5, without conversational HOLD.
 
 #### Outcome / Postconditions
 - **Success:** A confirmed booking with a verified deposit linked to it or, from the CRM by Admin exception, without it, recording that no deposit was paid and the outstanding balance.
@@ -384,8 +384,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Authorize exceptions to commercial policies": Admin only, to confirm a CRM booking without its required deposit (CRM step 2c).
 
 #### Open Questions
-- Started appointments require manual handling without automatic cancellation or public release (F-018). Customer withdrawal during pending review and safeguards against abuse of indefinite review remain *pending (UC-03 P-24)*.
-- Deposit evidence without an image — *pending (UC-03)*.
+- Additional abuse controls beyond human supervision remain open in P-24. Text fallback, partial money protection and cancellation independent of review are resolved; do not infer a new timeout.
 
 ---
 
@@ -419,8 +418,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Create bookings for oneself or others"; [authorization invariant 1](../uc-01/actors.md#authorization-invariants).
 
 #### Open Questions
-- How bookings for third parties count toward the future-booking limit — *pending (UC-03)*.
-- Minimum attendee data — *pending (UC-03)*. A third party's no-show counts against the requester.
+- Resolved: attendee name only mandatory, no separate phone/account; each future occupying booking counts against the requester/tenant limit if enabled, including third parties.
 
 ---
 
@@ -438,7 +436,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Main Flow
 1. The AI offers alternatives, unless the time is non-negotiable.
 2. The AI offers the waitlist and explains that it neither reserves nor guarantees a slot.
-3. The customer opts in independently of reminder consent; requested times, arrival time and optional resource are recorded. A specified resource must belong to the tenant and support the service; otherwise any compatible resource is eligible.
+3. Record explicit interest, requested range, arrival and optional compatible resource; reuse current waitlist preference. If unknown, use CU-19's combined question rather than a second prompt; reminder preference does not authorize waitlist notices.
 4. The AI confirms the registration.
 
 #### Alternatives and Exceptions
@@ -452,15 +450,15 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Failure:** Nothing is recorded.
 
 #### Authorization
-- Matrix row "Join waitlist / receive exclusive offer".
+- Matrix row "Join waitlist / receive invitation".
 
 #### Open Questions
-- Waitlist expiry, queue limits and repeated offers — *pending (UC-03)*.
+- Expire when requested range has no future slots; close on fulfilled booking/customer withdrawal, not unanswered/failed delivery. Queue-size caps and physical release-round/restart details remain unspecified (P-19), not expiry/retry rules.
 
 ---
 
 <a id="cu-06"></a>
-### CU-06 — Receive and Accept an Exclusive Slot Offer
+### CU-06 — Receive a Waitlist Invitation and Claim a Slot
 
 **UC-01:** [summary and diagram](../uc-01/flows.md#cu-06) · **Priority:** P2 *(proposal)*
 
@@ -471,28 +469,28 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Preconditions:** The slot is still free; an eligible opted-in entry exists with valid consent; the channel is enabled.
 
 #### Main Flow
-1. The system selects the first eligible entry in arrival order.
-2. The system protects the slot with an exclusive **5-minute offer** for that requester.
-3. A notice with the expiry time is sent through [CU-16](#cu-16).
-4. The customer accepts within 5 minutes.
-5. Atomically close the offer's claim and create a distinct claim for a new booking in a **10-minute HOLD**, linking offer and booking; continue at CU-02 step 3 or CU-03 step 3. Claims never change ownership or overlap actively.
+1. Determine eligible people for the released slot and selected mode: 1–4 progressive, 5+ simultaneous.
+2. Progressive: first gets an exclusive five-minute claim, then invite another every five minutes while earlier recipients remain eligible; later invitees get no exclusive window. Simultaneous: notify all without any invitation-owned occupancy claim.
+3. CU-16 sends audience-appropriate wording from UC-01, making competition explicit and prohibiting transfer before HOLD acquisition. A notice is not a booking guarantee.
+4. A notified customer claims, including after their original priority. Atomically recheck current eligibility, limits, future start and all protected occupancy; first successful transaction wins, not first incoming timestamp.
+5. Close any initial exclusive-priority claim and create one distinct booking-owned ten-minute HOLD, linking the winning invitation to the booking. Only the winner receives payment instructions; continue CU-02/03. Never mutate claim ownership or create multiple winning HOLDs.
 
 #### Alternatives and Exceptions
-- **A1 — Declined, no reply or expired:** At step 4, the offer ends and the next eligible entry is tried; if none remains, the slot returns to general availability.
+- **A1 — No reply / priority ends:** Initial exclusive claim ends; progressive invitations expand every five minutes without removing earlier recipients. Outside initial priority, invitations create no occupancy and do not freeze public availability. No arbitrary three-offer cap; do not invite for past-start slots.
 - **A2 — No eligible entry:** At step 1, nothing is held.
-- **A3 — Notice fails:** At step 3, the offer never blocks the slot indefinitely; the system moves on or releases.
+- **A3 — Notice fails:** Confirmed failure gets one still-valid retry; second failure advances without deleting the recipient entry, extending priority or creating another invitation. Unknown outcome is reconciled or flagged in CRM without automatic resend. No indefinite blocking.
 - **A4 — Requester no longer eligible:** At step 1, an entry whose requester became `BLOCKED` or reached the future-booking limit is skipped *(proposal)*.
 - **A5 — Accepted but not completed:** After step 5, [CU-22](#cu-22) may expire the HOLD, and this case may start again.
 
 #### Outcome / Postconditions
-- **Success:** One protected chance that becomes a HOLD; acceptance is not a confirmation and an offer is never renewed.
-- **Failure:** The slot goes to the next requester or back to general availability.
+- **Success:** Exactly one winning HOLD, not confirmed booking; only winner receives payment instructions.
+- **Failure:** Explain the taken slot and offer alternatives/continued waiting; previously invited customers can still claim a free valid slot. Expired booking HOLDs are never revived.
 
 #### Authorization
 - System-initiated; the customer acts only on their own offer.
 
 #### Open Questions
-- Retries and queue advance after a failed notice — *pending (UC-03)*.
+- Exact storage/concurrency of cohorts, progressive rounds and historical invitation validity remains ERD T-01/T-05. Behavior, thresholds and confirmed-failure retry are agreed.
 
 ---
 
@@ -535,14 +533,14 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Participants:** AI agent; Admin (exceptions).
 - **Channel:** WhatsApp / CRM.
 - **Trigger:** A cancellation is requested.
-- **Preconditions:** An active booking (held, under payment review or confirmed) *(proposal: which of these can be cancelled is pending (UC-03))*.
+- **Preconditions:** Authorized active booking, including pending review/partial-deposit waiting. Existing HOLD withdrawal remains separately marked as a proposal in CU-02; current policies/permissions apply.
 
 #### Main Flow (WhatsApp)
 1. The AI resolves the booking among those managed by the sender number ([CU-07](#cu-07)).
 2. The backend checks ownership and minimum notice, including service/resource overrides.
-3. If a verified deposit exists, the AI warns that it will be forfeited and offers [CU-09](#cu-09).
-4. The customer explicitly confirms.
-5. The booking is cancelled, the slot released, its reminders voided, the customer notified, and [CU-06](#cu-06) may start.
+3. Explain cancellation conditions, without automatic forfeiture/refund. Financial review is separate from release; offer rescheduling/verified credit without requiring it to finish first.
+4. Ask explicit confirmation to cancel and release the slot.
+5. Cancel/release immediately once authorized and confirmed, void old reminders, notify customer and consider CU-06. Continue outstanding review independently; verified funds may be manually credited to another booking or resolved by personnel/Admin refund. No late credit recovers the slot.
 
 #### Alternatives and Exceptions
 - **A1 — Outside the notice window:** At step 2, the AI declines and explains; only an Admin can approve an audited exception from the CRM.
@@ -550,7 +548,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A3 — Customer does not confirm:** At step 4, the booking is unchanged or the customer chooses CU-09.
 - **A4 — HOLD not yet paid:** At step 3, there is nothing to forfeit.
 - **A5 — CRM, at the customer's request:** Staff/Admin cancel within policy; outside it, only an Admin authorizes (`mvp.md` §6.3.9).
-- **A6 — Business-caused cancellation:** The deposit is not forfeited automatically; any refund is handled manually by an Admin in [CU-11](#cu-11) and the customer is notified.
+- **A6 — Operational business-caused cancellation:** Personnel with cancellation permission may cancel with reason, release and notify/offer another date, even near start. This is not authority to grant customer policy exceptions. Review/refund remains separate/manual; Admin authorizes refunds.
 
 #### Outcome / Postconditions
 - **Success:** An authorized, confirmed cancellation; the slot is released.
@@ -560,8 +558,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix rows "Cancel or reschedule a booking" and "Authorize exceptions to commercial policies".
 
 #### Open Questions
-- How a forfeited deposit appears in cash; legally required refunds — *pending (UC-03)*.
-- Whether a booking under payment review can be cancelled by the customer, and what happens to the receipt — *pending (UC-03)*.
+- Legal refund obligations/definitive retained-funds reporting remain P-07/P-26. Cancellation during review and receipt preservation are resolved above.
 
 ---
 
@@ -591,6 +588,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A4 — Lower deposit or price:** At step 3, retained valid allocations reduce the balance; unallocated verified funds require explicit manual allocation. Nothing is refunded automatically.
 - **A5 — Paid more than the new total:** At step 3, resolved manually by an Admin.
 - **A6 — Declined confirmation or concurrent conflict:** Before the move, the original booking stays intact.
+- **A7 — Professional changes after deposit:** Preserve client credit and original receiving account history; charge only the remaining amount under the booking's modality. Business/professionals compensate manually, never block an otherwise valid move, auto-refund/transfer or charge the deposit twice.
 
 #### Outcome / Postconditions
 - **Success:** New conditions, an accurate balance and preserved payments.
@@ -608,8 +606,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 - **Primary actor:** Staff/Admin.
 - **Channel:** CRM.
-- **Trigger:** After the booked time, personnel record what happened.
-- **Preconditions:** A confirmed booking of the tenant *(proposal: only after its start time; pending (UC-03))*.
+- **Trigger:** Personnel record/correct actual attendance.
+- **Preconditions:** Tenant booking; manual completion from start, no-show from start + 15 minutes; applicable record/correction permission.
 
 #### Main Flow
 1. From the agenda ([CU-21](#cu-21)), the employee picks a quick action: complete, complete and collect (amount prefilled), complete with balance due, or record no-show.
@@ -620,7 +618,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Alternatives and Exceptions
 - **A1 — Completed but unpaid or partly paid:** The debt is kept and visible.
 - **A2 — A third-party attendee was absent:** The booking's `NO_SHOW` counts against its requester; no duplicate no-show incident is created.
-- **A3 — Erroneous no-show:** Corrected to completed with audit; the count is recalculated.
+- **A3 — Erroneous outcome:** Correct NO_SHOW ↔ COMPLETED with permission, mandatory reason, actor/time/prior/new state and destination timing guard. Recalculate count without automatically changing money or displacing a reused walk-in.
 - **A4 — Valid cancellation or expired HOLD:** Never recorded as a no-show.
 - **A5 — Early completion or no-show:** Leftover time is not exposed publicly or to waitlist. Personnel with booking permission may explicitly create a CRM walk-in (name required, phone optional), atomically adjusting prior occupancy and creating the new booking without overlap, preserving history. No automatic payment recalculation or refund; later no-show correction cannot displace the walk-in.
 
@@ -632,7 +630,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix rows "Record service/rental completion" and "Record or correct `NO_SHOW`".
 
 #### Open Questions
-- Whether a completed booking can be corrected to a no-show — *pending (UC-03)*.
+- P-05/P-06 are resolved by the timing and bidirectional-correction guards above.
 
 ---
 
@@ -656,7 +654,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Alternatives and Exceptions
 - **A1 — Pending receipt:** The `PaymentReview` from CU-03 step 5 (WhatsApp) or CRM step 2b is approved after human credit verification (CU-03 step 7) or rejected (CU-03 A3). Approval can link one verified `Payment`; explicit manual allocation is still required to reduce the charge balance and meet the confirmation threshold.
 - **A2 — Payment without an image:** Cash or a bank-verified transfer can be recorded with no attachment.
-- **A3 — Correction during an open cash session:** Physical-cash corrections require the applicable role permission and append audited history, preserving the immutable original payment. Transfers require no cash session; their technical ledger-correction mechanism and other non-cash-session corrections remain pending in UC-03 P-26.
+- **A3 — Recording error:** Correction-capable personnel append mandatory reason/actor/time and linked immutable financial history, recomputing funds/valid allocations/debt. No fictitious refund, physical movement for nonexistent funds or automatic reservation cancellation. Transfers require no session; physical-cash correction uses its open session, with post-close Admin boundary in A4. Ledger representation remains T-03, not permission to overwrite originals.
 - **A4 — Correction after the cash close:** For physical-cash corrections only, an Admin appends a separate audited `CashAdjustment`; original payment and closed session are not rewritten. `CashAdjustment` is not a general financial log and `AuditEvent` does not replace a financial ledger.
 - **A5 — Change to an agreed price:** Admin only, with a reason, and customer acceptance if it increases.
 - **A6 — Refund:** Admin authorizes a separate linked `Refund`; only execution reduces retained funds, never exceeding available funds. Cash requires an open session and cash movement; transfer is a bank outflow, not a cash movement. Preserve the original payment and allocation history.
@@ -669,7 +667,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Failure:** The balance does not change.
 
 #### Authorization
-- Matrix rows "Verify bank-transfer receipt", "Record partial or mixed-method payment", "Correct payment while its cash session is open" and "Adjust a transaction after cash close".
+- Matrix rows "Verify bank-transfer receipt", "Record partial or mixed-method payment", "Correct a payment recording error" and "Adjust a transaction after cash close".
 
 #### Open Questions
 - Final resolution of late verified commercial transfers and applicable legal refunds — *pending (UC-03)*.
@@ -690,7 +688,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 1. The CRM counts current `NO_SHOW` bookings by requester, regardless of attendee; `BookingEvent` records changes, and `CustomerIncident` covers other operational incidents only.
 2. From two no-shows, the CRM shows an internal indicator with reason and count.
 3. The employee chooses: continue normally, require 100% advance payment, or block new bookings; actor and reason are recorded.
-4. The backend enforces the restriction and the AI applies it without disclosing the label. Whether Staff can still book a blocked customer in the CRM is *pending (UC-03)*.
+4. Enforce BLOCKED on WhatsApp without exposing labels; booking-capable CRM personnel may create exceptional bookings with warning/actor record without lifting the restriction. FULL_PREPAYMENT and other policies remain applicable.
 
 #### Alternatives and Exceptions
 - **A1 — No decision:** No automatic sanction; the label restricts nothing.
@@ -742,7 +740,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix rows "Open or close the cash register" and "Register cash-in/cash-out with a reason".
 
 #### Open Questions
-- Session boundaries and day changes — *pending (UC-03)*.
+- Midnight does not close a session or block collections; it remains open until manual close, with actual movement timestamps and visible opening time. Reporting cutoffs remain technical design.
 
 ---
 
@@ -794,6 +792,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 2. Personnel with the applicable role permission manage operational hours and blocks; authorized exceptional openings are available to CRM and WhatsApp without overriding explicit blocks or active claims. Non-delegable operations, including commercial exceptions and agreed-price changes, remain Admin-only. Receiving accounts may rotate optionally; each payment instruction retains its selected account. Policy fields resolve Resource > Service > Tenant with explicit inherit, set or disable.
 3. The CRM shows the "today overview" with links to the agenda ([CU-21](#cu-21)) and cash ([CU-13](#cu-13)).
 
+Configuration includes preference-order/resource rotation, booking lead time (default 0), future limit (default disabled), three collection modes (default all professional), professional account/business fallback and sequential business-account rotation. Issued instructions and agreed booking mode/history survive later configuration changes; no automated distribution/commissions.
+
 #### Alternatives and Exceptions
 - **A1 — Unauthorized setting:** Rejected.
 - **A2 — Price change on an agreed booking:** Admin only, with a reason, and customer acceptance if it increases.
@@ -829,18 +829,18 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Alternatives and Exceptions
 - **A1 — No consent, or revoked:** Nothing is sent.
 - **A2 — Booking cancelled, expired or moved:** No reminder for the old slot.
-- **A3 — Delivery failure:** Recorded and retried within limits; booking and payments do not change, and an offer is not blocked indefinitely.
+- **A3 — Confirmed send failure:** One valid retry, then stop/advance eligible waitlist recipient as appropriate. Sent/delivered/read are not failures. An interrupted unknown outcome is recovered by provider correlation where supported, otherwise flagged in CRM without automatic resend; no priority extension or indefinite block. Durable intentions survive restart, with current authorization/validity rechecks.
 - **A4 — Past due at confirmation:** If start minus lead time is at or before confirmation, omit the reminder, without an attempt; confirmation is a separate notice. Rescheduling invalidates the old reminder and only schedules a future one. Calendar rules use the tenant timezone and instants use UTC, including day crossings.
 
 #### Outcome / Postconditions
 - **Success:** At most one logical reminder per booking slot, with its attempts recorded. WhatsApp delivery itself is not guaranteed exactly once.
-- **Failure:** Nothing is sent; the reason is recorded.
+- **Failure/uncertainty:** Record confirmed failure or unknown outcome distinctly; unknown does not assert nothing was sent and never triggers blind resend.
 
 #### Authorization
 - System-initiated, within the consent recorded by the customer.
 
 #### Open Questions
-- Retry policy for failed notices — *pending (UC-03)*.
+- Retry/uncertainty policy is agreed; provider status-recovery/deduplication capabilities remain unvalidated. Retain technical attempt details 90 days, then purge those details while preserving the final notice result; other data retention is separate.
 
 ---
 
@@ -910,26 +910,26 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 ---
 
 <a id="cu-19"></a>
-### CU-19 — Grant or Revoke Reminder Consent
+### CU-19 — Manage Reminder and Waitlist Preferences
 
 **Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P1 *(proposal)*
 
 - **Primary actor:** Customer.
 - **Participants:** AI agent.
 - **Channel:** WhatsApp.
-- **Trigger:** A booking was confirmed and consent was never asked *(proposal)*; or the customer asks to stop reminders.
+- **Trigger:** First booking confirmation (or first waitlist flow) without recorded preferences, or a customer chat request to change them. Existing choices/refusal are not prompted again per operation.
 - **Preconditions:** Requester identified in the tenant.
 
 #### Main Flow
-1. The AI asks whether the customer wants a reminder; consent is never presumed.
-2. The customer answers.
-3. Reminder consent is stored on the customer, independent of waitlist consent. Grant and audit are recorded transactionally with time, channel, scope and actor.
-4. Revocation and its audit are recorded transactionally; queued reminders are not sent. Only consent grants and revocations are audited as consent events, not each message or retry.
+1. Ask the single Spanish question defined in BR-NOT-09, explaining that preferences can change anytime in chat.
+2. Offer “Sí, ambos”, “Solo recordatorios de turnos”, “Solo lista de espera” and “No recibir avisos”. This does not block booking.
+3. Persist separate customer reminder/waitlist preferences, including refusal, with scope-specific transactional grant/revocation audit. Reuse for subsequent bookings/enrollments without asking twice; specific waitlist conditions still require voluntary enrollment.
+4. Chat preference changes gate queued notices and active entries immediately. Entry provenance does not override current revocation; no per-message/retry consent audit.
 
 #### Alternatives and Exceptions
 - **A1 — No answer:** Treated as no consent.
 - **A2 — Phone known but no consent:** No reminders; having a number is not consent.
-- **A3 — Waitlist notices:** They use the separate consent of [CU-05](#cu-05).
+- **A3 — Waitlist notices:** Use the independent waitlist choice from the same answer plus CU-05's specific enrollment, never reminder consent or another repeated question.
 - **A4 — Consent stated in person:** Staff record it in the CRM *(proposal)*.
 
 #### Outcome / Postconditions
@@ -937,7 +937,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Failure:** No reminders are sent.
 
 #### Open Questions
-- The exact moment consent is requested — *pending (UC-03)*.
+- Timing/question are agreed; recording in-person consent through CRM remains a proposal. Physical preference/provenance representation stays within the existing 38 entities (ERD T-05).
 
 ---
 
@@ -1011,7 +1011,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 #### Main Flow
 1. At the deadline, the job checks the current state of the booking.
-2. If it is still a HOLD with no confirmation and no receipt, it becomes `EXPIRED` and the slot is released.
+2. If still an unconfirmed HOLD with no timely evidence and no verified partial deposit, it becomes EXPIRED and releases. Recheck current state/funds atomically; verified partial waiting uses BR-SEN-11 instead, never auto-release.
 3. The customer is notified, best effort.
 4. [CU-06](#cu-06) may start for the released slot.
 

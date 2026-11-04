@@ -7,7 +7,7 @@ This catalog distinguishes proposed technical direction from the [observable arc
 | [Architecture proposal](./target-architecture.md) | Component boundaries, transactional safeguards, tenant isolation, integrations and operational/testing direction | v1.2; reconciled proposal, team review pending, not implemented |
 | [DOM-01 conceptual ERD](./erd.md) | 38 candidate entities, relationships, occupancy/financial invariants and remaining technical choices | In Review; product-owner reconciliation 2026-11-04, team ratification and implementation pending; included in this versioned documentation change |
 
-The [2026-11-04 product-owner handoff](../../agendoxa_audit_handoff.md) is reconciliation provenance, not collective team approval. Business decisions are maintained in [UC-03](../product-specs/uc-03/business-rules.md), not in a competing technical specification. No approved schema or historical ADR collection is implied.
+The [2026-11-04 handoff](../../agendoxa_audit_handoff.md) is historical provenance; later product-owner agreements now in [UC-03](../product-specs/uc-03/business-rules.md) supersede incompatible portions. ERD registers separate agreed behavior from pending physical/provider validation. Neither this reconciliation nor independent review is collective approval, an approved schema or implementation.
 
 ## Reading the proposal safely
 

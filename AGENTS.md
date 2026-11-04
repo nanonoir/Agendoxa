@@ -16,7 +16,7 @@ Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. It is 
 | How should implementation plans be maintained? | [ExecPlan conventions](docs/PLANS.md) |
 | What unresolved technical debt is recorded? | [Debt tracker](docs/exec-plans/tech-debt-tracker.md) |
 
-Existing product and target-architecture documents remain proposals/in review. The 2026-11-04 product-owner handoff reconciles incompatible earlier UC-01/DOM-01 proposals; canonical business rules and unresolved product questions are in UC-03, with complementary actors, flows, cases, invariants and conceptual design under their indexes. Product-owner agreement is not collective team approval or implemented behavior. Do not treat an illustrative tree or conceptual state label as a physical schema.
+Existing product and target-architecture documents remain proposals/in review. The 2026-11-04 handoff is historical provenance; later product-owner agreements in canonical UC-03 supersede incompatible portions (progressive/broadcast invitations, partial-deposit protection, reusable consent choices and professional/business collection modes). Current rules/unresolved questions are in UC-03, with complementary sources under their indexes. Product-owner agreement is not collective approval or implementation; illustrative trees/conceptual labels are not physical schema.
 
 ## Operational stack and roots
 

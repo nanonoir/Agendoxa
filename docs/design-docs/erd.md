@@ -11,7 +11,7 @@
 
 This file is intended to live at **`docs/design-docs/erd.md`** in the Agendoxa repository.
 
-1. Treat this as a **design proposal and review input**, not permission to generate persistence code. The [2026-11-04 handoff](../../agendoxa_audit_handoff.md) supersedes incompatible earlier proposals for this iteration; its decisions are reconciled in the canonical [UC-03 rules](../product-specs/uc-03/business-rules.md). Product-owner agreement and inferred technical representations remain distinct from collective team ratification.
+1. Treat this as a design proposal, not permission to generate persistence code. The historical [handoff](../../agendoxa_audit_handoff.md) and later 2026-11-04 agreements are reconciled in [canonical UC-03 rules](../product-specs/uc-03/business-rules.md); later rules override incompatible handoff portions. Product-owner agreement and inferred technical representations are not collective team ratification.
 2. Consult the existing product references: [MVP](../product-specs/mvp.md), [UC-01 actors](../product-specs/uc-01/actors.md), [UC-01 flows](../product-specs/uc-01/flows.md), [UC-02 use cases](../product-specs/uc-02/use-cases.md), [UC-03 business rules](../product-specs/uc-03/business-rules.md), and [UC-03 invariants](../product-specs/uc-03/invariants.md). Each source has its own declared approval status.
 3. Read the [target architecture](./target-architecture.md), the [current implementation architecture](../../ARCHITECTURE.md), and [AGENTS.md](../../AGENTS.md). The present implementation is a starter; PostgreSQL/Drizzle persistence and queues are not implemented yet.
 4. `DM-XX` marks a **DOM-01 design proposal**; `REV-XX` preserves reconciliation and review history. Product-owner agreement is not team ratification. Preserve these identifiers in PR discussions.
@@ -42,9 +42,9 @@ This file is intended to live at **`docs/design-docs/erd.md`** in the Agendoxa r
 | Bookings (4) | `BookingChangeRequest` | Change proposal, pending authorization, application history and financial consequence |
 | Bookings (4) | `BookingEvent` | Functional booking history, separate from administrative audit |
 | Waitlist (4) | `WaitlistEntry` | Voluntary waiting interest and explicit waitlist consent |
-| Waitlist (4) | `ExclusiveOffer` | Five-minute exclusive offer for an eligible waitlist entry |
+| Waitlist (4) | `ExclusiveOffer` | Legacy conceptual name for a recipient invitation; only first small-cohort priority has an exclusive claim |
 | Payments (5) | `Charge` | Amount owed by a booking, separate from money received |
-| Payments (5) | `ReceivingAccount` | Tenant bank/wallet account or transfer alias |
+| Payments (5) | `ReceivingAccount` | Same-tenant business or professional bank/wallet destination, with explicit beneficiary |
 | Payments (5) | `PaymentReview` | Human review of transfer evidence / claimed transfer |
 | Payments (5) | `Payment` | Verified funds of a traceable commercial operation, possibly unallocated |
 | Payments (5) | `PaymentAllocation` | Applies part or all of a payment to one or more charges |
@@ -135,26 +135,30 @@ erDiagram
   CUSTOMER ||--o{ WAITLIST_ENTRY : joins
   SERVICE ||--o{ WAITLIST_ENTRY : awaits
   WAITLIST_ENTRY ||--o{ EXCLUSIVE_OFFER : receives
-  EXCLUSIVE_OFFER o|--|| SLOT_CLAIM : protects
+  EXCLUSIVE_OFFER o|--o| SLOT_CLAIM : initial_priority_only
   RESOURCE o|--o{ WAITLIST_ENTRY : preferred_for
   EXCLUSIVE_OFFER o|--o| BOOKING : converts_to
 ```
 
 - `SlotClaim` is the **single authority** for occupancy. Each claim belongs to exactly one booking XOR one offer, and one resource. An ordinary booking has at most one active claim; an early-terminal booking may instead retain multiple nonoverlapping private remainder fragments (**DM-07**).
-- The diagram represents a booking with **zero or more historical claims** and an offer with exactly one slot claim; conditional constraints guarantee that an occupying booking has its required claim and that claims cannot have two owners. Final database semantics come in Step 3.
-- `ExclusiveOffer` creates a five-minute claim. Acceptance atomically closes that historical offer-owned claim and creates a distinct booking-owned ten-minute `HOLD` claim; the offer links to zero or one resulting booking (**DM-08**).
+- Bookings have zero or more historical claims. An invitation has zero or one priority claim, required only for the first exclusive five-minute window in a small cohort. Conditional constraints enforce occupying bookings' claims and owner XOR; no competing claims for other invitees. Final database semantics remain Step 3.
+- **DM-08, updated:** For 1–4 eligible people, first priority creates a five-minute offer claim; then invite another every five minutes while previous recipients remain eligible. For 5+, notify simultaneously without exclusive claims. `ExclusiveOffer` is retained as a legacy name, not a promise that every invitation is exclusive. Winning a valid claim atomically closes any initial priority claim and creates one distinct ten-minute booking HOLD; only then issue transfer instructions. Each invitation links to at most one resulting booking. Late priority expiry never releases a newer HOLD.
+- Persist audience, initial priority deadline versus final claim validity, progressive schedule and shared release/round correlation using existing records, not parallel exclusive claims or a new entity. Exact representation/concurrency remains **T-01/T-05**. Only initial priority blocks ordinary availability; later invitations do not freeze it, and all channels share atomic occupancy checks. Cohort changes/round restarts require validation before implementation, not defaults inferred from a diagram.
 - In the WhatsApp channel, a concrete slot selection starts a ten-minute `HOLD`. Without a deposit, explicit confirmation during the hold confirms the booking. With a deposit, timely receipt submission enters human payment review; the slot stays occupied with **no automatic payment-review timeout**. Evidence never establishes verified funds by itself.
 - A pending authorization in `BookingChangeRequest` **does not lock the destination**; recheck it on approval. With an already verified partial deposit and an allowed move, atomically move the confirmed booking and release the old slot, preserving allocations; request the difference afterward. The destination is `CONFIRMED`, not a HOLD or pending review, and nonpayment is managed manually without automatic cancellation (**DM-09**; [rescheduling](../product-specs/uc-03/business-rules.md#8-cancellation-and-rescheduling-can)).
 - `BookingEvent` records booking lifecycle history; `AuditEvent` records sensitive administrative decisions. Some actions may generate both without making the entities interchangeable.
-- `WaitlistEntry` alone never occupies a resource. Its resource preference is optional: if present it must belong to the tenant and support the service; otherwise any compatible resource is eligible. Respect time preferences and arrival order among eligible entries; delayed offer expiry cannot cancel a subsequent HOLD.
+- WaitlistEntry alone never occupies a resource. Optional preferred resource must be compatible/same-tenant; otherwise any compatible resource. Time preferences and current eligibility apply; arrival order controls progressive invitations, not the first successful atomic winner once competition opens. Delayed priority expiry cannot cancel a later HOLD.
 - **Hard invariant:** active claims for the same tenant/resource cannot overlap on `[start, end)`. Early `COMPLETED`/`NO_SHOW` does not expose remaining time to ordinary public queries, WhatsApp or waitlist. Authorized explicit CRM walk-in reuse atomically closes the old claim and creates the walk-in claim plus any private restricted residual fragments, preserving the original full interval and claim history. No restricted fragment is automatically offered; correcting a no-show does not displace the walk-in. This fragment representation is an **inferred technical proposal for review**, not a new product decision; no new entity is required (**REV-07**–**REV-11**, **T-01**).
-- For initial-deposit evidence, first human rejection notifies the customer and starts a private occupied 15-minute window for new evidence or valid staff resolution. Timely new evidence creates a separate pending review and suspends automatic cancellation while pending; a second human rejection of distinct evidence cancels and releases immediately if the turn has not started, notifying customer and staff. Duplicate technical attempts are not distinct rejections. Expiry workers recheck deadline, state and pending review atomically; no rejection automatically restarts the window. Once started, escalate manually without cancellation or public exposure; supplemental deposits after rescheduling do not trigger this cancellation mechanism ([booking lifecycle](../product-specs/uc-03/business-rules.md#7-booking-lifecycle-res)).
+- Initial-evidence rejection without verified partial funds retains the guarded 15-minute/second-distinct-rejection workflow. A verified partial deposit instead keeps occupied/unconfirmed capacity with no automatic missing-remainder/rejection timeout, distinct from a genuinely pending PaymentReview; multiple payments may satisfy the threshold. Workers atomically recheck funds/review/start before releasing. Started/supplemental cases remain manual. Explicit authorized cancellation releases without waiting for financial review/refund and never loses the payment history.
+- Completion is manual from start, no-show from start + 15 minutes; outcome correction is allowed both ways with permission, mandatory reason/history and destination timing guard. Recompute no-show counts, not money, and never displace a reused walk-in. BLOCKED CRM booking exception is available to any booking-capable role with warning/attribution, restriction unchanged; other policy/occupancy checks remain.
+- Entry expires when its range contains no future slot, or closes on fulfilled booking/customer withdrawal; failed/unanswered notices alone do not delete it. No three-offer cap. Invitations never ask to transfer; clearly distinguish first exclusive priority from later/broadcast competition and first successful atomic winner, not incoming-message order.
 
 ### 2.5 Module 5A — Charges, payment reviews, allocations, and receiving accounts
 
 ```mermaid
 erDiagram
   TENANT ||--o{ RECEIVING_ACCOUNT : configures
+  RECEIVING_ACCOUNT o|--o{ RESOURCE : professional_destination
   BOOKING ||--o{ CHARGE : generates
   BOOKING o|--o{ PAYMENT_REVIEW : may_reference
   BOOKING_CHANGE_REQUEST o|--o{ PAYMENT_REVIEW : supplemental_evidence
@@ -173,8 +177,9 @@ erDiagram
 - Origin and allocation are different associations: a payment's known commercial provenance is mandatory even when a specific origin booking or identified payer is optional. Preserve same-tenant booking/customer links when identifiable, verification actor/time, receipt and reason for zero allocations. A supplemental review/charge references its change request; it cannot be applied to a superseded request by accident. Exact origin binding and correction representation are part of **T-03/T-05**, not a new origin entity.
 - Manual allocations may distribute verified funds across charges and bookings of the same tenant, or leave a payment unallocated. Each allocation is capped both by the charge's remaining net debt and the payment's verified, unrefunded, unallocated funds. Charge balance is `max(0, net charge - valid allocations)`. Transactionally coordinate allocations, corrections and pending refunds to prevent overcommitment; preserve correction history and make retries idempotent.
 - `PaymentReview` is pending, approved or rejected human evidence review. Verified cash or transfer in CRM may create `Payment` directly. A review and payment are optionally one-to-one; rejected evidence creates no payment. A screenshot alone is not proof of credit.
-- A tenant can have several bank/wallet receiving accounts, using a default account or **configurable automatic rotation** (**DM-11**). The actual account displayed for a transfer request must be persisted and remain stable if the rotation configuration changes. The precise location of this binding is deferred to Step 3.
-- Rotation is optional; the chosen account on a payment instruction is immutable for that transaction. Its binding and rotation algorithm remain technical review (**T-02**). Late verified commercial payments may remain unallocated, but never reactivate expired bookings (**REV-02**, **REV-03**, **REV-14**; [payments](../product-specs/uc-03/business-rules.md#10-charges-balances-and-payments-cob)).
+- **DM-11, updated:** Tenant collection mode is all professional (default), business deposit/professional remainder, or all business. Professional Resource optionally selects one same-tenant ReceivingAccount without requiring a User/membership. Missing professional account uses a business account; absence of business fallback requires personnel, never another professional or automatic deposit waiver. Account beneficiary/business-pool classification and stage instruction snapshots must be explicit in existing data (**T-02/T-05**).
+- Business-pool selection uses default or configured sequential active-account rotation at instruction issue, not verification; retries reuse the instruction. Preserve booking modality, each issued instruction/actual receiver and original payment histories despite later configuration. No automatic commissions/payouts/distributions. A professional change preserves client credit and only remaining debt is collected; manual internal compensation cannot block an otherwise permitted move (**T-02/T-03**).
+- PDF/image is requested first; text-only evidence is permitted only after explicit inability, with no fabricated attachment and the same evidence deadline. No image/PDF/OCR/text alone proves credit. The original payment remains immutable; recording corrections append permissioned, reasoned financial history and recompute balances without fictional refunds/cash movements or automatic cancellation. Exact ledger mechanism stays **T-03**, not a new entity or an AuditEvent-only ledger.
 - A `Payment` has zero or more independent `Refund` records with amount, method, reason, Admin authorization, execution state, dates and origin/destination trace. Only executed refunds reduce retained funds; never mutate the original amount or create negative payments. Corrections to allocations preserve history. Execution cannot exceed available net funds and must coordinate with pending refunds and allocations (**T-03**).
 
 ### 2.6 Module 5B — Shared cash register
@@ -191,6 +196,7 @@ erDiagram
 - At most one `CashSession` is open per tenant. Cash payments require an open session; configured automatic opening occurs on the first collection, otherwise authorized personnel open it. Opening balance is explicitly declared and audited, reconciled to the previous close where one exists. Closing is authorized, manual and immutable; serialize collection against closure (**REV-04**).
 - `CashMovement` represents physical cash only. An executed cash refund requires an outflow in an open session; transfer refunds are bank outflows without a cash movement. A cash payment and its movement represent the same money, never two incomes; physical balance uses opening cash plus signed movements. Verified transfers do not alter a closed register.
 - `CashAdjustment` is an append-only Admin-only correction of a **closed physical cash session**, with reason, actor and trace to the affected cash movement/payment when applicable (**DM-12**). It is not a general bank-payment correction or a substitute for `Refund`; financial corrections preserve their own payment/allocation history (**T-03**), and `AuditEvent` is not the financial ledger. Later physical movement belongs to an open session.
+- Crossing midnight leaves the same CashSession open until manual close, with original opening time and actual movement timestamps; never block collection or fabricate a daily close. Routing transfers to professionals creates no additional physical register or automatic cash payout.
 
 ### 2.7 Module 6 — WhatsApp, conversations, and messages
 
@@ -227,8 +233,10 @@ erDiagram
 - Enforce tenant-aware asset references, authorized download access, validated MIME/size, and evidence-preserving retention. No permanently public receipt links.
 - Each `Notification` is one logical notice tied to either one booking or one offer (`XOR`), with zero or more `NotificationAttempt` records. Each attempt has time, outcome, error and zero or one `Message`; the inverse message link is optional and at most one attempt. Messages remain in conversations. Proposed `pg-boss` execution retries the same notice, not a new notice or custom job entity (**DM-15**).
 - Customer-facing reminders/offers have exactly one recipient matching the booking requester or waitlist entry, with the applicable consent. The required staff alert after a second initial-evidence rejection is a personnel-facing booking notice, not a message to the customer and not dependent on customer reminder consent; its Customer link is absent. Recipient audience and dispatch route must be distinguishable in existing Notification/Attempt data (**T-05**); the specific staff-alert transport remains technical design. No personnel WhatsApp conversation or new entity is assumed.
-- Reminder consent on `Customer` and waitlist consent on `WaitlistEntry` are independent (**DM-16**). Record only grants and revocations in `AuditEvent`, with date, channel, scope and actor; atomically update state and audit. Do not audit every message or retry. Revocation prevents future sends, including queued ones (**REV-05**).
-- Recheck consent, booking/time and offer expiry immediately before each attempt. If confirmation occurs at or after start minus lead time, record the reminder as skipped with zero attempts; confirmation is separate. Rescheduling invalidates the old reminder and schedules a new one only if timely; cancellation prevents sending. Use tenant timezone for calendar rules and UTC instants. Provider acceptance is not delivery; reconcile uncertain timeouts before retry where possible. Retention is operational and remains unspecified (**T-04**; [notifications](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)).
+- **DM-16, updated:** Customer retains independent reminder and waitlist-notice preferences, including refusal; one optional four-option question collects them at first confirmation or first enrollment without prior preference. Changeable in chat, no repeated prompt per booking/entry. WaitlistEntry retains specific voluntary interest and scoped consent provenance, but current Customer preference overrides any stale grant. Update preference and scoped grant/revocation AuditEvents atomically; no new consent entity and no per-message consent audit. Exact existing-field binding remains **T-05**.
+- Recheck current preference, booking/slot, invitation priority versus claim validity and recipient before dispatch. Reminder omissions/timezone/reschedule rules remain canonical in UC-03; CRM phone/channel bookings also have separate transactional confirmation, not reminder consent.
+- Persist notice/intention before send, recover jobs after outage/crash and correlate outcomes. Confirmed failure gets one still-valid retry; sent/delivered/read are not failures. Interrupted unknown outcome requires provider-status recovery where supported; unresolved cases stay visible in CRM without automatic resend. Never send expired opportunities, extend priority or retain occupancy due to connectivity. Provider deduplication/recovery support remains unvalidated (**T-04**), not an exactly-once delivery claim.
+- Per-attempt technical details are retained 90 days from the attempt and then purged while the Notification final result remains. This does not delete Message/Conversation, StoredAsset/payment evidence, Payment or consent AuditEvent. Exact purging/link handling and separate retention decisions remain **T-04/T-05**.
 
 ### 2.9 Module 9 — Incidents, restrictions, and administrative audit
 
@@ -260,9 +268,9 @@ erDiagram
 | `ERD-I03` | WhatsApp requesters only manage their own bookings within the tenant | Validated sender/channel context; backend authorization |
 | `ERD-I04` | A booking selects a service and compatible resource from the same tenant | Same-tenant and compatibility checks |
 | `ERD-I05` | Incompatible active occupancy claims never overlap on a resource | DB-backed transactional exclusion of `[start, end)` ranges |
-| `ERD-I06` | Expiry cannot free a confirmed, pending-review or started-turn claim; initial rejection follows its correction window | Guarded transitions, pending-review recheck and idempotent workers |
+| `ERD-I06` | Expiry cannot free confirmed, pending-review, verified-partial or started-turn occupancy; no-funds initial rejection follows guarded correction window | Atomic state/review/funds/start recheck; explicit cancellation independent of finances |
 | `ERD-I07` | Pending reschedules retain the original slot; target is checked only when applying | Version/state check, one atomic booking update |
-| `ERD-I08` | Offer claim ownership is immutable; acceptance closes it and creates a separate HOLD claim | Atomic transition, idempotent expiry |
+| `ERD-I08` | Only initial priority owns an offer claim; winning closes it if any and creates a distinct unique HOLD | Optional claim, atomic arbitration, late invitation eligibility, no payment instructions to losers |
 | `ERD-I09` | Transfer evidence is never equivalent to automatic financial accreditation | Human verification, recorded actor/time |
 | `ERD-I10` | Allocations cannot exceed either net charge debt or verified, unrefunded available payment funds | Transactional sums, pending-refund coordination and same-tenant references |
 | `ERD-I11` | At most one open cash session; closed sessions are immutable | Conditional uniqueness, append-only correction |
@@ -285,15 +293,15 @@ erDiagram
 | `DM-05` | Exceptional hours | Only explicitly authorized special openings can extend regular hours |
 | `DM-06` | Policy precedence | Per-field override: resource > service > tenant |
 | `DM-07` | Occupancy | One active claim for ordinary bookings; early-terminal private residual fragments are an inferred technical representation |
-| `DM-08` | Waitlist | Offer claim closes; a distinct booking HOLD claim is created atomically |
+| `DM-08` | Waitlist | Initial exclusive priority only for 1–4; progressive competition or 5+ broadcast, unique HOLD winner and optional historical offer claim |
 | `DM-09` | Rescheduling | Prior approval takes no target lock; an eligible partially prepaid move stays confirmed while its difference is collected later |
 | `DM-10` | Payment allocations | Payments can be split across charges and temporarily left unallocated |
-| `DM-11` | Receiving accounts | Multiple accounts; default or configurable automatic rotation |
+| `DM-11` | Receiving accounts | Three collection modes, professional account/business fallback; sequential business-pool rotation, immutable issued instructions |
 | `DM-12` | Cash corrections | `CashAdjustment` after close; immutable closed session |
 | `DM-13` | WhatsApp | One enabled connection per tenant; one continuous thread per sender/connection |
 | `DM-14` | Assets | At most one asset per message or payment review; direct optional references |
 | `DM-15` | Notifications | One logical notice, zero or more distinct attempts; proposed pg-boss execution |
-| `DM-16` | Consent | Reminders on `Customer`, waitlist consent on `WaitlistEntry`; configurable lead time |
+| `DM-16` | Consent | One question, independent reusable Customer preferences; entry interest/provenance, current preference rechecked, configurable reminder lead time |
 | `DM-17` | Incidents | All no-shows count for requester from booking; incidents cover other operational events |
 | `DM-18` | Restrictions | One effective restriction per customer, retaining full change history |
 
@@ -304,31 +312,31 @@ The following discrepancies are reconciled in this proposal against the product-
 | ID | Topic | Status and remaining review |
 |---|---|---|
 | `REV-01` | Role permissions | Reconciled: role-only with protected Admin actions. |
-| `REV-02` | Receiving accounts | Reconciled: optional rotation and fixed instruction; algorithm **T-02**. |
+| `REV-02` | Receiving accounts | Follow-up: three modes, business fallback and sequential rotation agreed; concurrent instruction binding **T-02**. |
 | `REV-03` | Payment origin and allocations | Reconciled: verified commercial origin and manual multi-charge allocations. |
 | `REV-04` | Cash and late transfers | Reconciled: open session for cash; transfer independent of physical cash. |
 | `REV-05` | Consent audit | Reconciled: independent state and transactional grant/revoke audit; retention **T-04**. |
 | `REV-06` | Policy precedence | Reconciled: field-level resource/service/tenant with inherit/set/disable. |
-| `REV-07` | Offer claims | Reconciled: XOR and distinct historical claims; enforcement **T-01**. |
+| `REV-07` | Offer claims | Follow-up supersedes universal exclusivity: optional initial priority claim, nonexclusive progressive/broadcast invitations; one distinct winning HOLD, physical enforcement **T-01**. |
 | `REV-08` | Reschedule target | Reconciled: pending authorization takes no destination lock. |
 | `REV-09` | Early terminal occupancy | Reconciled: private remainder and explicit CRM reuse; inferred fragments **T-01**. |
 | `REV-10` | Reschedule history | Reconciled: same booking, claim and event history with preserved verified funds. |
 | `REV-11` | Approval | Reconciled: prior human authorization differs from subsequent deposit verification and Admin exceptions. |
 | `REV-12` | Effective hours | Reconciled: inheritance and authorized openings across channels, preserving blocks. |
-| `REV-13` | No-show attribution | Reconciled: every no-show counts for requester; attendee details remain a product question. |
+| `REV-13` | No-show attribution | Follow-up: requester count unchanged; name-only attendee data, outcome timing and bidirectional correction resolved. |
 | `REV-14` | Late funds | Reconciled: verified commercial funds may be unallocated and resolved manually. |
 | `REV-15` | Calendar/policy scope | Conceptual precedence reconciled; physical scope uniqueness remains **T-05**. |
 | `REV-16` | Shared assets | Conceptual optional associations retained; physical FK and multiplicity validation remains **T-05**. |
 
 ### Technical review register
 
-- **T-01:** Validate private residual-fragment representation, history reconstruction, exclusion and atomic CRM reuse, including concurrent offer expiry and claim changes.
-- **T-02:** Choose account-rotation algorithm, concurrent selection and immutable instruction binding.
+- **T-01:** Validate private residual fragments, immutable claim history, exclusion/CRM reuse and progressive/broadcast round correlation, initial priority expiry, late claims, cohort changes and round restarts. Product thresholds/priority/winner rules are agreed; do not recreate exclusive claims for every invitee. Validate races with ordinary bookings and requester cap.
+- **T-02:** Sequential rotation is agreed. Specify concurrent business-pool cursor selection/idempotent instruction binding and professional-account/stage snapshots, inactive-account handling and preservation of issued account history. Do not choose another professional's account or silently change collection mode.
 - **T-03:** Specify transactional allocation/refund reservation, commercial-origin linkage, financial correction history and idempotency. A lower adjusted charge cannot retain valid allocations above its debt: require an explicit correction plan preserving prior facts and releasing excess as unallocated, without silently reallocating it elsewhere. Define reporting/correction boundaries for transfers independently of physical cash sessions.
-- **T-04:** Define operational notification/attempt and consent-audit retention, and uncertain-delivery reconciliation.
-- **T-05:** Define scoped calendar/policy uniqueness, asset references, actor/recipient audience (including personnel alerts), notification/attempt dispatch correlation, correction-window timestamp binding, types, indexes and physical constraints in Step 3.
+- **T-04:** One confirmed-failure retry, no automatic uncertain resend, durable recovery and 90-day attempt-detail retention are agreed. Validate actual Evolution/Baileys identity/status/reconciliation/deduplication capabilities and safe purging with final-result preservation. Retention for conversations, evidence, financial history and consent audit remains separate/undecided; do not apply 90 days to them.
+- **T-05:** Define scoped calendar/policy uniqueness, professional-account and collection-stage snapshots, Customer preference/entry provenance bindings, actor/recipient audiences, invitation round/priority/validity fields, notification/attempt correlation/purge references, partial-deposit waiting and correction-window timestamps, asset MIME/size, types, indexes and physical constraints in Step 3.
 
-Product questions such as waitlist chain limits, customer booking limits, minimum attendee details, underpaid or image-less evidence and remaining pending-review edge cases belong in the [UC-03 pending decisions](../product-specs/uc-03/business-rules.md#16-pending-decisions); no defaults are inferred here.
+Remaining product portions (cancellation/reschedule notice defaults, queue-size caps, legal/reporting duties and further abuse controls) stay in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). Outcome timing, attendee name-only data, booking-limit defaults/counting, evidence fallback and partial-deposit/cancellation behavior are resolved, not pending schema choices.
 
 ## 6. Step 3 — Detailed schema specification (not started)
 
