@@ -4,8 +4,9 @@
 > **Prepared:** 2026-11-03; reconciled 2026-11-04.
 > **Scope:** Logical/conceptual ERD for the two MVP verticals: barbershops/beauty businesses and sports clubs/courts.
 > **Inventory:** 38 candidate entities in 9 modules: the original 36 plus `Refund` and `NotificationAttempt`.
-> **Next step:** Team review, then define attributes, PKs, FKs, data types, indexes, and implementation-level constraints.
-> **Out of scope here:** SQL/Drizzle schema, migrations, RLS implementation, APIs, and assumptions that the proposed infrastructure already exists.
+> **Contents:** Entities, relationships and decisions (§1–§5), logical attributes, keys and constraints (§6), and compatibility checks (§7).
+> **Next step:** Team review; architectural validation of the items marked T-01 to T-05.
+> **Out of scope here:** SQL/Drizzle schema, physical types, indexes, migrations, repositories, RLS implementation, APIs, and assumptions that the proposed infrastructure already exists.
 
 ## 0. How to use this document
 
@@ -17,7 +18,7 @@ This file is intended to live at **`docs/design-docs/erd.md`** in the Agendoxa r
 4. `DM-XX` marks a **DOM-01 design proposal**; `REV-XX` preserves reconciliation and review history. Product-owner agreement is not team ratification. Preserve these identifiers in PR discussions.
 5. Entity names are conceptual PascalCase identifiers, not finalized SQL table names or enums. Mermaid diagrams illustrate relationships; they do **not** express every conditional, tenant-scoped, or transactional constraint.
 
-**Mermaid notation:** `||` = exactly one, `o|` = zero or one, `o{` = zero or more, `|{` = one or more. Unless explicitly stated, a `1:N` association allows zero children. Optional relationships, conditional uniqueness, and cross-table invariants must be specified precisely in Step 3.
+**Mermaid notation:** `||` = exactly one, `o|` = zero or one, `o{` = zero or more, `|{` = one or more. Unless explicitly stated, a `1:N` association allows zero children. Optional relationships, conditional uniqueness and cross-table invariants are specified in [§6](#6-logical-specification-by-entity).
 
 ## 1. Entity inventory — 38 candidates
 
@@ -112,8 +113,8 @@ erDiagram
   AVAILABILITY_CALENDAR ||--o{ AVAILABILITY_RULE : has
   AVAILABILITY_CALENDAR ||--o{ AVAILABILITY_EXCEPTION : has
   TENANT ||--o{ BOOKING_POLICY : configures
-  SERVICE o|--o{ BOOKING_POLICY : optional_override
-  RESOURCE o|--o{ BOOKING_POLICY : optional_override
+  SERVICE o|--o| BOOKING_POLICY : optional_override
+  RESOURCE o|--o| BOOKING_POLICY : optional_override
 ```
 
 - `Service` and `Resource` are tenant-scoped; `ServiceResource` defines compatibility (N:M). A booking involves **one service and one compatible resource**; professional and physical resources use the same engine.
@@ -132,17 +133,20 @@ erDiagram
   BOOKING o|--o{ SLOT_CLAIM : historical_claims
   RESOURCE ||--o{ SLOT_CLAIM : occupied_in
   BOOKING ||--o{ BOOKING_CHANGE_REQUEST : requests
+  SERVICE o|--o{ BOOKING_CHANGE_REQUEST : target_service
+  RESOURCE o|--o{ BOOKING_CHANGE_REQUEST : target_resource
   BOOKING ||--o{ BOOKING_EVENT : history
   CUSTOMER ||--o{ WAITLIST_ENTRY : joins
   SERVICE ||--o{ WAITLIST_ENTRY : awaits
   WAITLIST_ENTRY ||--o{ EXCLUSIVE_OFFER : receives
   EXCLUSIVE_OFFER o|--o| SLOT_CLAIM : initial_priority_only
+  RESOURCE ||--o{ EXCLUSIVE_OFFER : released_for
   RESOURCE o|--o{ WAITLIST_ENTRY : preferred_for
   EXCLUSIVE_OFFER o|--o| BOOKING : converts_to
 ```
 
 - `SlotClaim` is the **single authority** for occupancy. Each claim belongs to exactly one booking XOR one offer, and one resource. An ordinary booking has at most one active claim; an early-terminal booking may instead retain multiple nonoverlapping private remainder fragments (**DM-07**).
-- Bookings have zero or more historical claims. An invitation has zero or one priority claim, required only for the first exclusive five-minute window in a small cohort. Conditional constraints enforce occupying bookings' claims and owner XOR; no competing claims for other invitees. Final database semantics remain Step 3.
+- Bookings have zero or more historical claims. An invitation has zero or one priority claim, required only for the first exclusive five-minute window in a small cohort. Conditional constraints enforce occupying bookings' claims and owner XOR; no competing claims for other invitees. Logical fields are in §6; final database semantics are **T-01**.
 - **DM-08, updated:** For 1–4 eligible people, first priority creates a five-minute offer claim; then invite another every five minutes while previous recipients remain eligible. For 5+, notify simultaneously without exclusive claims. `ExclusiveOffer` is retained as a legacy name, not a promise that every invitation is exclusive. Winning a valid claim atomically closes any initial priority claim and creates one distinct ten-minute booking HOLD; only then issue transfer instructions. Each invitation links to at most one resulting booking. Late priority expiry never releases a newer HOLD.
 - Persist audience, initial priority deadline versus final claim validity, progressive schedule and shared release/round correlation using existing records, not parallel exclusive claims or a new entity. Exact representation/concurrency remains **T-01/T-05**. Only initial priority blocks ordinary availability; later invitations do not freeze it, and all channels share atomic occupancy checks. Round behavior and the fixed limit of 10 per queue are product rules (BR-WL-14–15); how to enforce them is **T-01**.
 - In the WhatsApp channel, a concrete slot selection starts a ten-minute `HOLD`. Without a deposit, explicit confirmation during the hold confirms the booking. With a deposit, timely receipt submission enters human payment review; the slot stays occupied with **no automatic payment-review timeout**. Evidence never establishes verified funds by itself.
@@ -160,6 +164,7 @@ erDiagram
 erDiagram
   TENANT ||--o{ RECEIVING_ACCOUNT : configures
   RECEIVING_ACCOUNT o|--o{ RESOURCE : professional_destination
+  RECEIVING_ACCOUNT o|--o{ BOOKING : issued_instructions
   BOOKING ||--o{ CHARGE : generates
   BOOKING o|--o{ PAYMENT_REVIEW : may_reference
   BOOKING_CHANGE_REQUEST o|--o{ PAYMENT_REVIEW : supplemental_evidence
@@ -335,30 +340,707 @@ The following discrepancies are reconciled in this proposal against the product-
 - **T-02:** Sequential rotation is agreed. Specify concurrent business-pool cursor selection/idempotent instruction binding and professional-account/stage snapshots, inactive-account handling and preservation of issued account history. Do not choose another professional's account or silently change collection mode.
 - **T-03:** Specify transactional allocation/refund reservation, commercial-origin linkage, financial correction history and idempotency. A lower adjusted charge cannot retain valid allocations above its debt: require an explicit correction plan preserving prior facts and releasing excess as unallocated, without silently reallocating it elsewhere. Define reporting/correction boundaries for transfers independently of physical cash sessions.
 - **T-04:** One confirmed-failure retry, no automatic uncertain resend and durable recovery are agreed. Validate actual Evolution/Baileys identity/status/reconciliation/deduplication capabilities. Specify blocking, advance CRM alert timing, idempotent execution and withdrawal of a customer deletion request, including a future booking left without customer identity, plus anonymization that keeps financial links. Age-based periods are TD-01.
-- **T-05:** Define scoped calendar/policy uniqueness, professional-account and collection-stage snapshots, Customer preference/entry provenance bindings, actor/recipient audiences, invitation round/priority/validity fields, notification/attempt correlation/purge references, partial-deposit waiting and correction-window timestamps, asset MIME/size, types, indexes and physical constraints in Step 3.
+- **T-05:** Define scoped calendar/policy uniqueness, professional-account and collection-stage snapshots, Customer preference/entry provenance bindings, actor/recipient audiences, invitation round/priority/validity fields, notification/attempt correlation/purge references, partial-deposit waiting and correction-window timestamps. [§6](#6-logical-specification-by-entity) proposes each of these logically; validate them, then choose physical types, asset MIME/size limits, indexes and storage constraints at implementation.
 
 Remaining product portions (legal validation and legal/reporting duties) stay in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). Notice defaults, queue limit, round behavior, outcome timing, attendee name-only data, booking-limit defaults/counting, evidence fallback and partial-deposit/cancellation behavior are resolved, not pending schema choices.
 
-## 6. Step 3 — Detailed schema specification (not started)
+## 6. Logical specification by entity
 
-For **each of the 38 entities**, the next reviewed iteration should define:
+This is a logical proposal, not a physical schema. Names are descriptive, not final columns. The §2 diagrams show the main relationships; this section is the complete list, including actor references to `TenantMembership`. A note marked **[T-0X]** is the simplest proposal for something that still needs architectural validation in the [technical register](#technical-review-register); expect it may change.
 
-- Stable identifier, tenant scope where applicable, attributes, types, mandatory/nullable fields, and lifecycle.
-- PKs, tenant-aware FKs, uniqueness, checks, indexes, retention rules, and whether deletion is ever allowed.
-- Exact Mermaid/cardinality optionality, including conditional associations and `XOR` constraints.
-- Tenant-local time interpretation and unambiguous persisted instants; monetary unit, precision, and rounding; approved persisted states (not guessed enums).
-- Validation scenarios for concurrent slot claims, payment allocations, cash closure, permission checks, messaging deduplication, and notification jobs.
+### 6.1 Shared conventions
 
-### DOM-01 completion checklist
+**Identifiers and keys**
+
+- Every entity has an opaque surrogate primary key `id`, except the two join entities with a composite key.
+- Tables below omit `id`, `tenant_id` and `created_at`, which every entity has unless its scope line says otherwise. `updated_at` applies to mutable entities only.
+- **Tenant-aware foreign keys:** a reference between two tenant-owned entities must match on tenant, so a relationship can never cross businesses (`ERD-I01`).
+- Foreign keys restrict deletion by default. History is preserved by deactivating, anonymizing or closing, not by cascading.
+
+**Conceptual types**
+
+| Type | Meaning |
+|---|---|
+| Identifier | Opaque reference, used for keys |
+| Text / Bool / Int / Enum | Plain values; Enum values are conceptual. Those UC-03 defines, such as `Booking.status`, are canonical there; the rest are proposals |
+| Money | Exact decimal in the tenant's single currency, never floating point; precision is chosen at implementation. Proposal: no multi-currency in the MVP |
+| Instant | Unambiguous point in time, stored in UTC and interpreted in the tenant's timezone for calendar rules |
+| LocalTime / Weekday | Wall-clock values in the tenant's timezone, for recurring hours |
+| Minutes | Duration as a whole number of minutes |
+| Phone | Normalized international format (E.164) |
+
+**Deletion rules** (see [UC-03 §18](../product-specs/uc-03/business-rules.md#18-personal-data-and-retention-dat))
+
+| Rule | Meaning |
+|---|---|
+| Never | Append-only or financial history; not removed by any operation |
+| Deactivate | Configuration or actor referenced by history; retired, not removed |
+| Replace | Configuration without history value; may be removed when unreferenced |
+| On request | Removed or anonymized by an executed customer deletion request. Nothing is removed for its age in the MVP (TD-01) |
+
+**Req column:** Y = required, N = optional, Cond. = required under the stated condition. FK marks a foreign key.
+
+### 6.2 Global versus tenant scope
+
+- **Global (2):** `User`, `Permission`.
+- **Tenant root (1):** `Tenant`.
+- **Tenant-owned (35):** all others. They carry `tenant_id` and are never shared between businesses.
+
+### 6.3 Module 1 — Identity
+
+#### `Tenant`
+
+**Scope:** root; no `tenant_id`. **Deletion:** Never. Export or migration is deferred (X-10).
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| name | Text | Y | |
+| slug | Text | Y | Unique; used for routing, never as proof of authorization |
+| timezone | Text | Y | IANA name (BR-TEN-04) |
+| currency | Text | Y | Proposal: single currency per tenant |
+| branding | Text | N | Display settings |
+| collection_mode | Enum | Y | ALL_PROFESSIONAL (default), DEPOSIT_BUSINESS_REMAINDER_PROFESSIONAL, ALL_BUSINESS |
+| business_account_selection | Enum | Y | DEFAULT, SEQUENTIAL_ROTATION |
+| rotation_cursor | Identifier | N | FK → `ReceivingAccount`; last account issued **[T-02]** |
+| resource_assignment_mode | Enum | Y | PREFERENCE_ORDER, ROTATION |
+| resource_rotation_cursor | Identifier | N | FK → `Resource` **[T-01]** |
+| cash_auto_open | Bool | Y | Open a session on the first cash collection |
+| ai_enabled | Bool | Y | Global AI switch, Admin only |
+| ai_disabled_until | Instant | N | Temporary disable |
+
+#### `User`
+
+**Scope:** global; no `tenant_id`. **Deletion:** Deactivate; actor history must survive.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| email | Text | Y | Unique globally |
+| full_name | Text | Y | |
+| credential_ref | Text | Y | Authentication mechanism is detailed design |
+| status | Enum | Y | ACTIVE, DISABLED |
+
+#### `TenantMembership`
+
+**Unique:** (`tenant_id`, `user_id`). **Deletion:** Deactivate.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| user_id | Identifier | Y | FK → `User` |
+| role_id | Identifier | Y | FK → `Role` of the same tenant (`ERD-I02`) |
+| status | Enum | Y | ACTIVE, DEACTIVATED |
+| deactivated_at | Instant | N | |
+
+**Constraint:** the last active Admin membership cannot be removed or demoted.
+
+#### `Role`
+
+**Unique:** (`tenant_id`, `name`); one `system_key` per tenant. **Deletion:** Deactivate for custom roles; system roles never.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| name | Text | Y | |
+| system_key | Enum | N | ADMIN, STAFF; absent for custom roles |
+| is_protected | Bool | Y | Admin authority cannot be reduced |
+
+#### `Permission`
+
+**Scope:** global; no `tenant_id`. **Unique:** `key`. **Deletion:** Deactivate.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| key | Text | Y | Capability name; the catalog is detailed design |
+| description | Text | Y | |
+| is_delegable | Bool | Y | False for protected Admin operations (BR-IAM-04) |
+
+#### `RolePermission`
+
+**PK:** (`role_id`, `permission_id`). **Deletion:** Replace.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| role_id | Identifier | Y | FK → `Role` |
+| permission_id | Identifier | Y | FK → `Permission`; must be delegable unless the role is Admin |
+
+### 6.4 Module 2 — Customers
+
+#### `Customer`
+
+**Unique:** (`tenant_id`, `phone`) when phone is present. **Deletion:** On request, anonymized; the row stays because bookings and payments reference it.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| full_name | Text | Cond. | Required for a CRM walk-in; captured when needed on WhatsApp |
+| phone | Phone | N | Optional for walk-ins |
+| reminder_preference | Enum | Y | UNSET, ACCEPTED, REFUSED |
+| waitlist_preference | Enum | Y | UNSET, ACCEPTED, REFUSED |
+| deletion_status | Enum | Y | NONE, REQUESTED, EXECUTED; a withdrawal returns to NONE |
+| deletion_requested_at | Instant | Cond. | When REQUESTED or EXECUTED |
+| deletion_due_at | Instant | Cond. | Requested date plus the configured window. Proposal: one platform-wide value, not per tenant **[T-04]** |
+| anonymized_at | Instant | N | |
+
+**Derived, not stored:** no-show count from current `Booking` outcomes; late-changes count from `BookingEvent`; current restriction from `CustomerRestriction`.
+
+### 6.5 Module 3 — Catalog, availability and policies
+
+#### `Service`
+
+**Deletion:** Deactivate.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| name | Text | Y | A combination is one preconfigured service (BR-CAT-01) |
+| description | Text | N | |
+| duration | Minutes | Y | Greater than zero |
+| price | Money | Y | Not negative; agreed bookings keep their own snapshot |
+| is_active | Bool | Y | |
+
+#### `Resource`
+
+**Deletion:** Deactivate. Works for a barber or a court alike.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| name | Text | Y | |
+| kind | Enum | Y | PROFESSIONAL, PHYSICAL |
+| is_active | Bool | Y | |
+| preference_order | Int | N | Used by PREFERENCE_ORDER assignment |
+| receiving_account_id | Identifier | N | FK → `ReceivingAccount`, professional destination; needs no `User` (DM-11) |
+
+#### `ServiceResource`
+
+**PK:** (`service_id`, `resource_id`). **Deletion:** Replace.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| service_id | Identifier | Y | FK → `Service` |
+| resource_id | Identifier | Y | FK → `Resource` |
+
+#### `AvailabilityCalendar`
+
+**Unique:** one TENANT calendar per tenant; at most one per resource **[T-05]**. **Deletion:** Replace.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| scope | Enum | Y | TENANT, RESOURCE |
+| resource_id | Identifier | Cond. | FK → `Resource`; required only when scope is RESOURCE |
+
+#### `AvailabilityRule`
+
+**Deletion:** Replace.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| calendar_id | Identifier | Y | FK → `AvailabilityCalendar` |
+| weekday | Weekday | Y | |
+| start_time | LocalTime | Y | Before `end_time` |
+| end_time | LocalTime | Y | |
+
+#### `AvailabilityException`
+
+**Deletion:** Never once it affected a booking; otherwise Replace.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| calendar_id | Identifier | Y | FK → `AvailabilityCalendar` |
+| kind | Enum | Y | BLOCK, OPENING |
+| start_at | Instant | Y | Before `end_at` |
+| end_at | Instant | Y | |
+| reason | Text | N | |
+| created_by_membership_id | Identifier | Y | FK → `TenantMembership`; authorizing actor |
+
+**Constraint:** an OPENING never overrides a BLOCK or an active claim (DM-05).
+
+#### `BookingPolicy`
+
+**Unique:** one row per scope target **[T-05]**. **Deletion:** Replace; bookings keep their snapshot.
+
+An empty field means inherit. An explicit disable is a value of its own, so inherit and disable stay distinct (DM-06).
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| scope | Enum | Y | TENANT, SERVICE, RESOURCE |
+| service_id | Identifier | Cond. | FK → `Service`, when scope is SERVICE |
+| resource_id | Identifier | Cond. | FK → `Resource`, when scope is RESOURCE |
+| notice | Minutes | N | Tenant default 600 (10 hours) |
+| booking_lead | Minutes | N | Tenant default 0 |
+| reminder_lead | Minutes | N | |
+| deposit_mode | Enum | N | DISABLED, FIXED, PERCENTAGE |
+| deposit_value | Money or Int | Cond. | Amount or percentage, per `deposit_mode` |
+| deposit_refund_policy | Enum | N | NO_MONEY_BACK, REFUND_POSSIBLE |
+| reschedule_limit | Int | N | Empty at tenant level means unlimited |
+| future_booking_limit | Int | N | Tenant scope only; empty means disabled |
+
+### 6.6 Module 4 — Bookings, occupancy and waitlist
+
+#### `Booking`
+
+**Deletion:** Never. Attendee details are anonymized on request.
+
+Current resource and time come from the active `SlotClaim`; `Booking` holds no competing occupancy data.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| customer_id | Identifier | Y | FK → `Customer`; the requester, who bears any no-show |
+| service_id | Identifier | Y | FK → `Service`; compatible with the claimed resource (`ERD-I04`) |
+| status | Enum | Y | HOLD, PENDING_PAYMENT_REVIEW, CONFIRMED, CANCELLED, EXPIRED, COMPLETED, NO_SHOW |
+| origin | Enum | Y | WHATSAPP, CRM |
+| attendee_name | Text | Cond. | When booked for someone else |
+| attendee_phone | Phone | N | |
+| agreed_price | Money | Y | Snapshot; changed only by Admin |
+| required_deposit | Money | N | Snapshot; empty when no deposit applies |
+| notice_snapshot | Minutes | Y | Applied to this booking |
+| deposit_refund_policy_snapshot | Enum | N | Stated to the customer |
+| collection_mode_snapshot | Enum | Y | Later configuration changes do not alter it |
+| deposit_instruction_account_id | Identifier | N | FK → `ReceivingAccount`; fixed on issue **[T-02]** |
+| deposit_instruction_text | Text | N | Exact instruction shown, independent of later edits **[T-02]** |
+| balance_instruction_account_id | Identifier | N | FK → `ReceivingAccount` **[T-02]** |
+| balance_instruction_text | Text | N | **[T-02]** |
+| hold_expires_at | Instant | Cond. | While in HOLD |
+| correction_deadline_at | Instant | N | After a first initial-evidence rejection **[T-05]** |
+| blocked_exception | Bool | Y | CRM booking created for a BLOCKED customer |
+| deposit_exception | Bool | Y | Admin confirmed without the required deposit (BR-SEN-09) |
+| created_by_membership_id | Identifier | N | FK → `TenantMembership`; empty when created over WhatsApp |
+| cancel_reason | Text | N | Required for an operational business cancellation |
+
+**Derived, not stored:** partial-deposit waiting (unconfirmed occupying booking with verified allocations above zero and below `required_deposit`; at zero, BR-SEN-10 applies instead), rejection count (distinct rejected `PaymentReview` rows), reschedule count, started (start instant has passed).
+
+#### `SlotClaim`
+
+**Deletion:** Never; closed claims are the occupancy history.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| resource_id | Identifier | Y | FK → `Resource` |
+| booking_id | Identifier | Cond. | FK → `Booking`; exactly one of `booking_id`, `offer_id` |
+| offer_id | Identifier | Cond. | FK → `ExclusiveOffer` |
+| kind | Enum | Y | OFFER_PRIORITY, BOOKING, PRIVATE_REMAINDER **[T-01]** |
+| start_at | Instant | Y | Half-open interval `[start, end)` |
+| end_at | Instant | Y | After `start_at` |
+| status | Enum | Y | ACTIVE, CLOSED |
+| closed_at | Instant | Cond. | When CLOSED |
+| close_reason | Text | N | |
+
+**Constraints:** active claims on the same resource never overlap (`ERD-I05`). An ordinary booking has at most one active claim; only an early-terminal booking may hold several PRIVATE_REMAINDER fragments **[T-01]**. PRIVATE_REMAINDER is excluded from public availability and waitlist.
+
+#### `BookingChangeRequest`
+
+**Deletion:** Never.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| booking_id | Identifier | Y | FK → `Booking` |
+| target_service_id | Identifier | N | FK → `Service` |
+| target_resource_id | Identifier | N | FK → `Resource` |
+| target_start_at | Instant | N | Takes no lock while pending; rechecked on applying |
+| target_end_at | Instant | N | |
+| status | Enum | Y | PENDING_AUTHORIZATION, APPLIED, REJECTED, CANCELLED, SUPERSEDED |
+| requested_via | Enum | Y | WHATSAPP, CRM |
+| is_late | Bool | Y | Outside the booking's notice |
+| consequence_accepted_at | Instant | Cond. | When late and requested by the customer |
+| authorized_by_membership_id | Identifier | N | FK → `TenantMembership` |
+| reason | Text | N | |
+| applied_at | Instant | N | |
+
+#### `BookingEvent`
+
+**Deletion:** Never; append-only.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| booking_id | Identifier | Y | FK → `Booking` |
+| event_type | Text | Y | Conceptual lifecycle event |
+| from_status | Enum | N | |
+| to_status | Enum | N | |
+| actor_kind | Enum | Y | CUSTOMER, MEMBER, AI, SYSTEM |
+| actor_membership_id | Identifier | Cond. | FK → `TenantMembership`, when MEMBER |
+| reason | Text | Cond. | Required for outcome corrections |
+| late_change_kind | Enum | N | LATE_CANCELLATION, LATE_RESCHEDULE; source of the late-changes count |
+| occurred_at | Instant | Y | |
+
+#### `WaitlistEntry`
+
+**Unique:** one active entry per requester and conditions, keeping the original arrival. **Deletion:** On request.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| customer_id | Identifier | Y | FK → `Customer` |
+| service_id | Identifier | Y | FK → `Service` |
+| resource_id | Identifier | N | FK → `Resource`; empty means any compatible resource |
+| range_start_at | Instant | Y | Requested range |
+| range_end_at | Instant | Y | Entry expires when no future slot remains |
+| status | Enum | Y | ACTIVE, EXPIRED, FULFILLED, WITHDRAWN |
+| arrival_at | Instant | Y | Orders progressive invitations |
+| consent_provenance | Text | Y | How and when interest was expressed; current `Customer` preference still gates sending |
+
+**Constraint:** at most 10 people per queue, checked atomically on enrollment. How overlapping ranges form one queue is **[T-01]**.
+
+#### `ExclusiveOffer`
+
+Legacy name for one recipient's invitation in a release round. **Unique:** (`round_ref`, `waitlist_entry_id`). **Deletion:** Never; link to the customer is anonymized through `Customer`.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| waitlist_entry_id | Identifier | Y | FK → `WaitlistEntry` |
+| round_ref | Identifier | Y | Groups one round without a new entity **[T-01]** |
+| round_mode | Enum | Y | PROGRESSIVE, SIMULTANEOUS; fixed when the round starts |
+| audience | Enum | Y | INITIAL_PRIORITY, PROGRESSIVE, BROADCAST |
+| resource_id | Identifier | Y | FK → `Resource` released |
+| slot_start_at | Instant | Y | |
+| slot_end_at | Instant | Y | |
+| invited_at | Instant | N | |
+| priority_until | Instant | Cond. | INITIAL_PRIORITY only; five minutes |
+| valid_until | Instant | Y | Slot start at the latest |
+| status | Enum | Y | PENDING, INVITED, CLAIMED, DECLINED, LOST, CLOSED **[T-01]** |
+| resulting_booking_id | Identifier | N | FK → `Booking`; unique, set on winning |
+
+### 6.7 Module 5 — Charges, payments and cash
+
+#### `Charge`
+
+**Deletion:** Never.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| booking_id | Identifier | Y | FK → `Booking` |
+| change_request_id | Identifier | N | FK → `BookingChangeRequest`, for a financial consequence |
+| kind | Enum | Y | SERVICE, SUPPLEMENT |
+| net_amount | Money | Y | Not negative; a lower adjustment needs an explicit correction plan **[T-03]** |
+| description | Text | N | |
+
+**Derived:** balance is `max(0, net_amount - valid allocations)`, never negative.
+
+#### `ReceivingAccount`
+
+**Deletion:** Deactivate; issued instructions keep their history.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| label | Text | Y | |
+| beneficiary_kind | Enum | Y | BUSINESS, PROFESSIONAL |
+| holder_name | Text | Y | Shown to the customer |
+| alias_or_number | Text | Y | Bank or wallet destination |
+| is_default | Bool | Y | At most one active default per tenant |
+| rotation_position | Int | N | Sequential order among active BUSINESS accounts **[T-02]** |
+| is_active | Bool | Y | |
+
+#### `PaymentReview`
+
+**Deletion:** Never; the evidence file follows the rule on `StoredAsset`.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| booking_id | Identifier | N | FK → `Booking` |
+| change_request_id | Identifier | N | FK → `BookingChangeRequest`, for supplemental evidence |
+| receiving_account_id | Identifier | N | FK → `ReceivingAccount`; expected destination |
+| evidence_kind | Enum | Y | FILE, TEXT |
+| evidence_asset_id | Identifier | Cond. | FK → `StoredAsset`, when FILE |
+| evidence_text | Text | Cond. | When TEXT, after explicit inability to send a file |
+| evidence_fingerprint | Text | N | So technical duplicates do not count as a second rejection **[T-05]** |
+| declared_amount | Money | N | Never proof of credit |
+| status | Enum | Y | PENDING, APPROVED, REJECTED |
+| submitted_at | Instant | Y | |
+| reviewed_by_membership_id | Identifier | Cond. | FK → `TenantMembership`, once decided |
+| reviewed_at | Instant | Cond. | |
+| rejection_reason | Text | Cond. | When REJECTED |
+
+#### `Payment`
+
+**Deletion:** Never, including under a deletion request; immutable. Kept at least 10 years.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| amount | Money | Y | Greater than zero; no negative payments |
+| method | Enum | Y | CASH, TRANSFER |
+| commercial_origin | Text | Y | Traceable origin; unknown or personal funds are not payments |
+| booking_id | Identifier | N | FK → `Booking`, known origin |
+| customer_id | Identifier | N | FK → `Customer`, identified payer |
+| receiving_account_id | Identifier | Cond. | FK → `ReceivingAccount`, required for TRANSFER |
+| payment_review_id | Identifier | N | FK → `PaymentReview`; unique, so approval cannot duplicate money |
+| verified_by_membership_id | Identifier | Y | FK → `TenantMembership` |
+| verified_at | Instant | Y | |
+| unallocated_reason | Text | N | Why it has no allocations |
+| corrects_payment_id | Identifier | N | FK → `Payment`; recording correction as an appended record **[T-03]** |
+| correction_reason | Text | Cond. | Required with `corrects_payment_id` |
+| idempotency_key | Text | N | Prevents duplicates on retry **[T-03]** |
+
+#### `PaymentAllocation`
+
+**Deletion:** Never; reversed, not removed.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| payment_id | Identifier | Y | FK → `Payment` |
+| charge_id | Identifier | Y | FK → `Charge`, same tenant, any booking |
+| amount | Money | Y | Greater than zero |
+| status | Enum | Y | ACTIVE, REVERSED |
+| created_by_membership_id | Identifier | Y | FK → `TenantMembership`; allocation is always manual |
+| reversed_by_membership_id | Identifier | N | FK → `TenantMembership` |
+| reversal_reason | Text | Cond. | When REVERSED |
+
+**Constraint:** capped by the charge's balance and by the payment's verified, unrefunded and unallocated funds (`ERD-I10`) **[T-03]**.
+
+#### `Refund`
+
+**Deletion:** Never.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| payment_id | Identifier | Y | FK → `Payment` |
+| amount | Money | Y | Greater than zero, within available funds |
+| method | Enum | Y | CASH, TRANSFER |
+| status | Enum | Y | PENDING, EXECUTED, CANCELLED; only EXECUTED reduces retained funds |
+| reason | Text | Y | |
+| authorized_by_membership_id | Identifier | Y | FK → `TenantMembership`; Admin only |
+| executed_at | Instant | Cond. | When EXECUTED |
+| destination_trace | Text | N | |
+| idempotency_key | Text | N | **[T-03]** |
+
+#### `CashSession`
+
+**Unique:** at most one OPEN session per tenant (`ERD-I11`). **Deletion:** Never; immutable once closed.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| status | Enum | Y | OPEN, CLOSED |
+| open_mode | Enum | Y | MANUAL, AUTOMATIC |
+| opened_at | Instant | Y | A session survives midnight |
+| opened_by_membership_id | Identifier | N | FK → `TenantMembership`; collector when automatic |
+| opening_amount | Money | Y | Declared or reconciled, never fabricated |
+| previous_session_id | Identifier | N | FK → `CashSession` |
+| closed_at | Instant | Cond. | Always manual |
+| closed_by_membership_id | Identifier | Cond. | FK → `TenantMembership` |
+| counted_amount | Money | Cond. | |
+| expected_amount | Money | Cond. | Fixed at close: opening plus signed movements |
+| difference_amount | Money | Cond. | Allowed, recorded |
+
+#### `CashMovement`
+
+**Deletion:** Never.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| session_id | Identifier | Y | FK → `CashSession`; must be OPEN when recorded |
+| kind | Enum | Y | PAYMENT, REFUND, CASH_IN, CASH_OUT |
+| signed_amount | Money | Y | Not zero; physical cash only |
+| payment_id | Identifier | Cond. | FK → `Payment`, unique, when PAYMENT |
+| refund_id | Identifier | Cond. | FK → `Refund`, unique, when REFUND |
+| reason | Text | Cond. | For CASH_IN and CASH_OUT |
+| recorded_by_membership_id | Identifier | Y | FK → `TenantMembership` |
+| occurred_at | Instant | Y | Actual time |
+
+#### `CashAdjustment`
+
+**Deletion:** Never; append-only.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| session_id | Identifier | Y | FK → `CashSession`; must be CLOSED |
+| signed_amount | Money | Y | Not zero |
+| reason | Text | Y | |
+| adjusted_by_membership_id | Identifier | Y | FK → `TenantMembership`; Admin only |
+| cash_movement_id | Identifier | N | FK → `CashMovement` affected |
+| payment_id | Identifier | N | FK → `Payment` affected |
+
+### 6.8 Module 6 — WhatsApp
+
+#### `ChannelConnection`
+
+**Unique:** at most one enabled connection per tenant (DM-13). **Deletion:** Deactivate; history is retained.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| provider | Enum | Y | Evolution in the MVP; adapter-friendly |
+| provider_instance_ref | Text | Y | |
+| phone_number | Phone | Y | |
+| is_enabled | Bool | Y | |
+| status | Enum | Y | CONNECTED, DISCONNECTED; a temporary drop is not a new connection |
+| credential_ref | Text | N | Reference to a secret, never the secret |
+
+#### `Conversation`
+
+**Unique:** (`connection_id`, `sender_id`). **Deletion:** On request.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| connection_id | Identifier | Y | FK → `ChannelConnection` |
+| sender_id | Text | Y | Validated provider sender |
+| customer_id | Identifier | N | FK → `Customer`; empty before identity resolution |
+| control_mode | Enum | Y | AI, HUMAN; one at a time |
+| taken_over_by_membership_id | Identifier | N | FK → `TenantMembership` |
+| last_human_reply_at | Instant | N | Drives the 60-minute return |
+
+#### `Message`
+
+**Unique:** (`conversation_id`, `provider_message_id`) when present, for deduplication. **Deletion:** On request.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| conversation_id | Identifier | Y | FK → `Conversation` |
+| direction | Enum | Y | INBOUND, OUTBOUND |
+| author_kind | Enum | Y | CUSTOMER, AI, HUMAN, SYSTEM |
+| author_membership_id | Identifier | N | FK → `TenantMembership`, when HUMAN from the CRM |
+| provider_message_id | Text | N | **[T-04]** |
+| body | Text | N | |
+| asset_id | Identifier | N | FK → `StoredAsset` |
+| occurred_at | Instant | Y | |
+
+### 6.9 Modules 7–8 — Assets and notifications
+
+#### `StoredAsset`
+
+**Deletion:** On request, unless it evidences a verified payment or an open claim. The bytes live in private object storage.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| storage_key | Text | Y | Private location; no public links |
+| mime_type | Text | Y | Validated |
+| size_bytes | Int | Y | |
+| retention_class | Enum | Y | PAYMENT_EVIDENCE, OTHER |
+| deleted_at | Instant | N | Keeps the reference after removal |
+
+#### `Notification`
+
+**Unique:** `dedupe_key`. **Deletion:** Never; final result is retained, identity goes through `Customer`.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| kind | Enum | Y | CONFIRMATION, REMINDER, WAITLIST_INVITATION, HOLD_NOTICE, STAFF_ALERT |
+| audience | Enum | Y | CUSTOMER, PERSONNEL **[T-05]** |
+| customer_id | Identifier | Cond. | FK → `Customer`, when audience is CUSTOMER |
+| booking_id | Identifier | Cond. | FK → `Booking`; exactly one of `booking_id`, `offer_id` |
+| offer_id | Identifier | Cond. | FK → `ExclusiveOffer` |
+| scheduled_for | Instant | N | |
+| status | Enum | Y | PENDING, SENT, FAILED, UNKNOWN, SUPPRESSED, OMITTED |
+| dedupe_key | Text | Y | One logical notice **[T-04]** |
+| omission_reason | Text | N | An omitted notice has zero attempts |
+
+The advance alert for a pending customer deletion needs no `Notification`: the CRM derives it from `Customer.deletion_due_at`.
+
+#### `NotificationAttempt`
+
+**Unique:** (`notification_id`, `attempt_number`); `message_id` when present. **Deletion:** No age-based purge in the MVP (TD-01).
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| notification_id | Identifier | Y | FK → `Notification` |
+| attempt_number | Int | Y | |
+| attempted_at | Instant | Y | |
+| outcome | Enum | Y | SENT, DELIVERED, READ, FAILED, UNKNOWN |
+| error_detail | Text | N | |
+| provider_ref | Text | N | **[T-04]** |
+| message_id | Identifier | N | FK → `Message`; cleared if the message is deleted on request |
+
+### 6.10 Module 9 — Incidents, restrictions and audit
+
+#### `CustomerIncident`
+
+**Deletion:** Never; description is anonymized on request.
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| customer_id | Identifier | Y | FK → `Customer` |
+| booking_id | Identifier | Y | FK → `Booking` |
+| kind | Text | Y | Damage, conduct and similar; never a no-show |
+| description | Text | N | |
+| recorded_by_membership_id | Identifier | Y | FK → `TenantMembership` |
+| occurred_at | Instant | Y | |
+
+#### `CustomerRestriction`
+
+**Unique:** at most one active restriction per customer (`ERD-I13`). **Deletion:** Never while the customer exists; on request it follows `Customer` (TD-02).
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| customer_id | Identifier | Y | FK → `Customer` |
+| kind | Enum | Y | FULL_PREPAYMENT, BLOCKED; normal service has no row |
+| reason | Text | Y | |
+| applied_by_membership_id | Identifier | Y | FK → `TenantMembership`; always human |
+| effective_from | Instant | Y | |
+| effective_to | Instant | N | Empty while active |
+| removed_by_membership_id | Identifier | N | FK → `TenantMembership` |
+| removal_reason | Text | Cond. | When removed |
+
+#### `AuditEvent`
+
+**Deletion:** Never by ordinary operations; final period under customer deletion is pending (BR-DAT-04).
+
+| Attribute | Type | Req | Notes |
+|---|---|---|---|
+| action | Text | Y | Listed in BR-AUD-01, plus consent and deletion changes |
+| actor_kind | Enum | Y | MEMBER, CUSTOMER, SYSTEM |
+| actor_membership_id | Identifier | Cond. | FK → `TenantMembership`, when MEMBER |
+| target_type | Text | Y | |
+| target_id | Identifier | Y | Polymorphic reference, not a foreign key |
+| channel | Enum | N | WHATSAPP, CRM, SYSTEM |
+| reason | Text | N | |
+| occurred_at | Instant | Y | |
+
+## 7. Compatibility checks
+
+These are analytical walkthroughs of the documents, not executed tests; nothing is implemented.
+
+### 7.1 Use cases against entities
+
+Every [UC-02 case](../product-specs/uc-02/use-cases.md) is covered by existing entities. `Tenant`, `TenantMembership` and `AuditEvent` apply to nearly all and are omitted unless central.
+
+| Case | Main entities |
+|---|---|
+| CU-01 Consult information and availability | `Service`, `Resource`, `ServiceResource`, `AvailabilityCalendar`, `AvailabilityRule`, `AvailabilityException`, `SlotClaim`, `Conversation`, `Message` |
+| CU-02 Booking without deposit | `Customer`, `Booking`, `SlotClaim`, `BookingPolicy`, `BookingEvent`, `Charge` |
+| CU-03 Booking with transfer deposit | CU-02 plus `ReceivingAccount`, `PaymentReview`, `StoredAsset`, `Payment`, `PaymentAllocation` |
+| CU-04 Booking for other attendees | `Booking` (attendee fields), `Customer` |
+| CU-05 Join waitlist | `WaitlistEntry`, `Customer` |
+| CU-06 Invitation and claim | `ExclusiveOffer`, `WaitlistEntry`, `SlotClaim`, `Booking`, `Notification` |
+| CU-07 Consult future bookings | `Booking`, `SlotClaim`, `Customer` |
+| CU-08 Cancel | `Booking`, `SlotClaim`, `BookingEvent`, `Notification` |
+| CU-09 Reschedule | `BookingChangeRequest`, `Booking`, `SlotClaim`, `BookingEvent`, `Charge`, `PaymentReview` |
+| CU-10 Complete or no-show | `Booking`, `BookingEvent`, `SlotClaim` |
+| CU-11 Record, verify or correct payment | `Payment`, `PaymentReview`, `PaymentAllocation`, `Charge`, `Refund`, `CashMovement` |
+| CU-12 Incidents and restrictions | `CustomerIncident`, `CustomerRestriction`, `Customer`, `Booking` |
+| CU-13 Cash register | `CashSession`, `CashMovement`, `CashAdjustment` |
+| CU-14 Takeover | `Conversation`, `Message`, `Tenant` |
+| CU-15 Configure operations | `Service`, `Resource`, `ServiceResource`, `AvailabilityCalendar`, `AvailabilityRule`, `AvailabilityException`, `BookingPolicy`, `ReceivingAccount`, `Role`, `RolePermission`, `Tenant` |
+| CU-16 Send notice | `Notification`, `NotificationAttempt`, `Message`, `Customer` |
+| CU-17 Sign in | `User`, `TenantMembership`, `Role`, `Permission`, `RolePermission` |
+| CU-18 Connect WhatsApp | `ChannelConnection` |
+| CU-19 Notice preferences | `Customer`, `WaitlistEntry`, `AuditEvent` |
+| CU-20 Onboard a business | `Tenant`, `Role`, `User`, `TenantMembership`, `AvailabilityCalendar`, `BookingPolicy` |
+| CU-21 Agenda | `Booking`, `SlotClaim`, `Resource`, `PaymentReview` |
+| CU-22 Expire HOLD | `Booking`, `SlotClaim`, `Payment`, `Notification` |
+| CU-23 Request data deletion | `Customer`, `Conversation`, `Message`, `StoredAsset`, `Notification`, `AuditEvent` |
+
+### 7.2 Both verticals on the same model
+
+The same entities serve both verticals; differences are configuration values, with no vertical-specific entity.
+
+| Need | Barbershop or beauty | Court or club |
+|---|---|---|
+| Exclusive capacity | `Resource` kind PROFESSIONAL, one per barber | `Resource` kind PHYSICAL, one per court |
+| What is booked | `Service`: cut, color, a preconfigured combination | `Service`: one-hour rental, two-hour rental |
+| Compatibility | `ServiceResource`: which barber does which service | `ServiceResource`: which court fits which sport |
+| “Any” resource | `Tenant.resource_assignment_mode`, order or rotation | Same field |
+| Schedule | Resource calendar for each barber, inheriting the tenant's | Often the tenant calendar alone; a resource calendar when a court differs |
+| Blocks | `AvailabilityException`: absence | `AvailabilityException`: maintenance |
+| Third parties | `Booking.attendee_name`: someone booking for a relative | Same field, usually for a player |
+| Where money goes | `Tenant.collection_mode` ALL_PROFESSIONAL, `Resource.receiving_account_id` | ALL_BUSINESS, with default or rotating `ReceivingAccount` |
+| Early finish | `SlotClaim` PRIVATE_REMAINDER, reusable for a walk-in | Same mechanism |
+
+**Not modeled, per the MVP:** atomic multi-resource bookings, recurring bookings, group capacity and product sales.
+
+### 7.3 Pending architectural validation
+
+The items needing validation are in the [technical register](#technical-review-register) (T-01 to T-05) and marked in §6. Product and legal questions are in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). None adds an entity to this proposal so far.
+
+## 8. DOM-01 completion checklist
 
 - [x] 38 candidate entities inventoried.
-- [x] Relationships across nine modules discussed and documented.
+- [x] Relationships across nine modules documented.
 - [x] Relevant cross-cutting invariants documented.
 - [x] Modeling decisions explicitly separated from team approval.
-- [ ] Cross-document reconciliation with UC-02/UC-03 independently reviewed.
-- [ ] Attributes and conceptual types specified for every entity.
-- [ ] PKs, FKs, optional associations, uniqueness, and delete rules validated.
-- [ ] Concurrency and financial invariants validated against use cases.
+- [x] Attributes, conceptual types and identifiers specified for every entity (§6).
+- [x] Primary keys, foreign keys, optionality, uniqueness and delete rules specified logically (§6).
+- [x] Compatibility with use cases and both verticals checked analytically (§7).
+- [ ] Items marked T-01 to T-05 architecturally validated.
 - [ ] Team approval recorded.
 
-**Exit criterion:** This file is a reviewable conceptual/logical ERD proposal. It does not authorize creating tables, migrations, or endpoints until blocking functional contradictions and Step 3 details are resolved.
+**Exit criterion:** This file is a reviewable logical ERD proposal. It does not authorize creating tables, migrations or endpoints until the team approves it and the marked items are validated.

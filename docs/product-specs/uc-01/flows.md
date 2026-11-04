@@ -507,7 +507,7 @@ flowchart TD
 
 ## Customer Data Deletion Request
 
-The customer asks by chat from the same number and confirms. Their data is blocked at once, and they have 30 days to withdraw; otherwise deletion runs automatically. Verified payments and their receipts remain. The request does not cancel bookings automatically; personnel resolve bookings and pending money before day 30, alerted in the CRM, and deletion runs on day 30 regardless. Rules, retained data and pending legal validation are in [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat).
+The customer asks by chat from the same number and confirms. Their data is blocked at once, and they have 30 days to withdraw; otherwise deletion runs automatically. Verified payments and their receipts remain. The request does not cancel bookings automatically; personnel resolve bookings and pending money before day 30, alerted in the CRM, and deletion runs on day 30 regardless. Rules, retained data and pending legal validation are in [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat); the detailed case is [CU-23](../uc-02/use-cases.md#cu-23).
 
 ## Deferred Decisions — Do Not Infer as Approved
 

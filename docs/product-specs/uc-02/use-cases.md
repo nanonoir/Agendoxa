@@ -2,7 +2,7 @@
 
 > **Status:** In Review
 > **Objective:** Specify, case by case, what the MVP must do and under which conditions, and propose an implementation order, building on the actors and flows of UC-01.
-> **Scope:** Detailed functional specification of CU-01 to CU-16 and of six proposed cases (CU-17 to CU-22); MVP obligation and proposed implementation priority; functional dependencies; delivery by MVP stage.
+> **Scope:** Detailed functional specification of CU-01 to CU-16 and of seven proposed cases (CU-17 to CU-23); MVP obligation and proposed implementation priority; functional dependencies; delivery by MVP stage.
 > **Out of scope:** Actors and narrative flows (UC-01); canonical [business rules](../uc-03/business-rules.md) and [invariants](../uc-03/invariants.md); technical schema, endpoints and implementation. Product-owner decisions of 2026-11-04 remain in review, not team-approved or implemented.
 > **References:** [UC-01 actors and catalog](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.3; [target architecture](../../design-docs/target-architecture.md) v1.2 (proposed, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); [use case template](../../references/use-case-template.md).
 
@@ -15,7 +15,7 @@
 ## Open Questions
 
 - **Implementation priority (P0–P2), stage mapping and cut order are proposals** pending team approval ([§3](#3-prioritized-catalog), [§5](#5-delivery-by-mvp-stage)).
-- **CU-17 to CU-22 are proposed additions**; their justification and what remains to be agreed is in [§2.1](#21-proposed-cases-cu-17-to-cu-22). The actors of CU-18 and CU-20 are not defined in UC-01.
+- **CU-17 to CU-23 are proposed additions**; their justification and what remains to be agreed is in [§2.1](#21-proposed-cases-cu-17-to-cu-23). The actors of CU-18 and CU-20 are not defined in UC-01.
 - Steps marked *(proposal)* are interpretations needed to write a complete flow; they are not agreed behavior.
 - Canonical rules and invariants belong to UC-03; only genuinely unresolved questions remain pending.
 - Questions that affect a single case are listed inside that case.
@@ -48,7 +48,7 @@
 
 ## 2. Catalog Overview
 
-### 2.1 Proposed Cases (CU-17 to CU-22)
+### 2.1 Proposed Cases (CU-17 to CU-23)
 
 UC-01 assumes these behaviors (as preconditions or alternatives) but does not catalog them. They are proposed so that every `mvp.md` capability has an owner case. None introduces a new product decision; the parts that do need agreement are listed.
 
@@ -60,6 +60,7 @@ UC-01 assumes these behaviors (as preconditions or alternatives) but does not ca
 | [CU-20](#cu-20) Onboard a new business | No case creates a tenant or its first Admin. | `mvp.md` §5.1 Tenants and identity; ACT-06 | CU-15 configures an existing tenant; CU-20 only creates it. | **Actor (technical operator)**; minimum setup to accept bookings. |
 | [CU-21](#cu-21) View and operate the agenda | Several CRM cases start "from the agenda", which is not specified. | `mvp.md` §7.1 | CU-15's "today overview" is a summary; CU-21 is the operational schedule. | What is highlighted (A1). |
 | [CU-22](#cu-22) Expire an unconfirmed HOLD | Expiry appears as an alternative in CU-02, CU-03 and CU-06. | flows.md CU-02, CU-03; `mvp.md` §6.3.6 | Consolidates those alternatives into one system-initiated case with its own trigger; adds no behavior. | Concurrency details, *pending (UC-03)*. |
+| [CU-23](#cu-23) Request deletion of customer data | UC-03 §18 defines the rules, but no case owned the flow. | UC-03 BR-DAT-01–08 | CU-19 manages notice preferences, not deletion. | Advance alert timing; legal validation (P-32). |
 
 ### 2.2 General Use Case Diagram
 
@@ -83,6 +84,7 @@ flowchart LR
         CU08[CU-08 Cancel booking]
         CU09[CU-09 Reschedule booking]
         CU19[CU-19 Manage notice preferences]
+        CU23[CU-23 Request data deletion]
     end
 
     subgraph OPS[CRM operations]
@@ -106,7 +108,7 @@ flowchart LR
         CU22[CU-22 Expire unconfirmed HOLD]
     end
 
-    CUS --> CU01 & CU02 & CU03 & CU04 & CU05 & CU06 & CU07 & CU08 & CU09 & CU19
+    CUS --> CU01 & CU02 & CU03 & CU04 & CU05 & CU06 & CU07 & CU08 & CU09 & CU19 & CU23
     STF --> CU17 & CU21 & CU02 & CU03 & CU04 & CU08 & CU09 & CU10 & CU11 & CU12 & CU14
     AUT --> CU13
     AUT -.->|configuration or availability permission| CU15
@@ -119,7 +121,7 @@ Admin has protected full access; personnel actions require tenant role permissio
 
 ## 3. Prioritized Catalog
 
-All 22 cases are **Required** by `mvp.md` v0.3. The implementation priority is a **proposal**.
+All 23 cases are **Required** by `mvp.md` v0.3 and UC-03. The implementation priority is a **proposal**.
 
 | ID | Use case | Primary actor | Channel | MVP obligation (`mvp.md`) | Stage (§11) | Priority *(proposal)* | Why this priority |
 |---|---|---|---|---|---|---|---|
@@ -145,6 +147,7 @@ All 22 cases are **Required** by `mvp.md` v0.3. The implementation priority is a
 | [CU-13](#cu-13) | Open and close the shared cash register | Admin / permitted personnel | CRM | Required — §5.1 Cash register; §12 #11; Could — automatic opening | 3 | **P1** | Cash collection in CU-11 requires an open session. |
 | [CU-05](#cu-05) | Join a voluntary waitlist | Customer | WhatsApp | Required — §5.1 Waitlist; §12 #9 | 3 → 4 | **P2** | Prerequisite for eligible offers in CU-06. |
 | [CU-06](#cu-06) | Receive invitation and claim a slot | System; Customer responds | WhatsApp | Required — §5.1 Waitlist; §12 #6, #9 | 3 → 4 | **P2** | Progressive/broadcast races require a single atomic winner; initial priority has distinct occupancy. |
+| [CU-23](#cu-23) | Request deletion of customer data | Customer; System | WhatsApp / scheduled job | Required — UC-03 §18 | 4 | **P2** | Needs the WhatsApp channel; must exist before real customers. |
 
 Cash requires an open session; verified transfers do not. Priorities remain proposals for team review.
 
@@ -232,7 +235,7 @@ Follows `mvp.md` v0.3 §11. A case that spans several stages is listed where eac
 | **1. Core booking domain** | CU-20; CU-17 (memberships, roles); CU-15 (catalog and hours as data); CU-02 (conflict-safe booking); CU-22; CU-04 (requester/attendee data) | Two isolated tenants; bookings and HOLDs that cannot overlap; idempotent expiry. |
 | **2. Business-facing web** | CU-17 (CRM sign-in); CU-15 (CRM configuration); CU-21; CU-02 (walk-in); CU-08, CU-09 (CRM, without deposit workflow; enforce applicable configured policies) | Staff run the agenda of both verticals manually; the landing links to WhatsApp. |
 | **3. Deposits and operations** | CU-03 (review queue, verification, CRM booking with deposit); CU-08, CU-09 (notice, exceptions, deposits); CU-10; CU-11; CU-12; CU-13; CU-05, CU-06 (mechanics) | Transfer review, partial/mixed payments, cash close with difference, no-show label and restrictions, exclusive offers. |
-| **4. WhatsApp + AI** | CU-18; CU-01; CU-02, CU-03, CU-04, CU-07, CU-08, CU-09 (WhatsApp); CU-05, CU-06 (conversation); CU-14; CU-16; CU-19 | End-to-end conversational booking with and without deposit, handoff, reminders and waitlist messages. |
+| **4. WhatsApp + AI** | CU-18; CU-01; CU-02, CU-03, CU-04, CU-07, CU-08, CU-09 (WhatsApp); CU-05, CU-06 (conversation); CU-14; CU-16; CU-19; CU-23 | End-to-end conversational booking with and without deposit, handoff, reminders and waitlist messages. |
 | **5. Pilot validation** | All | `mvp.md` §12 acceptance criteria. |
 
 **For DOM-01:** consider requester/attendee distinction, restrictions, verification and occupancy from stage 1. Offer and booking claims are distinct; see [UC-03](../uc-03/business-rules.md) for occupancy rules.
@@ -850,7 +853,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-17"></a>
 ### CU-17 — Sign In to the CRM and Work Within a Business
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P0 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)) · **Priority:** P0 *(proposal)*
 
 - **Primary actor:** Staff/Admin.
 - **Channel:** CRM.
@@ -882,7 +885,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-18"></a>
 ### CU-18 — Connect and Monitor the Business WhatsApp Channel
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P1 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)) · **Priority:** P1 *(proposal)*
 
 - **Primary actor:** Admin *(proposal; UC-01 does not name the actor)*.
 - **Participants:** Evolution API + Baileys (EXT-02); technical operator (technical support only).
@@ -915,7 +918,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-19"></a>
 ### CU-19 — Manage Reminder and Waitlist Preferences
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P1 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)) · **Priority:** P1 *(proposal)*
 
 - **Primary actor:** Customer.
 - **Participants:** AI agent.
@@ -947,7 +950,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-20"></a>
 ### CU-20 — Onboard a New Business
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P0 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)) · **Priority:** P0 *(proposal)*
 
 - **Primary actor:** Technical operator (ACT-06) *(proposal)*; then the first Admin.
 - **Channel:** Operational tooling (a script or seed is enough in the MVP *(proposal)*), then the CRM.
@@ -977,7 +980,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-21"></a>
 ### CU-21 — View and Operate the Agenda
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)) · **Priority:** P0 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)) · **Priority:** P0 *(proposal)*
 
 - **Primary actor:** Staff/Admin.
 - **Channel:** CRM (mobile-first).
@@ -1005,7 +1008,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 <a id="cu-22"></a>
 ### CU-22 — Expire an Unconfirmed HOLD
 
-**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-22)): consolidates the expiry alternatives of CU-02, CU-03 and CU-06 · **Priority:** P0 *(proposal)*
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)): consolidates the expiry alternatives of CU-02, CU-03 and CU-06 · **Priority:** P0 *(proposal)*
 
 - **Primary actor:** System (scheduled job).
 - **Channel:** Internal; the customer may be notified by WhatsApp.
@@ -1029,6 +1032,43 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 #### Authorization
 - System-initiated; no human or AI action.
 
+---
+
+<a id="cu-23"></a>
+### CU-23 — Request Deletion of Customer Data
+
+**Proposed case** ([§2.1](#21-proposed-cases-cu-17-to-cu-23)): gives UC-03 §18 an owner case · **Priority:** P2 *(proposal)*
+
+- **Primary actor:** Customer; System executes the deletion.
+- **Participants:** AI agent; personnel resolve bookings and money.
+- **Channel:** WhatsApp; internal scheduled job.
+- **Trigger:** The customer asks to delete their data.
+- **Preconditions:** The request comes from the customer's own number in that tenant.
+
+#### Main Flow
+1. The AI asks for explicit confirmation and explains that verified payments and their receipts are kept.
+2. On confirmation, the data is blocked: no more notices and no operational use. The grace period of 30 days starts and is audited.
+3. The CRM alerts personnel in advance if the customer has future bookings or pending money, so they resolve them before day 30.
+4. On day 30, the job deletes conversations, rejected receipts and receipts with no payment, and deletes or anonymizes name, phone and preferences, except what must stay linked to a payment.
+5. The customer is told what was deleted, what is kept and why.
+
+#### Alternatives and Exceptions
+- **A1 — Withdrawal:** Within the 30 days, the customer withdraws by chat and recovers their profile; nothing is deleted.
+- **A2 — Another number:** At the trigger, the request is refused and referred to the business.
+- **A3 — Bookings or money unresolved on day 30:** Deletion runs anyway; payments are kept and an active future booking stays without name or phone (BR-DAT-08).
+- **A4 — Open claim:** Receipts tied to an open claim are kept (BR-DAT-03).
+- **A5 — Customer returns later:** They start with no restriction or history; accepted for the MVP (BR-DAT-07, TD-02).
+
+#### Outcome / Postconditions
+- **Success:** Requested data removed; financial records intact.
+- **Failure:** The job retries idempotently; the request stays pending.
+
+#### Authorization
+- Matrix row "Request deletion of own data".
+
+#### Open Questions
+- Legal validation of the 30-day window before real customers (P-32). Advance alert timing and anonymization mechanics are ERD T-04.
+
 ## 7. Excluded and Deferred Use Cases
 
 | ID | Use case | Status | Source |
@@ -1049,7 +1089,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 
 ## 8. UC-02 Acceptance Checklist
 
-- [x] Main use cases identified (CU-01 to CU-22) and excluded ones listed (§7).
+- [x] Main use cases identified (CU-01 to CU-23) and excluded ones listed (§7).
 - [x] Each case has a primary actor and channel consistent with UC-01; proposed actors are marked.
 - [x] Main flows documented with numbered steps.
 - [x] Relevant alternatives and exceptions documented, with where each occurs.
