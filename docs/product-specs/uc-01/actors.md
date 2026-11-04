@@ -71,9 +71,10 @@
 | Create bookings for oneself or others | Cond. | Yes | Yes | Cond. | Customer/AI: requester number, limits, policies and availability; CRM: authenticated personnel. |
 | Create an exceptional CRM booking for a blocked customer | No | Yes | Yes | No | Same booking-creation permission, warning and actor attribution; no unblock or extra permission, other policies still apply. |
 | Book outside regular hours (CRM) | No | Cond. | Yes | No | Requires role permission and authorized availability; no overlap with claims or explicit blocks. Exceptional openings also apply to WhatsApp. |
-| Cancel or reschedule a booking | Cond. | Yes | Yes | Cond. | Own managed bookings and applicable policy; customer commercial exceptions Admin-only. Cancellation-capable personnel may cancel for operational business cause with reason and notice. Financial review never delays an authorized confirmed cancellation. |
+| Cancel or reschedule a booking | Cond. | Yes | Yes | Cond. | Own managed bookings and applicable policy; customer commercial exceptions Admin-only. Cancellation-capable personnel may cancel for operational business cause with reason and notice. A customer may proceed after the notice window by accepting the consequences. Financial review never delays an authorized confirmed cancellation. |
 | Authorize exceptions to commercial policies | No | No | Yes | No | Admin decision and recorded reason; confirming a CRM booking without its required deposit instead records that no deposit was paid and the outstanding balance, with an optional reason. |
 | Join waitlist / receive invitation | Yes | Cond. | Cond. | Cond. | Voluntary enrollment and current waitlist preference; first exclusive priority or nonexclusive invitations per eligible cohort. |
+| Request deletion of own data | Yes | No | No | Cond. | From the same WhatsApp number with explicit confirmation; 30 days to withdraw. Verified payments and their receipts remain. See [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat). |
 | Record service/rental completion | No | Yes | Yes | No | Manual from start, never automatic. |
 | Record or correct `NO_SHOW` | No | Yes | Yes | No | Manual from start + 15 minutes; correction both ways needs correction permission, reason/history, no automatic money effect or walk-in displacement. |
 | Verify bank-transfer receipt | No | Yes | Yes | No | Confirm actual credit in bank/wallet, not merely an image. |
@@ -149,9 +150,9 @@ Both verticals share the **same availability and booking rules**. The MVP does *
 
 These do not block identification of actors or main flows, and **must not be interpreted as approved behavior**:
 
-1. Default cancellation/reschedule notice periods and maximum queue/enrollment sizes. Booking lead time, future-limit defaults/counting, requested-range expiry and failed-send behavior are resolved in UC-03.
-2. Applicable legal refund obligations and definitive retained-funds reporting; cancellation releases independently of financial review, and operational business cancellation authority is resolved.
-3. Additional abuse controls for indefinitely pending review/verified partial-deposit occupancy; no automatic timeout is implied. PDF/image-first text fallback and attendee name-only requirements are resolved.
+1. New-deposit treatment of a late reschedule and the full-queue message (P-28, P-29). Notice defaults, queue limit, booking lead time, future-limit defaults/counting, requested-range expiry and failed-send behavior are resolved in UC-03.
+2. Applicable legal refund obligations, definitive retained-funds reporting and legal validation of data deletion (P-07, P-32); cancellation releases independently of financial review, and operational business cancellation authority is resolved.
+3. Data-deletion effects on restrictions, future bookings and pending money (P-30, P-31). PDF/image-first text fallback, attendee name-only requirements and human supervision as the abuse control are resolved.
 4. Physical storage/concurrency of progressive invitations, reusable consent preferences and financial corrections; see the ERD, not new product defaults.
 5. Whether barbecue areas require a separate schedulable resource or a commercial request in a given pilot configuration; no mandatory joint multi-resource booking.
 6. Date-based reporting cutoffs/financial correction mechanics; cash sessions persist across midnight until manual close.

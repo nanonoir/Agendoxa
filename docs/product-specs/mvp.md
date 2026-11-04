@@ -199,7 +199,7 @@ Dedicated customer -> Dedicated installation -> PostgreSQL C -> tenant [Y]
 
 For scenario steps and exceptions, see [`uc-01/flows.md`](./uc-01/flows.md); for exact actor authority, see [`uc-01/actors.md`](./uc-01/actors.md).
 
-Booking lead time is tenant-configurable, default 0, never past start; cancellation/reschedule notice defaults are separate/open. Future cap defaults disabled; if enabled count future occupying bookings, including third parties, per requester/tenant. Any-resource assignment uses configured preference order or rotation. Other attendees need only a name, not phone/account.
+Booking lead time is tenant-configurable, default 0, never past start. Cancellation/reschedule notice defaults to 10 hours, tenant-configurable; later customer changes proceed after a warning and acceptance, without Admin, and count separately as late changes, never as no-shows. Each tenant sets a no-money-back or refund-possible deposit policy; the AI only communicates it and personnel manage the money manually. Future cap defaults disabled; if enabled count future occupying bookings, including third parties, per requester/tenant. Any-resource assignment uses configured preference order or rotation. Other attendees need only a name, not phone/account.
 
 ## 7. User Experience and Operational Interfaces
 
@@ -257,7 +257,7 @@ Minimum operational workflows:
 - One optional four-option question records independent reminder/waitlist preferences: both, reminders only, waitlist only, neither. Ask at first confirmation or first enrollment without preferences, retain refusal/choices without repeated prompts and allow changes in chat. Specific waiting conditions still require voluntary enrollment; current preference gates sends.
 - Use `pg-boss` for durable execution. Keep one `Notification` per logical notice and one `NotificationAttempt` per actual attempt (zero attempts for an omitted notice); re-check consent/current slot before each attempt and distinguish provider acceptance from delivery. No custom Job or consent-event entity is required.
 - Persist send intentions before dispatch and recover after restart. Confirmed send failure allows one valid retry; sent/delivered/read do not. Recover unknown interrupted outcomes where provider correlation permits, otherwise flag CRM without automatic resend. No stale invitation send or extended priority; CRM/core continue working.
-- Purge technical attempt details after 90 days, retaining final logical result; this does not define retention for chats, receipts, payments or consent audit. CRM confirmed bookings send separate transactional confirmation with phone/available channel, not dependent on reminder consent.
+- No age-based data purge in the MVP; see [UC-03 §18](./uc-03/business-rules.md#18-personal-data-and-retention-dat). A customer may request deletion by chat, with data blocked at once and 30 days to withdraw; verified payments and their receipts remain. CRM confirmed bookings send separate transactional confirmation with phone/available channel, not dependent on reminder consent.
 
 ## 9. Transfers, Payments, and Shared Cash Register
 
@@ -351,7 +351,7 @@ A teammate can clone the repository, configure `.env`, start the local services,
 5. **CRM continuity:** Authenticated Staff/Admin can create and manage bookings even if Evolution/WhatsApp or the AI is disconnected; the landing remains informational only.
 6. **Concurrency:** Simultaneous requests cannot produce incompatible active holds, exclusive offers or confirmed bookings for the same exclusive resource/time interval.
 7. **Customer ownership:** A WhatsApp requester can consult/change only their own managed future bookings within the correct tenant, including when booking for a friend.
-8. **Cancellation/rescheduling:** Enforce policies/restrictions and Admin-only exceptions. A valid partially prepaid reschedule moves atomically before collecting its difference, which never triggers automatic cancellation; a failed move preserves the original booking.
+8. **Cancellation/rescheduling:** Enforce policies/restrictions and Admin-only exceptions. A late customer change proceeds only after warning and acceptance, and counts as a late change, never a no-show. A valid partially prepaid reschedule moves atomically before collecting its difference, which never triggers automatic cancellation; a failed move preserves the original booking.
 9. **Waitlist:** Demonstrate 1–4 progressive and 5+ simultaneous invitations, late free-slot claims and one atomic ten-minute HOLD winner. Only first small-cohort priority owns a five-minute claim, and only the HOLD winner receives payment instructions.
 10. **Operational attendance:** Authorized personnel explicitly mark/correct outcomes. No-shows count against the booking requester even for third parties; other incidents are separate. Unused terminal-slot capacity stays private except explicit atomic CRM reuse. Restrictions are human decisions, not automatic sanctions.
 11. **Payment/cash:** Staff/Admin register partial/mixed payments and verify transfers; a shared register records responsible users, manual close and discrepancies, and preserves closed-session history.
@@ -368,8 +368,9 @@ These are **technical and operational MVP acceptance criteria**, not assertions 
 |---|---|
 | **Unofficial WhatsApp integration** | Informed pilot, monitoring, bounded message types, human fallback and tenant-level disconnect/disable capability; no promise of ban-free operation |
 | **Long-running human deposit review** | Active review has no inactivity timeout; initial-evidence rejection uses the defined correction window. Started slots and supplemental reschedule money require manual handling rather than automatic release |
-| **Waitlist corner cases** | Behavior, range expiry and one confirmed-failure retry agreed; queue-size caps, physical round/cohort/restart details remain design work |
-| **Cancellation, refunds and legal exceptions** | Release independent of financial review; operational cancellation authority/manual refunds agreed. Applicable legal duties and retained-funds reporting remain open |
+| **Waitlist corner cases** | Behavior, rounds, a fixed limit of 10 per queue, range expiry and one confirmed-failure retry agreed; full-queue wording and physical round details remain open |
+| **Cancellation, refunds and legal exceptions** | Release independent of financial review; operational cancellation authority, tenant deposit policies and manual refunds agreed. Applicable legal duties and retained-funds reporting remain open |
+| **Personal data deletion and retention** | 30-day window accepted as an MVP risk even though Ley 25.326 art. 16 sets five business days for suppression; legal validation required before real customers. Age-based periods are technical debt |
 | **Customer identity and no-shows** | Name-only attendee data, requester attribution, timing and corrections agreed; safe identity changes remain detailed design |
 | **Cash sessions and late credits** | Open session required for cash, explicit opening, serialized manual close; detailed reporting cutoffs/financial correction mechanics remain design work without rewriting closed sessions |
 | **Direct WhatsApp human messages** | Confirm Evolution/Baileys detection against the pilot version; use explicit CRM takeover as reliable fallback |

@@ -209,7 +209,7 @@ flowchart TD
 
 **Alternatives:** Customer accepts alternative → regular booking, no waitlist. Declines opt-in → nothing registered. Duplicate interest → avoid duplicate requester/conditions entries.
 
-**Result:** Registered interest, not guaranteed capacity. Entry expires when its requested range has no future slot, or closes on successful booking/customer withdrawal. Queue-size caps and physical round representation remain open.
+**Result:** Registered interest, not guaranteed capacity. Entry expires when its requested range has no future slot, or closes on successful booking/customer withdrawal. A queue holds at most 10 people in the MVP; the full-queue message (P-29) and physical round representation remain open.
 
 <a id="cu-06"></a>
 ## CU-06 — Receive a Waitlist Invitation and Claim a Slot
@@ -221,7 +221,7 @@ flowchart TD
 2. Explain the actual priority/competition. An invitation never requests payment. Recheck eligibility/availability atomically when someone claims; close any initial offer claim and create one distinct ten-minute booking HOLD for the winner. Concurrent losers receive the taken-slot explanation and alternatives.
 3. Only the winner receives instructions for [CU-02](#cu-02) or [CU-03](#cu-03); all payment instructions follow successful HOLD acquisition.
 
-**Alternatives:** Priority expiry advances invitations without invalidating earlier recipients; late claims may win if still free/eligible. An occupied or past-start slot cannot be reclaimed. Confirmed send failure → one still-valid retry, second failure → advance without deleting entry. Unknown result → recover status or flag CRM, no automatic resend. Communication failure never extends priority or freezes capacity; nonexclusive invitations hold no claims.
+**Alternatives:** Priority expiry advances invitations without invalidating earlier recipients; late claims may win if still free/eligible. An occupied or past-start slot cannot be reclaimed. Confirmed send failure → one still-valid retry, second failure → advance without deleting entry. Unknown result → recover status or flag CRM, no automatic resend. Communication failure never extends priority or freezes capacity; nonexclusive invitations hold no claims. Round changes (late enrollment, leaving the queue, expired winner HOLD) follow [BR-WL-15](../uc-03/business-rules.md#12-waitlist-and-exclusive-offers-wl).
 
 **Result:** One atomic winner, not guaranteed confirmation. Initial priority ends without renewal; later invitations preserve competition, not occupancy. No arbitrary three-offer cap.
 
@@ -277,10 +277,10 @@ flowchart TD
 
 **Main flow**
 1. Resolve booking; check originating requester number within the tenant (or authenticated staff permission) and minimum notice, including service/resource overrides.
-2. Explain cancellation conditions and ask explicit confirmation to cancel/release; no automatic forfeiture or refund. Offer rescheduling/verified credit without making financial resolution a prerequisite.
+2. Explain cancellation conditions under the tenant's deposit policy, including the late consequence when applicable, and ask explicit confirmation to cancel/release; no automatic forfeiture or refund. Offer rescheduling/verified credit without making financial resolution a prerequisite.
 3. Once confirmed and authorized, cancel and release immediately, including during review or partial-deposit waiting; invalidate reminders and consider [CU-06](#cu-06). Verification and manual credit/refund handling continue separately.
 
-**Alternatives:** Customer out-of-policy change → Admin exception; operational business cause → cancellation-capable personnel may cancel with reason/customer notice and offer another date. No confirmation → retain booking; wrong sender → refuse. No financial review/refund may freeze an authorized cancelled slot, and late credit cannot recover it. Legal refund obligations remain subject to review.
+**Alternatives:** Outside the notice window → warn of the consequence and cancel on acceptance without Admin, counting a late cancellation; only an exception to the consequence needs Admin. Operational business cause → cancellation-capable personnel may cancel with reason/customer notice and offer another date. No confirmation → retain booking; wrong sender → refuse. No financial review/refund may freeze an authorized cancelled slot, and late credit cannot recover it. Legal refund obligations remain subject to review.
 
 **Result:** Authorized confirmed cancellation and released slot, or unchanged booking.
 
@@ -297,7 +297,7 @@ flowchart TD
 3. Ask for explicit confirmation. For an allowed change with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving payments and allocations.
 4. Request and verify any additional deposit afterwards; record the change request, booking event and financial consequences. Consider [CU-06](#cu-06) for the old slot and notify the customer.
 
-**Alternatives:** Policy violation → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
+**Alternatives:** Outside the notice window → warn of the consequence and proceed on acceptance without Admin, counting a late reschedule; the deposit effect of a late move is open (P-28). Over the limit or an exception to the consequence → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
 
 **Result:** New conditions/balance, or original preserved. A professional change retains client credit and actual receiving-account history; manual internal compensation never blocks an otherwise valid move or charges the deposit twice.
 
@@ -311,7 +311,10 @@ flowchart TD
     C -->|No| D[Reject and refer exception to business]
     C -->|Yes| E[Check notice period and policy]
     E --> F{Within policy?}
-    F -->|No| G[Reject; Admin-only exception]
+    F -->|No| G[Warn of late consequence; Admin only for exceptions]
+    G --> G2{Customer accepts?}
+    G2 -->|No| N[Keep original booking]
+    G2 -->|Yes| H
     F -->|Yes| H{Requested operation?}
     H -->|Cancel| I{Verified deposit exists?}
     I -->|Yes| J[Explain manual credit or refund resolution; offer reschedule]
@@ -319,7 +322,7 @@ flowchart TD
     J --> K
     K --> L{Customer confirms?}
     L -->|Yes| M[Cancel and release now; financial review continues separately]
-    L -->|No| N[Keep original booking]
+    L -->|No| N
     H -->|Reschedule| O[Check new slot and new price]
     O --> P{Available and allowed?}
     P -->|No| Q[Offer alternatives; keep old booking]
@@ -486,7 +489,7 @@ flowchart TD
 1. Before sending, re-check booking/offer validity and **unrevoked consent**.
 2. Send the reminder or [CU-06](#cu-06) offer. One `Notification` represents the logical notice; each attempt is a `NotificationAttempt` with optional message. Retries do not duplicate the notice; provider acceptance is not delivery.
 
-**Alternatives:** Missing/revoked relevant consent suppresses proactive sends; cancellation suppresses reminders. One four-option question records independent reusable preferences, no repeated prompt per operation. Confirmed failure gets one valid retry; sent/delivered/read do not. Unknown send outcome requires recovery or CRM attention without automatic resend, priority extension or frozen capacity. Technical attempt details last 90 days, final notice result remains; other data retention is separate.
+**Alternatives:** Missing/revoked relevant consent suppresses proactive sends; cancellation suppresses reminders. One four-option question records independent reusable preferences, no repeated prompt per operation. Confirmed failure gets one valid retry; sent/delivered/read do not. Unknown send outcome requires recovery or CRM attention without automatic resend, priority extension or frozen capacity. No age-based purge runs in the MVP; see [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat).
 
 **Result:** Authorized proactive messaging only. If the computed reminder time is at or before confirmation, omit it; confirmation is a separate notice. Rescheduling invalidates the old reminder and schedules a new one only if applicable; cancellation prevents sending. Calendar rules use tenant timezone and instants use UTC, including day crossings. Consent grants and revocations alone are audited transactionally with actor, channel, scope and time; individual messages and retries are not consent audit events. Recheck before each attempt.
 
@@ -502,12 +505,16 @@ flowchart TD
 | Cash counted below expected | Manual close allowed with documented variance | [CU-13](#cu-13) |
 | Human stops responding for 60 minutes | Resume AI only if global mode remains enabled | [CU-14](#cu-14) |
 
+## Customer Data Deletion Request
+
+The customer asks by chat from the same number and confirms. Their data is blocked at once, and they have 30 days to withdraw; otherwise deletion runs automatically. Verified payments and their receipts remain. Rules, retained data and pending legal validation are in [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat).
+
 ## Deferred Decisions — Do Not Infer as Approved
 
 1. Exact persisted states/transitions, late events and concurrency details for HOLDs, five-minute offers and human payment review.
-2. Queue-size caps and physical round/cohort/restart representation; requested-range expiry, progressive/broadcast behavior and one failed-send retry are resolved.
-3. Cancellation/reschedule notice defaults; booking lead time defaults 0 and future limit defaults off with agreed counting.
-4. Additional review-abuse controls and applicable legal refund duties; evidence fallback, partial-deposit protection and cancellation/business authority are resolved.
+2. Full-queue message and physical round representation; queue limit, round behavior, requested-range expiry, progressive/broadcast behavior and one failed-send retry are resolved.
+3. Deposit effect of a late reschedule (P-28); notice defaults to 10 hours, booking lead time defaults 0 and future limit defaults off with agreed counting.
+4. Applicable legal refund duties and legal validation of data deletion; evidence fallback, partial-deposit protection, abuse supervision and cancellation/business authority are resolved.
 5. Date-based reporting/financial correction representation; cash sessions survive midnight until manual close.
 6. How a barbecue area is configured for a specific club; **no required atomic multi-resource booking**.
 7. Reliability/fallback for detecting direct human WhatsApp replies through Evolution/Baileys.

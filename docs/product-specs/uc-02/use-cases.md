@@ -384,7 +384,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Authorize exceptions to commercial policies": Admin only, to confirm a CRM booking without its required deposit (CRM step 2c).
 
 #### Open Questions
-- Additional abuse controls beyond human supervision remain open in P-24. Text fallback, partial money protection and cancellation independent of review are resolved; do not infer a new timeout.
+- The MVP accepts human supervision as the abuse control (P-24). Text fallback, partial money protection and cancellation independent of review are resolved; do not infer a new timeout.
 
 ---
 
@@ -444,6 +444,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A2 — Opt-in declined:** At step 3, nothing is recorded.
 - **A3 — Duplicate interest:** At step 3, the existing entry is kept with its original arrival order.
 - **A4 — Blocked customer:** At step 2, the waitlist is not offered *(proposal)*.
+- **A5 — Queue full:** At step 3, a queue already holds the MVP limit of 10 people (BR-WL-14); nothing is recorded. The message is open (P-29).
 
 #### Outcome / Postconditions
 - **Success:** A registered interest with consent; no slot is reserved.
@@ -453,7 +454,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Join waitlist / receive invitation".
 
 #### Open Questions
-- Expire when requested range has no future slots; close on fulfilled booking/customer withdrawal, not unanswered/failed delivery. Queue-size caps and physical release-round/restart details remain unspecified (P-19), not expiry/retry rules.
+- Expire when requested range has no future slots; close on fulfilled booking/customer withdrawal, not unanswered/failed delivery. Full-queue wording is open (P-29); physical round storage is ERD T-01/T-05.
 
 ---
 
@@ -480,7 +481,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A2 — No eligible entry:** At step 1, nothing is held.
 - **A3 — Notice fails:** Confirmed failure gets one still-valid retry; second failure advances without deleting the recipient entry, extending priority or creating another invitation. Unknown outcome is reconciled or flagged in CRM without automatic resend. No indefinite blocking.
 - **A4 — Requester no longer eligible:** At step 1, an entry whose requester became `BLOCKED` or reached the future-booking limit is skipped *(proposal)*.
-- **A5 — Accepted but not completed:** After step 5, [CU-22](#cu-22) may expire the HOLD, and this case may start again.
+- **A5 — Accepted but not completed:** After step 5, [CU-22](#cu-22) may expire the HOLD; a new round starts with the current queue, excluding that person from it.
+- **A6 — Queue changes during a round:** The mode stays fixed; late enrollees join last, and a priority holder who declines or leaves ends priority at once (BR-WL-15).
 
 #### Outcome / Postconditions
 - **Success:** Exactly one winning HOLD, not confirmed booking; only winner receives payment instructions.
@@ -538,16 +540,16 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Main Flow (WhatsApp)
 1. The AI resolves the booking among those managed by the sender number ([CU-07](#cu-07)).
 2. The backend checks ownership and minimum notice, including service/resource overrides.
-3. Explain cancellation conditions, without automatic forfeiture/refund. Financial review is separate from release; offer rescheduling/verified credit without requiring it to finish first.
+3. Explain cancellation conditions under the tenant's deposit policy, without automatic forfeiture/refund. Financial review is separate from release; offer rescheduling/verified credit without requiring it to finish first.
 4. Ask explicit confirmation to cancel and release the slot.
 5. Cancel/release immediately once authorized and confirmed, void old reminders, notify customer and consider CU-06. Continue outstanding review independently; verified funds may be manually credited to another booking or resolved by personnel/Admin refund. No late credit recovers the slot.
 
 #### Alternatives and Exceptions
-- **A1 — Outside the notice window:** At step 2, the AI declines and explains; only an Admin can approve an audited exception from the CRM.
+- **A1 — Outside the notice window:** At step 3, the AI warns of the configured consequence; on acceptance the cancellation proceeds without Admin and counts as a late cancellation (BR-CAN-14). Only an Admin can approve an audited exception to the consequence.
 - **A2 — Different number:** At step 1, refused and referred to the business.
 - **A3 — Customer does not confirm:** At step 4, the booking is unchanged or the customer chooses CU-09.
 - **A4 — HOLD not yet paid:** At step 3, there is nothing to forfeit.
-- **A5 — CRM, at the customer's request:** Staff/Admin cancel within policy; outside it, only an Admin authorizes (`mvp.md` §6.3.9).
+- **A5 — CRM, at the customer's request:** Personnel cancel under the same rule; a late change counts, and only an Admin authorizes an exception to its consequence.
 - **A6 — Operational business-caused cancellation:** Personnel with cancellation permission may cancel with reason, release and notify/offer another date, even near start. This is not authority to grant customer policy exceptions. Review/refund remains separate/manual; Admin authorizes refunds.
 
 #### Outcome / Postconditions
@@ -582,7 +584,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 6. Request and verify any additional deposit afterwards ([CU-11](#cu-11)); reschedule reminders, notify the customer and consider [CU-06](#cu-06) for the old slot. `FULL_PREPAYMENT` remains applicable unless Admin authorizes an exception.
 
 #### Alternatives and Exceptions
-- **A1 — Outside the notice window or over the limit:** At step 1, declined; only an Admin can approve a documented exception.
+- **A1 — Outside the notice window:** At step 4, the AI warns of the configured consequence; on acceptance the move proceeds without Admin and counts as a late reschedule (BR-CAN-14). The deposit effect is open (P-28).
+- **A1b — Over the limit, or an exception to the late consequence:** Only an Admin can approve a documented exception.
 - **A2 — Candidate slot unavailable:** At step 2, alternatives are offered; the original booking stays intact.
 - **A3 — Extra deposit rejected, unpaid or pending:** After the eligible move, the new booking remains confirmed; resolve manually, without automatic cancellation or restoring the old slot. The initial-evidence rejection window does not apply.
 - **A4 — Lower deposit or price:** At step 3, retained valid allocations reduce the balance; unallocated verified funds require explicit manual allocation. Nothing is refunded automatically.
@@ -840,7 +843,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 - System-initiated, within the consent recorded by the customer.
 
 #### Open Questions
-- Retry/uncertainty policy is agreed; provider status-recovery/deduplication capabilities remain unvalidated. Retain technical attempt details 90 days, then purge those details while preserving the final notice result; other data retention is separate.
+- Retry/uncertainty policy is agreed; provider status-recovery/deduplication capabilities remain unvalidated. No age-based purge in the MVP; 90 days is the suggested value for technical attempt details ([TD-01](../../exec-plans/tech-debt-tracker.md)).
 
 ---
 

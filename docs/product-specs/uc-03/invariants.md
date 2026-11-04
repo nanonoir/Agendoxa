@@ -81,9 +81,9 @@ stateDiagram-v2
 | `HOLD` → `CANCELLED` | Yes | Yes | Yes | No | Withdrawn before confirmation. | Proposal (UC-01 does not cover withdrawing a HOLD) |
 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and manually allocated to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
 | Initial evidence rejection / correction | New evidence or valid manual resolution | Authorized role | Yes | Guarded timeout only | BR-SEN-10 applies only without verified partial deposit; pending review suspends timeout, started slots require manual handling. Partial verified funds invoke BR-SEN-11, never automatic release. | Updated F-018; follow-up P-27 |
-| Pending review / partial-deposit waiting → `CANCELLED` | Explicit confirmation within policy | Applicable permission/policy | Yes | No financial timeout | Release immediately upon authorized cancellation; review/refund continues separately. | BR-CAN-04, BR-SEN-11 |
-| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes, within policy | Authorized role, within policy | Yes, also out of policy with a reason | No | With partial deposit already verified, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. | Product-owner decision F-006, F-010 |
-| `CONFIRMED` → `CANCELLED` | Explicit confirmation within policy | Within policy, or operational business cause with reason | Also customer policy exceptions | No | Release without waiting for finances; notify customer. | BR-CAN-04–06 |
+| Pending review / partial-deposit waiting → `CANCELLED` | Explicit confirmation; accepted consequence if late | Applicable permission/policy | Yes | No financial timeout | Release immediately upon authorized cancellation; review/refund continues separately. | BR-CAN-04, BR-SEN-11 |
+| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With partial deposit already verified, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late deposit effect: P-28. | Product-owner decision F-006, F-010; BR-CAN-14 |
+| `CONFIRMED` → `CANCELLED` | Explicit confirmation; accepted consequence if late | Same rule, or operational business cause with reason | Also exceptions to the consequence | No | Release without waiting for finances; notify customer. | BR-CAN-03–06, BR-CAN-14 |
 | `CONFIRMED` → `COMPLETED` | No | Yes | Yes | **No** | Manual, current instant >= start. | Follow-up P-06 |
 | `CONFIRMED` → `NO_SHOW` | No | Yes | Yes | **No** | Manual, current instant >= start + 15 minutes. | Follow-up P-06 |
 | `NO_SHOW` ↔ `COMPLETED` | No | Correction permission | Yes | No | Mandatory reason/history, destination timing guard; no financial effect or walk-in eviction. | Follow-up P-05 |
@@ -237,10 +237,11 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-CAN-06 | Cancelling or rescheduling voids the reminders scheduled for the old slot. | TX + JOB | BR-NOT-03 |
 | INV-CAN-07 | Customer commercial-policy exceptions require recorded Admin authorization/reason. Operational business cancellation is separately permitted to cancellation-capable personnel with reason and customer notification, not authority to grant customer exceptions. | UC | BR-CAN-03, BR-CAN-06 |
 | INV-CAN-08 | Authorized explicitly confirmed cancellation releases the claim and suppresses old reminders atomically, regardless of pending verification or partial deposit. Financial review/refund proceeds independently and cannot retain/recover the cancelled slot; all refunds remain manual/Admin-authorized. | TX | BR-CAN-04 |
+| INV-CAN-09 | A late customer change executes only after the customer accepts the stated consequence. It records one late change, never a `NO_SHOW`, and moves no money automatically. | UC + TX | BR-CAN-14, BR-CLI-12 |
 
 **EJ-22 · Another number.** Given a booking made from number X for attendee "Lucas", when Lucas writes from number Y asking to cancel it, then the AI refuses and refers him to the business.
 
-**EJ-23 · Outside the notice window.** Given a tenant with 2 hours of notice and a booking at 18:00, when the customer asks to cancel at 17:00, then the AI declines and explains the policy; the booking stays `CONFIRMED`.
+**EJ-23 · Outside the notice window.** Given a tenant with 10 hours of notice and a booking at 18:00, when the customer asks to cancel at 09:00, then the AI warns of the configured consequence and asks for confirmation. If declined, the booking stays `CONFIRMED`. If accepted, it is cancelled without Admin and one late cancellation is counted, not a no-show.
 
 **EJ-24 · Cancellation independent of finances.** Given an in-policy cancellation with transfer under review, when the requester explicitly confirms release, then the claim ends immediately while the review continues. Later verified money may become manually reusable credit or an Admin-managed refund, never automatic forfeiture, refund or rebooking.
 
@@ -264,6 +265,8 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-WL-08 | The winning claim closes any initial exclusive offer claim and creates a distinct booking-owned ten-minute HOLD atomically. One invitation can yield at most one booking, one slot one winner. Only then issue transfer instructions; concurrent losers cannot pay through another invitation. | TX | BR-WL-08 |
 | INV-WL-09 | Preferred resource is same-tenant/compatible; otherwise any compatible one. Time preferences and current eligibility apply; arrival order controls progressive invitations, not open-competition winner. | UC | BR-WL-11 |
 | INV-WL-10 | Expire an entry when its requested range has no future slot, or close on fulfilled booking/customer withdrawal. Failed/unanswered notices alone do not remove it. No three-offer cap or extra per-person exclusivity is inferred. | JOB + UC | BR-WL-12 |
+| INV-WL-11 | A queue never exceeds 10 people in the MVP; enrollment checks the limit atomically. | TX | BR-WL-14 |
+| INV-WL-12 | A round's mode does not change once started. A person who let their HOLD expire is not invited in the next round for that slot, and nobody can claim after the slot starts or after leaving the queue. | UC + TX | BR-WL-15 |
 
 **EJ-28 · One offer at a time.** Given two customers waiting for Court 2 at 22:00, when the slot is released, then only the first one receives an offer.
 
@@ -293,6 +296,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified and explicitly manually allocated to its charge, unless an Admin exception from the CRM records that it was not paid and the outstanding balance (INV-SEN-09). | TX | BR-CLI-09, BR-SEN-09 |
 | INV-CLI-05 | Every restriction change records actor and reason and requires the appropriate role permission. | UC | BR-CLI-08 |
 | INV-CLI-06 | Internal labels never appear in customer-facing messages. | UC | BR-AGT-03 |
+| INV-CLI-07 | The late-changes count derives from executed customer-requested late changes, once per change, and never feeds the no-show count or indicator. | UC | BR-CLI-12 |
 
 **EJ-33 · Label without sanction.** Given a customer with 2 no-show bookings and restriction `NONE`, when they book by WhatsApp, then the normal deposit rule applies and the CRM shows "Problematic customer".
 
@@ -353,7 +357,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-NOT-05 | Persist the notice/intention before send and recover work after crash. Actual attempts retain optional Message correlation; retries preserve logical identity. Confirmed failure allows one retry, sent/delivered/read none, unknown outcome requires status recovery or CRM attention without automatic resend. Always recheck validity; neither outages nor retries extend priority. | TX + JOB | BR-NOT-04, BR-NOT-10 |
 | INV-NOT-06 | If start minus lead time is at or before confirmation, omit the reminder, not the separate confirmation. On reschedule invalidate the old reminder and schedule only a future new one; use tenant timezone for calendar rules and UTC instants. | JOB | BR-NOT-08 |
 | INV-NOT-07 | One four-option consent answer persists separate customer preferences and scoped audit changes; reuse them for future bookings/entries, including refusal. Waitlist entries retain provenance and cannot override later revocation. No new consent entity or repeated enrollment prompt. | TX + UC | BR-NOT-09, BR-AUD-03 |
-| INV-NOT-08 | Purge attempt technical details after 90 days, preserving the notice's final result and not applying that deadline to chats, receipts, money or consent audit. CRM confirmation is a separate transactional notice, not reminder consent. | JOB + UC | BR-NOT-11–12 |
+| INV-NOT-08 | No age-based purge runs in the MVP; when one exists it preserves the notice's final result. CRM confirmation is a separate transactional notice, not reminder consent. | JOB + UC | BR-NOT-11–12, BR-DAT-06 |
 
 **EJ-44 · Cancelled booking.** Given a booking with a reminder scheduled for 9:00, when it is cancelled at 8:00, then nothing is sent at 9:00.
 
@@ -368,7 +372,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-AUD-01 | Every action listed in BR-AUD-01 writes its audit record **in the same transaction** as the change. | TX | BR-AUD-01 |
-| INV-AUD-02 | Audit records are never modified or deleted. | DB + UC | BR-AUD-01 |
+| INV-AUD-02 | Audit records are never modified or deleted by ordinary operations. Their final period under customer deletion is to be validated (BR-DAT-04). | DB + UC | BR-AUD-01, BR-DAT-04 |
 | INV-AUD-03 | Combined consent UX updates independent customer scopes and relevant entry consent provenance atomically with scoped grant/revocation AuditEvents (actor/channel/time). Current preference, not stale entry consent, gates delivery; individual messages/retries create no consent audit event. | TX | BR-AUD-03 |
 | INV-AUD-04 | Each membership has exactly one tenant role; effective permissions are checked in the backend and never granted directly to members. Admin is full-access, non-deletable and non-reducible, its last active member protected, and BR-IAM-04 operations non-delegable. | UC + TX | BR-IAM-01, BR-IAM-02, BR-IAM-04 |
 
@@ -396,7 +400,19 @@ The guarantee in the "Holds meanwhile" column is valid today; the rest waits for
 |---|---|---|
 | INV-PAY-08 | Proposal | Payments are never deleted (INV-PAY-06). |
 | INV-PAY-12 | ERD T-03 | Correction behavior is agreed; exact immutable financial ledger representation remains unimplemented. |
-| INV-WL-01–10 | ERD T-01/T-05 | Progressive/broadcast behavior and single winner are agreed; validate physical round/claim representation before schema implementation. |
-| INV-NOT-05, INV-NOT-07–08 | ERD T-04/T-05 | Durable recovery, no blind uncertain resend, 90-day technical retention and independent reusable preferences are agreed; provider capabilities/storage details remain unvalidated. |
+| INV-WL-01–12 | ERD T-01/T-05 | Progressive/broadcast behavior, rounds, queue limit and single winner are agreed; validate physical round/claim representation before schema implementation. |
+| INV-NOT-05, INV-NOT-07 | ERD T-04/T-05 | Durable recovery, no blind uncertain resend and independent reusable preferences are agreed; provider capabilities/storage details remain unvalidated. |
+| INV-NOT-08, INV-DAT-03 | TD-01 | No age-based deletion runs; retention periods are still to be chosen. |
+| INV-DAT-01–02 | P-31, P-32 | The agreed 30-day process applies; handling of active bookings/pending money and legal validation remain open. |
 
 See the [decision register](./business-rules.md#16-pending-decisions) for remaining questions and resolved portions.
+
+## 15. Personal Data
+
+| ID | Invariant | Where | Origin |
+|---|---|---|---|
+| INV-DAT-01 | After a confirmed deletion request, no notice is sent and the data has no operational use until the request is withdrawn or executed. | UC + JOB | BR-DAT-01 |
+| INV-DAT-02 | Automatic deletion runs only for a confirmed request whose 30 days elapsed without withdrawal, and is idempotent. A withdrawal within the window always prevents it. | JOB + TX | BR-DAT-02 |
+| INV-DAT-03 | A deletion never removes payments, refunds, cash records or receipts of verified payments, and nothing is deleted just for its age. | UC + JOB | BR-DAT-03, BR-DAT-04, BR-DAT-06 |
+
+**EJ-54 · Deletion withdrawn.** Given a confirmed deletion request on day 0, when the customer withdraws it on day 20, then the profile is recovered and nothing is deleted. Without withdrawal, deletion runs on day 30 and the verified payment and its receipt remain.

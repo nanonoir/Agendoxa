@@ -306,7 +306,7 @@ Booking lead time defaults to 0, never past start; future cap defaults off and c
 - For 1–4 eligible people only first gets five-minute exclusivity; invite another every five minutes while earlier recipients may still claim. With 5+, notify simultaneously. Only initial priority owns an offer claim; later/broadcast invitations have none. Preserve priority deadline separately from claim eligibility.
 - A preferred resource is compatible/same-tenant; otherwise any compatible one. Atomic arbitration across all channels closes any initial priority claim and creates one distinct ten-minute booking HOLD for the winning invitation, without mutating claim ownership. Only winner receives transfer instructions; late/concurrent losers get alternatives, never displace a newer claim.
 - Initial priority expires regardless of connection; later invitations do not freeze public availability. Confirmed failure gets one valid retry then advance without deleting the entry; unknown outcome follows §10.3. Entry expires when no future requested-range slot remains, or closes on fulfilled booking/withdrawal, not unanswered notice alone.
-- Round/cohort/restart persistence and concurrency stay ERD T-01/T-05, without new entities or the rejected three-offer cap. Queue-size caps remain open. Never promise later recipients exclusive priority.
+- A queue holds at most 10 people in the MVP. Round behavior is canonical in [UC-03 BR-WL-15](../product-specs/uc-03/business-rules.md#12-waitlist-and-exclusive-offers-wl); its persistence and concurrency stay ERD T-01/T-05, without new entities or the rejected three-offer cap. Never promise later recipients exclusive priority.
 
 ### 9.3 Manual Deposits and Financial Records
 
@@ -369,7 +369,7 @@ The LLM is **an orchestrator and conversation interface**, not an independent bu
 - Before every attempt, check current consent, slot/offer validity, expiry, connection, recipient and tenant. Persist attempts and correlate delivery outcomes; a delivery failure does not roll back the booking.
 - Never assume that 600–800 monthly reminders or a specified number of WhatsApp connections is a provider-approved limit or guaranteed capacity; measure the pilot.
 
-Do not extend priority or send stale offers due to outages/restarts. Purge attempt technical details after 90 days while retaining final Notification result; other chats/assets/payments/consent-audit retention remains separate. CRM confirmed bookings have transactional confirmation with phone/available channel, not dependent on reminder consent.
+Do not extend priority or send stale offers due to outages/restarts. The only automatic deletion in the MVP executes a customer's confirmed request after its 30-day window; no job deletes data for age ([UC-03 §18](../product-specs/uc-03/business-rules.md#18-personal-data-and-retention-dat), TD-01). CRM confirmed bookings have transactional confirmation with phone/available channel, not dependent on reminder consent.
 
 ## 11. Internal API and Integration Boundaries
 
