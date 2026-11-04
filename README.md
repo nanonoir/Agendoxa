@@ -8,7 +8,7 @@
 
 La propuesta apunta a negocios de servicios, como barberías y clubes deportivos: sus clientes gestionarían reservas por WhatsApp y el personal operaría desde un CRM mobile-first. Una landing informativa dirigiría a WhatsApp, sin permitir reservas web. Ambos canales operativos usarían un único núcleo de reservas; las transferencias requerirían verificación humana.
 
-El alcance y las decisiones están en revisión, con decisiones UC-01 explícitamente confirmadas y otras pendientes. Consultá las [especificaciones de producto](docs/product-specs/index.md) para reglas, exclusiones y estados, sin asumir que describen funcionalidad ya disponible.
+El alcance y las decisiones están en revisión. La reconciliación del 4 de noviembre de 2026 incorpora acuerdos con el responsable de producto, no aprobación formal de todo el equipo. Consultá las [especificaciones de producto](docs/product-specs/index.md) para las reglas canónicas UC-03, actores, flujos y pendientes, sin asumir funcionalidad disponible.
 
 ## Arquitectura
 
@@ -82,7 +82,7 @@ packages/
   shared/            # Contrato de salud compartido
   database/          # Placeholder sin persistencia
 docs/
-  product-specs/     # Alcance y UC-01
+  product-specs/     # Alcance, UC-01/02/03 y sus estados
   design-docs/       # Propuestas técnicas
   exec-plans/        # Planes y deuda técnica
   references/        # Material de apoyo

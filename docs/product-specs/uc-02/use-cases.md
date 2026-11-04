@@ -3,21 +3,21 @@
 > **Status:** In Review
 > **Objective:** Specify, case by case, what the MVP must do and under which conditions, and propose an implementation order, building on the actors and flows of UC-01.
 > **Scope:** Detailed functional specification of CU-01 to CU-16 and of six proposed cases (CU-17 to CU-22); MVP obligation and proposed implementation priority; functional dependencies; delivery by MVP stage.
-> **Out of scope:** Actors, permissions and narrative flows (UC-01, not repeated here); business rules, state transitions and invariants (UC-03, pending); entities and relations (DOM-01, DOM-02); endpoints and contracts (CON-XX); implementation.
-> **References:** [UC-01 actors and catalog](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.2; [target architecture](../../design-docs/target-architecture.md) v1.1 (proposed, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); [use case template](../../references/use-case-template.md).
+> **Out of scope:** Actors and narrative flows (UC-01); canonical [business rules](../uc-03/business-rules.md) and [invariants](../uc-03/invariants.md); technical schema, endpoints and implementation. Product-owner decisions of 2026-11-04 remain in review, not team-approved or implemented.
+> **References:** [UC-01 actors and catalog](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.3; [target architecture](../../design-docs/target-architecture.md) v1.2 (proposed, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); [use case template](../../references/use-case-template.md).
 
 ## Confirmed Decisions
 
-- UC-02 **adds no product decisions**. It inherits the [UC-01 Confirmed Decisions](../uc-01/actors.md#confirmed-decisions) and the scope of `mvp.md` v0.2.
+- UC-02 **adds no product decisions**. It inherits the [UC-01 Confirmed Decisions](../uc-01/actors.md#confirmed-decisions) and the scope of `mvp.md` v0.3.
 - CU-01 to CU-16 keep their UC-01 identifiers and meaning.
-- Every case in the catalog is required by `mvp.md` v0.2: a required capability (§5.1) or an acceptance criterion (§12) depends on it ([§3](#3-prioritized-catalog)).
+- Every case in the catalog is required by `mvp.md` v0.3: a required capability (§5.1) or an acceptance criterion (§12) depends on it ([§3](#3-prioritized-catalog)).
 
 ## Open Questions
 
 - **Implementation priority (P0–P2), stage mapping and cut order are proposals** pending team approval ([§3](#3-prioritized-catalog), [§5](#5-delivery-by-mvp-stage)).
 - **CU-17 to CU-22 are proposed additions**; their justification and what remains to be agreed is in [§2.1](#21-proposed-cases-cu-17-to-cu-22). The actors of CU-18 and CU-20 are not defined in UC-01.
 - Steps marked *(proposal)* are interpretations needed to write a complete flow; they are not agreed behavior.
-- Formal business rules, state transitions and invariants belong to **UC-03 (#4), still pending**. Where a case depends on them, it says *pending (UC-03)* and does not anticipate the decision.
+- Canonical rules and invariants belong to UC-03; only genuinely unresolved questions remain pending.
 - Questions that affect a single case are listed inside that case.
 
 ## 1. How to Read This Document
@@ -28,7 +28,7 @@
 | [flows.md](../uc-01/flows.md) | Narrative summary of each case, [shared rules](../uc-01/flows.md#shared-rules-apply-to-all-cases), diagrams and [verification examples](../uc-01/flows.md#cross-cutting-verification-examples). |
 | **This document** | Per case: numbered main flow, identified alternatives (`A1`, `A2`…), postconditions and open questions. Across cases: MVP obligation, implementation priority, dependencies and delivery order. |
 
-- Each specification links to its UC-01 summary and diagram instead of copying them. **If this document and UC-01 disagree, UC-01 prevails** and the difference is raised in review.
+- Each specification links to its UC-01 summary and diagram; canonical business rules are in [UC-03](../uc-03/business-rules.md). Raise inconsistencies in review.
 - State names (`HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `EXPIRED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`) are the conceptual labels of [flows.md](../uc-01/flows.md#shared-rules-apply-to-all-cases), not persisted enums.
 - Markers: *(proposal)* = not agreed; *pending (UC-03)* = to be decided by business rules/invariants; *pending (team)* = product decision not yet assigned to a task.
 - Specifications follow §4 of the [use case template](../../references/use-case-template.md).
@@ -44,7 +44,7 @@
 |---|---|
 | **P0** | Foundation that other cases need, or the highest correctness risk (tenant isolation, overlapping occupancy). Without it, nothing else can be demonstrated. |
 | **P1** | Delivers the core MVP promise: WhatsApp booking with or without a transfer deposit, CRM operation, payments and reminders. Other P1/P2 cases depend on it. |
-| **P2** | Completes the MVP scope, but no other case depends on it. Its data must still be considered from P0 when it affects the model ([§5.1](#51-use-cases-per-stage)). |
+| **P2** | Proposed later MVP capability; P2 cases may depend on one another and their prerequisites must be delivered first. Model their data from P0 where needed ([§5.1](#51-use-cases-per-stage)). |
 
 ## 2. Catalog Overview
 
@@ -67,7 +67,7 @@ UC-01 assumes these behaviors (as preconditions or alternatives) but does not ca
 flowchart LR
     CUS([Customer / requester])
     STF([Staff])
-    AUT([Authorized Staff])
+    AUT([Personnel with role capability])
     ADM([Admin])
     OPR([Technical operator])
     SYS([System automation])
@@ -109,18 +109,17 @@ flowchart LR
     CUS --> CU01 & CU02 & CU03 & CU04 & CU05 & CU06 & CU07 & CU08 & CU09 & CU19
     STF --> CU17 & CU21 & CU02 & CU03 & CU04 & CU08 & CU09 & CU10 & CU11 & CU12 & CU14
     AUT --> CU13
-    AUT -.->|availability only| CU15
+    AUT -.->|configuration or availability permission| CU15
     ADM --> CU13 & CU15 & CU18
-    ADM -.->|all Staff cases| STF
     OPR --> CU20
     SYS --> CU06 & CU16 & CU22
 ```
 
-Admin can do everything Staff can (dotted arrow); Authorized Staff hold the delegated privileges of [ACT-04](../uc-01/actors.md#11-human-actors). The AI agent is not drawn: it runs the WhatsApp cases **on behalf of the customer** ([SYS-01](../uc-01/actors.md#12-internal-automated-component)). CU-18 and CU-20 show their proposed actors.
+Admin has protected full access; personnel actions require tenant role permissions, not individual privileges ([ACT-04](../uc-01/actors.md#11-human-actors)). Staff is editable and custom roles are possible. The AI acts on behalf of the customer. CU-18 and CU-20 show proposed actors.
 
 ## 3. Prioritized Catalog
 
-All 22 cases are **Required** by `mvp.md` v0.2. The implementation priority is a **proposal**.
+All 22 cases are **Required** by `mvp.md` v0.3. The implementation priority is a **proposal**.
 
 | ID | Use case | Primary actor | Channel | MVP obligation (`mvp.md`) | Stage (§11) | Priority *(proposal)* | Why this priority |
 |---|---|---|---|---|---|---|---|
@@ -139,15 +138,15 @@ All 22 cases are **Required** by `mvp.md` v0.2. The implementation priority is a
 | [CU-01](#cu-01) | Consult business information and availability | Customer | WhatsApp | Required — §5.1 Bookings, AI; §12 #3, #9 | 4 | **P1** | Entry point of self-service. |
 | [CU-07](#cu-07) | Consult the requester's future bookings | Customer | WhatsApp | Required — §5.1 Bookings; §12 #7 | 4 | **P1** | Needed for customer cancel/reschedule. |
 | [CU-14](#cu-14) | Take over and return a conversation | Staff/Admin | CRM / direct WhatsApp | Required — CRM takeover (§12 #13); Could — direct WhatsApp detection | 4 | **P1** | Safety net when the AI cannot resolve. |
-| [CU-19](#cu-19) | Grant or revoke reminder consent | Customer | WhatsApp | Required — §8.3; §12 #12 | 4 | **P1** | CU-16 cannot send without it. |
+| [CU-19](#cu-19) | Grant or revoke reminder consent | Customer | WhatsApp | Required — §8.3; §12 #12 | 4 | **P1** | CU-16 reminders require it; waitlist notices use independent CU-05 opt-in. |
 | [CU-16](#cu-16) | Send a consented reminder or waitlist notice | System | WhatsApp | Required — §5.1 Notifications; §12 #12 | 4 | **P1** (reminder) · **P2** (waitlist notice) | Reminder is core; the waitlist notice follows CU-06. |
 | [CU-04](#cu-04) | Create bookings for other attendees | Customer requester; Staff/Admin | WhatsApp / CRM | Required — §5.1 Customers; §12 #7, #10 | 1 (data) → 4 | **P2** | Extends CU-02/CU-03; its data is needed from P0. |
 | [CU-12](#cu-12) | Manage customer incidents and restrictions | Staff/Admin | CRM | Required — §5.1 Customers; §12 #10 | 3 | **P2** | Needs no-show history from CU-10. |
-| [CU-13](#cu-13) | Open and close the shared cash register | Admin / Authorized Staff | CRM | Required — §5.1 Cash register; §12 #11; Could — automatic opening | 3 | **P2** | No case depends on it (see exception below). |
-| [CU-05](#cu-05) | Join a voluntary waitlist | Customer | WhatsApp | Required — §5.1 Waitlist; §12 #9 | 3 → 4 | **P2** | Recovers released slots; nothing depends on it. |
+| [CU-13](#cu-13) | Open and close the shared cash register | Admin / permitted personnel | CRM | Required — §5.1 Cash register; §12 #11; Could — automatic opening | 3 | **P1** | Cash collection in CU-11 requires an open session. |
+| [CU-05](#cu-05) | Join a voluntary waitlist | Customer | WhatsApp | Required — §5.1 Waitlist; §12 #9 | 3 → 4 | **P2** | Prerequisite for eligible offers in CU-06. |
 | [CU-06](#cu-06) | Receive and accept an exclusive slot offer | System; Customer responds | WhatsApp | Required — §5.1 Waitlist; §12 #6, #9 | 3 → 4 | **P2** | Feature last; its occupancy must be considered in the model from P0. |
 
-**Exception to watch:** if the team decides that a payment can only be recorded with an open cash session *pending (UC-03)*, CU-13 moves to P1 together with CU-11.
+Cash requires an open session; verified transfers do not. Priorities remain proposals for team review.
 
 ## 4. Functional Dependencies
 
@@ -185,11 +184,11 @@ flowchart TD
     CU11 --> CU09
     CU21 --> CU10[CU-10 Complete / no-show]
     CU10 --> CU12[CU-12 Incidents and restrictions]
-    CU11 --> CU13[CU-13 Cash register]
-    CU19 --> CU16[CU-16 Notices]
+    CU13[CU-13 Cash register] -->|cash collection only| CU11
+    CU19 -->|reminders only| CU16[CU-16 Notices]
     CU01 --> CU05[CU-05 Join waitlist]
     CU05 --> CU06[CU-06 Exclusive offer]
-    CU16 --> CU06
+    CU16 -->|notice capability, not reminder consent| CU06
 ```
 
 | Prerequisite | Why |
@@ -197,11 +196,12 @@ flowchart TD
 | CU-20 → CU-17 → every CRM case | No tenant context or role exists without an onboarded business and an active membership. |
 | CU-15 → CU-01, CU-21 | Availability, prices, deposit rules and aliases come from configuration; the AI must not invent them. |
 | CU-18 → every WhatsApp case | The tenant of an incoming message comes from the validated channel connection. |
-| CU-11 → CU-03, CU-09 | A deposit, or an extra deposit when rescheduling, is confirmed only by the human verification in CU-11. |
+| CU-11 → CU-03, CU-09 | Verification records actual credit; an eligible reschedule with an already credited partial deposit moves before supplemental verification. |
 | CU-07 → CU-08, CU-09 (WhatsApp) | The customer can act only on bookings the system shows as theirs. From the CRM, the agenda (CU-21) is the entry point. |
-| CU-10 → CU-12 | The "Problematic customer" label is derived from recorded own no-shows. |
-| CU-19 → CU-16 | A reminder is never sent without recorded, unrevoked consent. |
-| CU-05, CU-16 → CU-06 | An offer needs an opted-in waitlist entry and a way to notify it. |
+| CU-10 → CU-12 | The internal indicator derives from the requester's current no-show bookings. |
+| CU-13 → CU-11 | Only cash collection requires an open cash session. |
+| CU-19 → CU-16 (reminders only) | A reminder needs recorded, unrevoked reminder consent. |
+| CU-05, CU-16 → CU-06 | An offer needs its own waitlist opt-in and notice capability, not reminder consent. |
 
 ### 4.2 Triggering Events
 
@@ -209,7 +209,7 @@ These are runtime chains, not dependencies. Some of them loop (a released slot b
 
 | Event | Raised by | Starts or continues |
 |---|---|---|
-| A slot is actually released | CU-08 (cancellation), CU-09 (old slot), CU-22 (expiry), CU-11 (rejected receipt, see CU-03 A3), CU-15 (lifted block) | CU-06, if an eligible waitlist entry exists |
+| A slot is actually released | CU-08, CU-09 (old slot), CU-22, initial evidence rejection only when cancellation is permitted (CU-03 A3), CU-15 (lifted block) | CU-06, if an eligible waitlist entry exists |
 | A receipt arrives within the HOLD, or is recorded as pending from the CRM | CU-03 step 5; CU-03 CRM step 2b | Review in CU-11 (A1) |
 | An offer is created | CU-06 step 2 | Notice in CU-16 |
 | An offer is accepted | CU-06 step 4 | CU-02 step 3 or CU-03 step 3 |
@@ -225,17 +225,17 @@ These are runtime chains, not dependencies. Some of them loop (a released slot b
 
 ### 5.1 Use Cases per Stage
 
-Follows `mvp.md` v0.2 §11. A case that spans several stages is listed where each part becomes demonstrable.
+Follows `mvp.md` v0.3 §11. A case that spans several stages is listed where each part becomes demonstrable.
 
 | Stage | Use cases (part) | Demonstrable result |
 |---|---|---|
 | **1. Core booking domain** | CU-20; CU-17 (memberships, roles); CU-15 (catalog and hours as data); CU-02 (conflict-safe booking); CU-22; CU-04 (requester/attendee data) | Two isolated tenants; bookings and HOLDs that cannot overlap; idempotent expiry. |
-| **2. Business-facing web** | CU-17 (CRM sign-in); CU-15 (CRM configuration); CU-21; CU-02 (walk-in); CU-08, CU-09 (CRM, without policies) | Staff run the agenda of both verticals manually; the landing links to WhatsApp. |
+| **2. Business-facing web** | CU-17 (CRM sign-in); CU-15 (CRM configuration); CU-21; CU-02 (walk-in); CU-08, CU-09 (CRM, without deposit workflow; enforce applicable configured policies) | Staff run the agenda of both verticals manually; the landing links to WhatsApp. |
 | **3. Deposits and operations** | CU-03 (review queue, verification, CRM booking with deposit); CU-08, CU-09 (notice, exceptions, deposits); CU-10; CU-11; CU-12; CU-13; CU-05, CU-06 (mechanics) | Transfer review, partial/mixed payments, cash close with difference, no-show label and restrictions, exclusive offers. |
 | **4. WhatsApp + AI** | CU-18; CU-01; CU-02, CU-03, CU-04, CU-07, CU-08, CU-09 (WhatsApp); CU-05, CU-06 (conversation); CU-14; CU-16; CU-19 | End-to-end conversational booking with and without deposit, handoff, reminders and waitlist messages. |
 | **5. Pilot validation** | All | `mvp.md` §12 acceptance criteria. |
 
-**For DOM-01:** some data belongs to later cases but should be considered in the model from stage 1, to avoid migrating live data: the requester/attendee distinction (CU-04), the restriction field (CU-12), the payment method vs. verification split (CU-11), and occupancy during payment review and exclusive offers (CU-03, CU-06). How that occupancy is represented is *pending (UC-03)*.
+**For DOM-01:** consider requester/attendee distinction, restrictions, verification and occupancy from stage 1. Offer and booking claims are distinct; see [UC-03](../uc-03/business-rules.md) for occupancy rules.
 
 ### 5.2 Cut Order if the Schedule Slips
 
@@ -250,6 +250,8 @@ Only **sub-features** are listed: dropping a whole case would break an `mvp.md` 
 ## 6. Functional Specifications
 
 Each case links to its UC-01 summary and diagram; what follows adds numbered steps, identified alternatives, postconditions and open questions. Authorization refers to rows of the [permissions matrix](../uc-01/actors.md#2-permissions-matrix).
+
+**Shared precondition for every CRM case:** personnel have an active membership in the validated tenant and the applicable permission through their sole tenant role. Staff/Admin labels in flows and authorization sections are shorthand, never unconditional grants; the backend checks effective permissions for each action. Admin-only role management, commercial exceptions, agreed-price changes, refunds, post-close physical-cash adjustments and global AI control remain protected.
 
 <a id="cu-01"></a>
 ### CU-01 — Consult Business Information and Availability
@@ -315,15 +317,15 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 - **A6 — Future-booking limit reached:** At step 1, the booking is declined and the limit explained.
 - **A7 — CRM walk-in:** Staff/Admin enter name (required), phone (optional), service, resource, date and time. The same occupancy check runs and the booking is confirmed directly, without a HOLD, with origin CRM. If the backend determines that a deposit is required, the booking follows the [CU-03 CRM flow](#cu-03-crm).
 - **A8 — Booking for someone else:** At step 1, see [CU-04](#cu-04).
-- **A9 — Outside regular hours (CRM):** Only an Admin, or Staff with the delegated availability privilege ([ACT-04](../uc-01/actors.md#11-human-actors)), may book outside the resource's regular hours, and only if the booking overlaps no occupying booking, HOLD or offer. The booking records who authorized the exception. Other Staff members book only within regular hours. Whether such a booking may fall on an availability block — *pending (UC-03)*.
+- **A9 — Outside regular hours:** Authorized availability roles may establish exceptional openings, available in CRM and WhatsApp, without overriding explicit blocks or active claims. Booking records the authorizing actor; see [UC-03](../uc-03/business-rules.md).
 
 #### Outcome / Postconditions
 - **Success:** A confirmed booking occupies the resource; it is linked to the requester's number (WhatsApp) or customer record (CRM), with its origin.
 - **Failure:** No booking, or the HOLD is released and the resource is free.
 
 #### Authorization
-- Matrix row "Create bookings for oneself or others": customer within their own context; any Staff/Admin of the tenant in the CRM.
-- Matrix row "Book outside regular hours (CRM)": Admin, or Staff with the availability privilege (A9).
+- Matrix row "Create bookings for oneself or others": customer within their own context; CRM personnel with the applicable tenant-role booking permission.
+- Matrix row "Book outside regular hours (CRM)": the applicable tenant-role capability and authorized availability (A9).
 
 #### Open Questions
 - Whether Staff can book in the CRM for a `BLOCKED` customer without lifting the restriction — *pending (UC-03)*.
@@ -348,7 +350,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 4. The customer transfers and sends the receipt **before the HOLD expires**.
 5. The receipt is attached as a transfer pending review; the booking moves to `PENDING_PAYMENT_REVIEW`, stays blocked with no review timeout, appears in the CRM review queue, and the customer is told that confirmation follows verification.
 6. Staff/Admin check the actual credit in the bank/wallet account ([CU-11](#cu-11)).
-7. On approval, the payment is recorded as verified with verifier and time, the booking is confirmed and the customer notified.
+7. On approval of the `PaymentReview`, record the verified `Payment` with verifier and time. Authorized personnel then explicitly manually allocate funds to the booking's charge to meet the required deposit threshold, confirm the booking and notify the customer. Verification alone does not reduce the charge balance or confirm the booking.
 
 <a id="cu-03-crm"></a>
 #### Main Flow (CRM)
@@ -357,7 +359,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 1. From the agenda ([CU-21](#cu-21)), Staff/Admin enter the booking as in CU-02 A7; the backend validates as in CU-02 step 1 and computes the required deposit.
 2. The result depends on what the customer has provided, recorded through [CU-11](#cu-11):
-   - **a. Cash received, or a transfer whose credit the employee verified in the account:** the payment is recorded as verified and the booking is confirmed directly.
+   - **a. Cash received in an open session, or a transfer whose credit the employee verified in the account:** record the verified payment; authorized personnel explicitly manually allocate it to the booking's charge to meet the required deposit threshold, then confirm directly. Verification alone does not reduce the charge balance.
    - **b. A transfer receipt not yet verified:** the receipt is recorded as pending; the booking enters `PENDING_PAYMENT_REVIEW` and blocks the slot until human review, continuing at step 6 of the WhatsApp flow.
    - **c. No payment and no receipt:** the booking is not confirmed and does not occupy the slot. Only an Admin may authorize the exception and confirm it without the deposit. The booking records that no deposit was paid and the outstanding balance, so the full price is still collected; a reason is optional.
 3. The occupancy check runs when the booking is created; the booking has origin CRM.
@@ -365,7 +367,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Alternatives and Exceptions
 - **A1 — No receipt in time:** At step 4, [CU-22](#cu-22) expires the HOLD.
 - **A2 — Receipt after expiry:** At step 4, the booking is not reactivated; the receipt becomes a financial incident (CU-11 A8) and the customer is told the slot was released.
-- **A3 — Rejected or not credited:** At step 6, the payment is rejected, the slot released, the customer notified and [CU-06](#cu-06) may start.
+- **A3 — Initial evidence rejected:** First human rejection notifies the customer and retains occupancy for 15 minutes for new evidence or valid staff resolution. Timely new evidence creates a new review and suspends cancellation while pending. A second human rejection of distinct evidence cancels and releases immediately if not started, notifying customer and staff; expiration without valid resolution also cancels atomically. Once started, escalate manually without cancellation or public release. Technical duplicates do not count. Preserve verified partial payments. Supplemental rescheduling deposits are excluded ([CU-09](#cu-09)).
 - **A4 — Unreadable or non-receipt attachment:** At step 5, the AI asks again; the HOLD deadline does not change *(proposal)*.
 - **A5 — Amount below the required deposit:** At step 6, Staff/Admin decide — *pending (UC-03)*.
 - **A6 — Full prepayment:** Same flow with 100% of the price.
@@ -375,14 +377,14 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 #### Outcome / Postconditions
 - **Success:** A confirmed booking with a verified deposit linked to it or, from the CRM by Admin exception, without it, recording that no deposit was paid and the outstanding balance.
-- **Failure:** The slot is released and nothing counts as verified; a late receipt remains as an incident. From the CRM, without payment, receipt or exception, no booking occupies the slot.
+- **Failure:** Release occurs only under the applicable expiry or rejection path; verified partial payments remain. Without payment, receipt or exception, the CRM booking does not occupy the slot.
 
 #### Authorization
 - Matrix row "Verify bank-transfer receipt": Staff/Admin only. The AI never marks a payment as verified.
 - Matrix row "Authorize exceptions to commercial policies": Admin only, to confirm a CRM booking without its required deposit (CRM step 2c).
 
 #### Open Questions
-- What happens when the start time arrives while still under review, and how to limit abuse of indefinite review (accepted risk, `mvp.md` §9.2) — *pending (UC-03)*.
+- Started appointments require manual handling without automatic cancellation or public release (F-018). Customer withdrawal during pending review and safeguards against abuse of indefinite review remain *pending (UC-03 P-24)*.
 - Deposit evidence without an image — *pending (UC-03)*.
 
 ---
@@ -418,7 +420,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 #### Open Questions
 - How bookings for third parties count toward the future-booking limit — *pending (UC-03)*.
-- Minimum attendee data and how a third party's no-show is counted — *pending (UC-03)*.
+- Minimum attendee data — *pending (UC-03)*. A third party's no-show counts against the requester.
 
 ---
 
@@ -436,7 +438,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Main Flow
 1. The AI offers alternatives, unless the time is non-negotiable.
 2. The AI offers the waitlist and explains that it neither reserves nor guarantees a slot.
-3. The customer opts in; the requested conditions, arrival time and a waitlist-specific consent are recorded under the requester and tenant.
+3. The customer opts in independently of reminder consent; requested times, arrival time and optional resource are recorded. A specified resource must belong to the tenant and support the service; otherwise any compatible resource is eligible.
 4. The AI confirms the registration.
 
 #### Alternatives and Exceptions
@@ -473,7 +475,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 2. The system protects the slot with an exclusive **5-minute offer** for that requester.
 3. A notice with the expiry time is sent through [CU-16](#cu-16).
 4. The customer accepts within 5 minutes.
-5. The offer becomes a standard **HOLD of up to 10 minutes**, continuing at CU-02 step 3 or CU-03 step 3.
+5. Atomically close the offer's claim and create a distinct claim for a new booking in a **10-minute HOLD**, linking offer and booking; continue at CU-02 step 3 or CU-03 step 3. Claims never change ownership or overlap actively.
 
 #### Alternatives and Exceptions
 - **A1 — Declined, no reply or expired:** At step 4, the offer ends and the next eligible entry is tried; if none remains, the slot returns to general availability.
@@ -490,7 +492,6 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - System-initiated; the customer acts only on their own offer.
 
 #### Open Questions
-- How an offer occupies the slot — *pending (UC-03)*; it affects DOM-01.
 - Retries and queue advance after a failed notice — *pending (UC-03)*.
 
 ---
@@ -579,28 +580,24 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 1. The backend checks ownership, notice window and reschedule limit (unlimited by default).
 2. The candidate slot is checked without releasing the current one.
 3. Verified payments are kept; the new price, balance and any additional deposit are computed.
-4. If more deposit is required, it is transferred and verified by Staff/Admin ([CU-11](#cu-11)) before the change.
-5. The customer explicitly confirms the new conditions.
-6. The booking moves to the new slot and the old one is released in one step; reminders are rescheduled, the customer notified, and [CU-06](#cu-06) may start for the old slot.
+4. The customer explicitly confirms the new conditions. If policy requires prior human approval, do not occupy the target while awaiting it.
+5. For an allowed move with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving verified payments and allocations; record the change request, booking event and financial consequences.
+6. Request and verify any additional deposit afterwards ([CU-11](#cu-11)); reschedule reminders, notify the customer and consider [CU-06](#cu-06) for the old slot. `FULL_PREPAYMENT` remains applicable unless Admin authorizes an exception.
 
 #### Alternatives and Exceptions
 - **A1 — Outside the notice window or over the limit:** At step 1, declined; only an Admin can approve a documented exception.
 - **A2 — Candidate slot unavailable:** At step 2, alternatives are offered; the original booking stays intact.
-- **A3 — Extra deposit rejected or still pending:** At step 4, the original booking stays intact and the change is not applied.
-- **A4 — Lower deposit or price:** At step 3, verified funds reduce the balance; nothing is refunded automatically.
+- **A3 — Extra deposit rejected, unpaid or pending:** After the eligible move, the new booking remains confirmed; resolve manually, without automatic cancellation or restoring the old slot. The initial-evidence rejection window does not apply.
+- **A4 — Lower deposit or price:** At step 3, retained valid allocations reduce the balance; unallocated verified funds require explicit manual allocation. Nothing is refunded automatically.
 - **A5 — Paid more than the new total:** At step 3, resolved manually by an Admin.
-- **A6 — Declined confirmation or concurrent conflict:** At steps 5–6, the original booking stays intact.
+- **A6 — Declined confirmation or concurrent conflict:** Before the move, the original booking stays intact.
 
 #### Outcome / Postconditions
 - **Success:** New conditions, an accurate balance and preserved payments.
-- **Failure:** The original booking is unchanged.
+- **Failure before the move:** The original booking is unchanged. A later supplemental-payment failure does not undo the move.
 
 #### Authorization
 - Matrix rows "Cancel or reschedule a booking" and "Authorize exceptions to commercial policies".
-
-#### Open Questions
-- Whether the same booking is modified or replaced by a linked one — *pending (UC-03)*; it affects DOM-01.
-- Whether the target slot is protected while an extra deposit is under review — *pending (UC-03)*.
 
 ---
 
@@ -622,9 +619,10 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 #### Alternatives and Exceptions
 - **A1 — Completed but unpaid or partly paid:** The debt is kept and visible.
-- **A2 — A third-party attendee was absent:** Recorded as a managed-third-party incident, not as the requester's own no-show.
+- **A2 — A third-party attendee was absent:** The booking's `NO_SHOW` counts against its requester; no duplicate no-show incident is created.
 - **A3 — Erroneous no-show:** Corrected to completed with audit; the count is recalculated.
 - **A4 — Valid cancellation or expired HOLD:** Never recorded as a no-show.
+- **A5 — Early completion or no-show:** Leftover time is not exposed publicly or to waitlist. Personnel with booking permission may explicitly create a CRM walk-in (name required, phone optional), atomically adjusting prior occupancy and creating the new booking without overlap, preserving history. No automatic payment recalculation or refund; later no-show correction cannot displace the walk-in.
 
 #### Outcome / Postconditions
 - **Success:** A human-attested outcome; time passing never completes a booking or proves payment.
@@ -635,7 +633,6 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 #### Open Questions
 - Whether a completed booking can be corrected to a no-show — *pending (UC-03)*.
-- Whether completed/no-show bookings keep occupying the rest of the slot — *pending (UC-03)*.
 
 ---
 
@@ -648,23 +645,23 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Participants:** Customer (may send evidence by WhatsApp); business bank/wallet account.
 - **Channel:** CRM.
 - **Trigger:** A receipt to review, a payment to collect, or a correction.
-- **Preconditions:** A booking with a charge in the tenant.
+- **Preconditions:** Tenant-scoped, verifiable commercial funds; a payment may have zero allocations.
 
 #### Main Flow
 1. The employee reviews price, verified payments and amount due.
-2. The employee records a cash or transfer payment, including partial and mixed methods.
-3. For a transfer, the employee verifies the credit in the bank/wallet account; for cash, confirms physical receipt. Amount, method, date/time and employee are recorded.
-4. The balance is updated without counting the deposit twice; optionally, the booking is completed through [CU-10](#cu-10).
+2. The employee selects cash or transfer collection, including partial and mixed methods; evidence awaiting verification belongs to `PaymentReview`, not a pending `Payment`.
+3. For a transfer, the employee verifies the credit in the bank/wallet account; for cash, confirms physical receipt in an open session. Record the verified `Payment` with amount, method, date/time and employee. A cash payment and its linked cash movement represent the same money, not two incomes.
+4. Explicitly allocate verified funds to one or more charges, including across bookings, in partial amounts; never allocate automatically. No charge balance becomes negative and no allocation exceeds available funds or debt. Preserve corrections, with atomic and idempotent operations.
 
 #### Alternatives and Exceptions
-- **A1 — Pending receipt:** The pending transfer from CU-03 step 5 (WhatsApp) or CRM step 2b is verified (CU-03 step 7) or rejected (CU-03 A3).
+- **A1 — Pending receipt:** The `PaymentReview` from CU-03 step 5 (WhatsApp) or CRM step 2b is approved after human credit verification (CU-03 step 7) or rejected (CU-03 A3). Approval can link one verified `Payment`; explicit manual allocation is still required to reduce the charge balance and meet the confirmation threshold.
 - **A2 — Payment without an image:** Cash or a bank-verified transfer can be recorded with no attachment.
-- **A3 — Correction during an open cash session:** Corrected with audit; nothing is deleted silently.
-- **A4 — Correction after the cash close:** Only an Admin records a new audited adjustment; the closed session is not rewritten.
+- **A3 — Correction during an open cash session:** Physical-cash corrections require the applicable role permission and append audited history, preserving the immutable original payment. Transfers require no cash session; their technical ledger-correction mechanism and other non-cash-session corrections remain pending in UC-03 P-26.
+- **A4 — Correction after the cash close:** For physical-cash corrections only, an Admin appends a separate audited `CashAdjustment`; original payment and closed session are not rewritten. `CashAdjustment` is not a general financial log and `AuditEvent` does not replace a financial ledger.
 - **A5 — Change to an agreed price:** Admin only, with a reason, and customer acceptance if it increases.
-- **A6 — Refund:** An Admin records a manual refund; no automated bank refunds.
-- **A7 — Overpayment:** Resolved manually by an Admin.
-- **A8 — Late or unmatched transfer:** Recorded as a financial incident linked to the customer or booking when identifiable; never reconfirms a booking.
+- **A6 — Refund:** Admin authorizes a separate linked `Refund`; only execution reduces retained funds, never exceeding available funds. Cash requires an open session and cash movement; transfer is a bank outflow, not a cash movement. Preserve the original payment and allocation history.
+- **A7 — Overpayment:** Excess stays unallocated for manual application to another obligation or Admin-authorized refund.
+- **A8 — Late transfer:** Verified commercial money may remain unallocated, with origin and reason recorded; never reconfirms a booking. Personal or wholly unknown-origin transfers are not `Payment`.
 - **A9 — Repeated submission:** A retry of the same operation is not counted twice. Two separate manual entries that may be the same money are kept and flagged for human review *(proposal)*.
 
 #### Outcome / Postconditions
@@ -675,8 +672,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix rows "Verify bank-transfer receipt", "Record partial or mixed-method payment", "Correct payment while its cash session is open" and "Adjust a transaction after cash close".
 
 #### Open Questions
-- Whether recording a payment requires an open cash session, and how late-verified transfers enter cash — *pending (UC-03)*.
-- Final resolution of late or unmatched transfers — *pending (UC-03)*.
+- Final resolution of late verified commercial transfers and applicable legal refunds — *pending (UC-03)*.
 
 ---
 
@@ -691,8 +687,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Preconditions:** The customer belongs to the tenant.
 
 #### Main Flow
-1. The CRM shows own no-shows separately from incidents in bookings managed for other attendees.
-2. From two own no-shows, the CRM shows the internal "Problematic customer" label with reason and count.
+1. The CRM counts current `NO_SHOW` bookings by requester, regardless of attendee; `BookingEvent` records changes, and `CustomerIncident` covers other operational incidents only.
+2. From two no-shows, the CRM shows an internal indicator with reason and count.
 3. The employee chooses: continue normally, require 100% advance payment, or block new bookings; actor and reason are recorded.
 4. The backend enforces the restriction and the AI applies it without disclosing the label. Whether Staff can still book a blocked customer in the CRM is *pending (UC-03)*.
 
@@ -710,23 +706,23 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Apply/remove an individual customer restriction"; the general restriction policy is Admin-only.
 
 #### Open Questions
-- How third-party incidents are aggregated — *pending (UC-03)*.
+- Handling of other operational incidents remains subject to review.
 
 ---
 
 <a id="cu-13"></a>
 ### CU-13 — Open and Close the Shared Cash Register
 
-**UC-01:** [summary and diagram](../uc-01/flows.md#cu-13) · **Priority:** P2 *(proposal)*
+**UC-01:** [summary and diagram](../uc-01/flows.md#cu-13) · **Priority:** P1 *(proposal)*
 
-- **Primary actor:** Admin, or Staff with the cash privilege.
+- **Primary actor:** Personnel whose tenant role permits opening/closing cash sessions; Admin has full access.
 - **Participants:** Staff (payments and cash movements during the session).
 - **Channel:** CRM.
 - **Trigger:** Start or end of a cash session.
 - **Preconditions:** One logical register per tenant; the actor holds the privilege.
 
 #### Main Flow
-1. The session opens manually, with declared opening cash, or automatically, carrying the cash declared at the previous close.
+1. At most one session is open per tenant. Open manually before cash collection, or automatically at first collection if configured. Declare the first opening balance explicitly and reconcile later openings with the previous close; retain auditability.
 2. During the session, booking payments and cash-in/cash-out movements with a reason are recorded; transfers stay apart from physical cash.
 3. An authorized person requests the manual close and reviews expected cash and non-cash totals.
 4. The person counts the cash; counted amount and difference are recorded.
@@ -736,7 +732,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A1 — Difference:** The close is allowed and the difference recorded.
 - **A2 — Unpaid bookings:** They do not block the close; money not received is never counted.
 - **A3 — Post-close adjustment:** Admin only, as a new audited entry ([CU-11](#cu-11) A4).
-- **A4 — Unauthorized employee:** Opening or closing is refused; recording payments is still allowed.
+- **A4 — Unauthorized employee:** Manual opening or closing is refused. Cash requires an open session; verified transfer does not. Serialize collection against close: it enters before close or needs a new valid session. Late transfer verification does not change a closed session.
 
 #### Outcome / Postconditions
 - **Success:** Shared cash history with individual accountability.
@@ -788,14 +784,14 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 
 **UC-01:** [summary](../uc-01/flows.md#cu-15) · **Priority:** P0 *(proposal)*
 
-- **Primary actor:** Admin; Staff with the availability privilege (operational hours and blocks only).
+- **Primary actor:** Admin; personnel with applicable configuration or availability role permissions.
 - **Channel:** CRM.
 - **Trigger:** A configuration change, or the daily overview.
 - **Preconditions:** Signed in to the tenant ([CU-17](#cu-17)) with the right role or privilege.
 
 #### Main Flow
-1. The Admin configures the items listed in UC-01 (catalog, compatible resources, prices, hours, deposit rules and aliases, notice periods, limits, personnel and privileges, global AI).
-2. Staff with the delegated privilege change operational hours and availability blocks only; the same privilege allows booking outside regular hours ([CU-02](#cu-02) A9).
+1. Personnel with applicable configuration permissions manage catalog, compatible resources, catalog prices, hours, deposit rules and aliases, notice periods, limits and personnel accounts. Admin alone manages roles, role permissions and global AI.
+2. Personnel with the applicable role permission manage operational hours and blocks; authorized exceptional openings are available to CRM and WhatsApp without overriding explicit blocks or active claims. Non-delegable operations, including commercial exceptions and agreed-price changes, remain Admin-only. Receiving accounts may rotate optionally; each payment instruction retains its selected account. Policy fields resolve Resource > Service > Tenant with explicit inherit, set or disable.
 3. The CRM shows the "today overview" with links to the agenda ([CU-21](#cu-21)) and cash ([CU-13](#cu-13)).
 
 #### Alternatives and Exceptions
@@ -810,7 +806,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Failure:** The configuration is unchanged.
 
 #### Authorization
-- Matrix rows "Configure catalog, prices, deposits, commercial policies", "Adjust operational schedules / availability blocks", "Manage staff, aliases, and permissions" and "Change global AI mode".
+- Matrix rows "Configure catalog, prices, deposits, commercial policies", "Adjust operational schedules / availability blocks", "Manage personnel accounts and receiving aliases", "Manage roles and role permissions" and "Change global AI mode".
 
 ---
 
@@ -828,13 +824,13 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Main Flow
 1. Before sending, the job re-checks that the booking is still confirmed for the same slot (or the offer still active), consent is unrevoked, the channel enabled and a phone present.
 2. The job sends the reminder or the offer notice.
-3. The job records the attempt and its result.
+3. A `Notification` represents the logical notice; each `NotificationAttempt` records one attempt and result, optionally linked to a message. Retries do not create another logical notice; provider acceptance does not prove delivery.
 
 #### Alternatives and Exceptions
 - **A1 — No consent, or revoked:** Nothing is sent.
 - **A2 — Booking cancelled, expired or moved:** No reminder for the old slot.
 - **A3 — Delivery failure:** Recorded and retried within limits; booking and payments do not change, and an offer is not blocked indefinitely.
-- **A4 — Job runs late:** It never modifies a confirmed booking.
+- **A4 — Past due at confirmation:** If start minus lead time is at or before confirmation, omit the reminder, without an attempt; confirmation is a separate notice. Rescheduling invalidates the old reminder and only schedules a future one. Calendar rules use the tenant timezone and instants use UTC, including day crossings.
 
 #### Outcome / Postconditions
 - **Success:** At most one logical reminder per booking slot, with its attempts recorded. WhatsApp delivery itself is not guaranteed exactly once.
@@ -927,8 +923,8 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 #### Main Flow
 1. The AI asks whether the customer wants a reminder; consent is never presumed.
 2. The customer answers.
-3. The decision is recorded with time and channel, for that requester in that tenant.
-4. If the customer later asks to stop, the revocation is recorded and pending reminders are not sent.
+3. Reminder consent is stored on the customer, independent of waitlist consent. Grant and audit are recorded transactionally with time, channel, scope and actor.
+4. Revocation and its audit are recorded transactionally; queued reminders are not sent. Only consent grants and revocations are audited as consent events, not each message or retry.
 
 #### Alternatives and Exceptions
 - **A1 — No answer:** Treated as no consent.
@@ -941,7 +937,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Failure:** No reminders are sent.
 
 #### Open Questions
-- Whether consent is per customer or per booking, and the exact moment it is asked — *pending (UC-03)*.
+- The exact moment consent is requested — *pending (UC-03)*.
 
 ---
 

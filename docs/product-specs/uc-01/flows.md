@@ -2,15 +2,16 @@
 
 > **Status:** In review · **Scope:** Main MVP use cases for barbershops/beauty and sports clubs/courts.  
 > **Related:** [Actors, permissions and use-case index](./actors.md).  
-> **Boundary:** These are functional scenarios, **not** final database states, APIs, UI designs, or implementation contracts. Prior `rules.md`, `mvp.md` and `architecture-bootcamp.md` may contain superseded decisions.
+> **Boundary:** Functional scenarios, not implementation contracts. [UC-03 business rules](../uc-03/business-rules.md) and [invariants](../uc-03/invariants.md) own canonical rules. Product-owner decisions of 2026-11-04 are in review, not team-approved or implemented.
 
 ## Shared Rules (Apply to All Cases)
 
 - **Channels:** Customer self-service is through **individual WhatsApp chats** only; the public landing is informational and links to `wa.me`. Authenticated Staff/Admin use the **mobile-first CRM**, including when WhatsApp is offline.
 - **Authority:** WhatsApp/AI and CRM call the **same tenant-scoped booking core**. The AI executes authorized customer-context tools, never Staff/Admin privileges. [Permission matrix](./actors.md#2-permissions-matrix).
+- **Personnel authorization:** In every CRM case and diagram, Staff/Admin is actor shorthand, not an unconditional grant: an active tenant membership and the applicable role permission are required and checked by the backend. Role management, agreed-price changes, commercial exceptions, refunds, post-close cash adjustments and global AI control retain their Admin-only boundaries.
 - **Exclusivity:** Availability inquiries do not reserve a slot; bookings, HOLDs and exclusive waitlist offers must prevent overlapping allocations for the same resource/time.
 - **Initial HOLD:** **10 minutes** after selecting a concrete slot (with or without deposit); no hold for information-only inquiries. A CRM employee can book/confirm directly, without a HOLD; when a deposit applies, see the CRM path of [CU-03](#cu-03).
-- **Deposit:** Timely transfer receipt → `PENDING_PAYMENT_REVIEW`, with the slot **blocked until human verification and no automatic review timeout**. A receipt image never proves credit. No-deposit bookings require explicit customer confirmation during HOLD.
+- **Deposit:** Timely evidence enters human review and occupies the slot while actually pending; explicit rejection follows [CU-03](#cu-03). An image never proves credit. No-deposit bookings require explicit customer confirmation during HOLD.
 - **Waitlist:** Voluntary; propose alternatives first unless a specific unavailable time is non-negotiable. Upon a real release, give the next eligible requester **5 minutes of exclusive priority**; acceptance starts a new standard HOLD.
 - **Operational truth:** Time passing never proves attendance or payment. Human-recorded completion, outstanding balance and cash closing are independent.
 - **Cross-cutting:** Tenant isolation, business-local timezone, audit for sensitive changes and explicit/revocable consent for proactive messages.
@@ -105,7 +106,7 @@ flowchart TD
 2. Show price, service/resource, date/time and conditions; customer explicitly confirms before expiry.
 3. Confirm and notify; no payment or human approval is inferred.
 
-**Alternatives:** Slot conflict → alternatives/[CU-05](#cu-05). No confirmation by deadline → expire/release, then consider [CU-06](#cu-06). An individually restricted customer may be denied or directed to a **100% prepayment** path. Staff/Admin can create a walk-in booking immediately through CRM, with **name required and phone optional**, using the same occupancy check. Booking outside regular hours is limited to Admin and Staff with the delegated availability privilege, never overlaps, and records who authorized it.
+**Alternatives:** Slot conflict → alternatives/[CU-05](#cu-05). No confirmation by deadline → expire/release, then consider [CU-06](#cu-06). An individually restricted customer may be denied or directed to a **100% prepayment** path. Authorized personnel can create a CRM walk-in with name required and phone optional. Authorized exceptional openings are available to CRM and WhatsApp, without overriding blocks or active claims.
 
 **Result:** Confirmed exclusive booking, or released HOLD without confirmation. Requester controls future WhatsApp management through the originating number.
 
@@ -119,13 +120,13 @@ flowchart TD
 **Main flow**
 1. Validate and create a **10-minute HOLD**; display price, required deposit, bank alias/account holder and cancellation policy **before transfer**.
 2. Customer sends transfer receipt **within HOLD**; register it as **pending**, keeping the slot blocked **without automatic review expiry**.
-3. Staff/Admin verifies **actual credit** in the business account. Upon approval, record verified payment/verifier and confirm the booking.
+3. Authorized personnel verify **actual credit** in the business account. Upon approval, record the verified payment/verifier, then explicitly manually allocate funds to the booking's charge to meet the required deposit threshold before confirming. Verification alone does not reduce the charge balance or confirm the booking.
 
-**CRM path (no HOLD):** Cash received or a bank-verified transfer → confirm directly. Receipt pending verification → block the slot until human review (step 3). No payment and no receipt → not confirmed, unless an Admin authorizes the exception, recording that no deposit was paid and the outstanding balance (reason optional).
+**CRM path (no HOLD):** Cash received in an open session or a bank-verified transfer, explicitly manually allocated to the charge to meet the required deposit threshold → confirm directly. Receipt pending verification → block the slot until human review (step 3). No payment and no receipt → not confirmed, unless an Admin authorizes the exception, recording that no deposit was paid and the outstanding balance (reason optional).
 
-**Alternatives:** No timely receipt → HOLD expires and slot is released. Rejected/uncredited receipt → employee rejects, releases and notifies; consider [CU-06](#cu-06). Pending review → retain block. Late/unmatched transfer → **human financial incident**, never automatic reconfirmation. CRM may record ordinary cash/bank-verified payments without an uploaded image.
+**Alternatives:** No timely receipt → HOLD expires. On first human rejection of initial-deposit evidence, notify the customer and keep the slot occupied for 15 minutes to submit new evidence or resolve with personnel. Timely new evidence creates a separate review and suspends automatic cancellation while actually pending. A second human rejection of distinct evidence cancels and releases immediately if the booking has not started, notifying customer and staff; expiry without valid resolution likewise cancels atomically. If already started, escalate manually without cancellation or public release. Technical duplicates do not count. Supplemental deposits after rescheduling follow [CU-09](#cu-09), not this cancellation mechanism. Verified partial funds remain recorded. Late commercial transfers require manual resolution, never automatic reconfirmation.
 
-**Rules/result:** Deposit may be fixed or percentage, with business default and service/resource overrides; multiple aliases with **one default**, no automatic rotation. **Only human credit verification confirms paid deposits.** Pending review can block indefinitely; it must remain visible to staff.
+**Rules/result:** Deposit policy resolves per field at resource, service, then tenant level, distinguishing inherit, set and disable; `FULL_PREPAYMENT` prevails unless Admin authorizes an exception. Multiple accounts have one default and optional configurable rotation; each payment instruction retains its selected account. Human verification establishes funds; explicit manual allocation satisfies the required deposit threshold. Neither an image nor verification alone reduces a charge balance.
 
 **Example:** Receipt received with 3 minutes left in HOLD continues blocking after those 3 minutes, pending human verification.
 
@@ -151,10 +152,25 @@ flowchart TD
     Q -->|Yes| R[Store receipt as pending verification]
     R --> T[Keep blocked for human review]
     T --> U{Employee verifies actual credit?}
-    U -->|Approved| V[Record verified payment and confirm]
-    U -->|Rejected| Y[Reject and release slot]
+    U -->|Approved| V[Record verified payment; manually allocate to required threshold; confirm]
+    U -->|Rejection| Y0{Booking already started?}
+    Y0 -->|Yes| Y5[Manual resolution; no public release]
+    Y0 -->|No| Y1{Distinct human rejection count for this booking?}
+    Y1 -->|First| Y[Notify; keep slot for 15-minute correction]
+    Y1 -->|Second| Y4[Cancel and release; notify customer and staff]
+    Y1 -->|Technical duplicate| Y6[No-op; preserve count, deadline and current condition]
+    Y --> Y2{New evidence or valid resolution in time?}
+    Y2 -->|New evidence| Y7[Create separate pending review; preserve rejection count]
+    Y7 --> T
+    Y2 -->|Valid manual resolution| Y8[Authorized human verification and explicit allocation or permitted Admin exception; see UC-03]
+    Y8 --> G
+    Y2 -->|Deadline reached| Y3{Booking started at timeout recheck?}
+    Y3 -->|Yes| Y5
+    Y3 -->|No| Y9{Actually pending human review?}
+    Y9 -->|Yes| T
+    Y9 -->|No| Y4
     X --> W[Check interested waitlisted customers]
-    Y --> W
+    Y4 --> W
     G --> Z[Notify customer of confirmation]
     V --> Z
 ```
@@ -169,7 +185,7 @@ flowchart TD
 2. Create **separate bookings** for separate attendees/slots, each validated and associated with the requester.
 3. The requesting WhatsApp number manages those bookings, even if the attendee differs.
 
-**Alternatives:** Sequential haircuts → independent times. Haircut+beard / manicure combo → **one preconfigured service**, with its own duration/price. Court+barbecue → **separate requests/bookings**, barbecue may be free; **no atomic multi-resource booking**. A friend’s no-show becomes a managed-third-party incident, not automatically the requester's own no-show ([CU-10](#cu-10)).
+**Alternatives:** Sequential haircuts → independent times. Haircut+beard / manicure combo → **one preconfigured service**. Court+barbecue → separate bookings, not an atomic multi-resource booking. A friend's `NO_SHOW` counts against the booking requester ([CU-10](#cu-10)).
 
 **Result:** Correctly associated bookings; limits for future bookings made for third parties remain **to be defined**, not bypassed.
 
@@ -180,7 +196,7 @@ flowchart TD
 
 **Main flow**
 1. Offer available alternatives **unless** customer cannot consider another slot.
-2. Ask for explicit opt-in to be notified and record preferred time, resource or compatible options under the requester's tenant/number.
+2. Ask for explicit waitlist opt-in independently of reminder consent and record preferred time and optional resource. If specified, the resource must belong to the tenant and support the service; otherwise any compatible resource is eligible.
 3. When a compatible slot is **actually released**, attempt [CU-06](#cu-06).
 
 **Alternatives:** Customer accepts alternative → regular booking, no waitlist. Declines opt-in → nothing registered. Duplicate interest → avoid duplicate requester/conditions entries.
@@ -190,11 +206,11 @@ flowchart TD
 <a id="cu-06"></a>
 ## CU-06 — Receive and Accept an Exclusive Slot Offer
 
-**Actor/channel:** System event → WhatsApp; customer responds. **Trigger:** Compatible slot released by cancellation, rescheduling, expired HOLD, rejected payment receipt or lifted block. **Preconditions:** Slot truly free; eligible opted-in requester exists.
+**Actor/channel:** System event → WhatsApp; customer responds. **Trigger:** Compatible slot released by cancellation (including a permitted initial-evidence rejection cancellation), rescheduling, expired HOLD or lifted block. **Preconditions:** Slot truly free; eligible opted-in requester exists.
 
 **Main flow**
 1. Select first eligible requester **in arrival order**; protect an exclusive **5-minute offer**, and notify with expiry.
-2. Customer accepts within 5 minutes; convert the opportunity into a normal **up-to-10-minute HOLD**.
+2. Customer accepts within 5 minutes; atomically close the offer's claim and create a distinct booking claim for a new **10-minute HOLD**, linking offer and resulting booking without overlapping active claims.
 3. Complete [CU-02](#cu-02) (explicit confirmation) or [CU-03](#cu-03) (receipt and human verification).
 
 **Alternatives:** Decline/no response/expiry → next eligible requester or general availability. No eligible interest → do not retain a hold. Failed notification → **never block indefinitely**; exact retries/advancement deferred. Race/conflict → never displace a confirmed booking or create parallel exclusive offers.
@@ -214,7 +230,7 @@ flowchart TD
     G --> H[Protect exclusive 5-minute offer]
     H --> I[Notify via WhatsApp with expiry]
     I --> J{Accept within 5 minutes?}
-    J -->|Yes| K[Start standard HOLD up to 10 minutes]
+    J -->|Yes| K[Atomically close offer claim and create distinct booking HOLD claim]
     J -->|No or expired| L[Try next or release]
     K --> M{Deposit required?}
     M -->|No| N[Explicit confirmation and booking]
@@ -260,10 +276,10 @@ flowchart TD
 **Main flow**
 1. Check notice window and configured rescheduling limit (**unlimited by default**); query candidate slot without releasing old one.
 2. Preserve verified payments; compute new price, outstanding balance and any additional required deposit.
-3. If more deposit is required, obtain **human-verified credit** before applying the change. Ask for explicit confirmation.
-4. Atomically move booking and release old slot; consider [CU-06](#cu-06) and notify customer.
+3. Ask for explicit confirmation. For an allowed change with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving payments and allocations.
+4. Request and verify any additional deposit afterwards; record the change request, booking event and financial consequences. Consider [CU-06](#cu-06) for the old slot and notify the customer.
 
-**Alternatives:** Policy violation → Admin-only documented exception. Unavailable slot, unverified extra deposit, declined confirmation or transaction conflict → **original booking stays intact**. Smaller deposit requirement → verified funds reduce final remaining balance, no automatic refund (e.g., new total $15,000, paid $8,000 → $7,000 due). Amount paid greater than new total → manual resolution.
+**Alternatives:** Policy violation → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
 
 **Result:** New booking conditions and accurate balance, or original booking preserved.
 
@@ -290,21 +306,17 @@ flowchart TD
     O --> P{Available and allowed?}
     P -->|No| Q[Offer alternatives; keep old booking]
     P -->|Yes| R[Preserve payments; calculate balance]
-    R --> S{Additional verified deposit needed?}
-    S -->|Yes| T[Request additional transfer/receipt]
-    T --> TV{Employee verifies credit?}
-    TV -->|Rejected| Q
-    TV -->|Pending| TP[Await human credit verification; keep original booking]
-    TV -->|Yes| U[Request final confirmation]
-    S -->|No| U
+    R --> U[Request final confirmation]
     U --> V{Customer confirms?}
     V -->|No| Q
     V -->|Yes| W[Change booking atomically; release old slot]
+    W --> S{Additional deposit needed?}
+    S -->|Yes| T[Request and verify later; retain confirmed booking]
     M --> X[Consider waitlisted customers]
     W --> X
 ```
 
-**Diagram note:** Pending supplemental transfer review **does not complete rescheduling or release the original booking**. Its exact later state handling is deferred.
+**Diagram note:** Prior policy approval does not reserve the target. Supplemental payment review after an eligible move does not cancel or undo the move.
 
 <a id="cu-10"></a>
 ## CU-10 — Complete a Service/Rental or Record a No-Show
@@ -316,21 +328,21 @@ flowchart TD
 2. Maintain payment balance independently; **Complete and collect payment** may record an actual receipt via [CU-11](#cu-11).
 3. Record responsible employee and relevant audit details.
 
-**Alternatives:** Completed but unpaid/part-paid → preserve debt. Friend absent → managed-third-party incident, separate from own no-shows. Erroneous absence → Staff/Admin may correct with audit. Valid cancellation or expired HOLD → **never** a no-show.
+**Alternatives:** Completed but unpaid/part-paid → preserve debt. Any attendee's absence counts against the requester. Erroneous absence → authorized personnel correct with audit; a later correction does not displace a walk-in. Valid cancellation or expired HOLD → never a no-show. Early completion or no-show does not expose leftover time publicly; authorized personnel may explicitly reuse it for a CRM walk-in, atomically adjusting occupancy and creating the booking without overlap, preserving history. No automatic payment recalculation or refund.
 
-**Result:** Human-attested operational outcome; no automatic completion, attendance or payment from elapsed time. From **two own no-shows**, show internal **“Problematic customer”** label; sanctions require manual [CU-12](#cu-12).
+**Result:** Human-attested outcome. From two requester-attributed booking no-shows, show an internal indicator; no automatic sanction. Booking status is the count source; booking events record corrections, and customer incidents cover other incidents only.
 
 ```mermaid
 flowchart TD
-    A[Reserved period ends] --> B[Booking awaits human operational outcome]
+    A[Service occurs or absence is observed] --> B[Booking awaits human operational outcome]
     B --> C{What does Staff or Admin record?}
     C -->|Service occurred| D[Complete service or rental]
     C -->|Customer absent| E[Record NO_SHOW]
     D --> F{Outstanding balance?}
     F -->|Yes| G[Complete with balance due or partial payment]
     F -->|No| H[Complete with balance settled]
-    E --> I[Update own no-show or managed-third-party incident]
-    I --> J{Two or more own no-shows?}
+    E --> I[Count requester bookings with NO_SHOW]
+    I --> J{Two or more no-shows?}
     J -->|Yes| K[Show Problematic customer, reason and count]
     J -->|No| L[Keep incident history]
     K --> M{Individual restriction chosen?}
@@ -347,9 +359,9 @@ flowchart TD
 **Main flow**
 1. Review price, verified deposits and due amount; register cash or transfer, including **partial/mixed methods**.
 2. For transfer, verify **bank/wallet credit**; for cash, confirm physical receipt. Record amount, method, date/time and employee.
-3. Update remaining balance without double-counting a deposit; optionally complete service through [CU-10](#cu-10).
+3. Allocate verified funds explicitly across one or more charges, including different bookings, with partial allocations; never automatically allocate. Balance cannot go below zero and allocation cannot exceed debt or available net funds. Preserve correction history and enforce atomicity/idempotence; optionally complete through [CU-10](#cu-10).
 
-**Alternatives:** WhatsApp image → review pending, **not paid** ([CU-03](#cu-03)). During open cash session, Staff/Admin correct with audit; **after close, Admin alone** records a later adjustment without rewriting closure. Agreed price changes require Admin, reason and customer acceptance if increased. Manual refund, when warranted, is recorded by Admin; no automated bank refund.
+**Alternatives:** WhatsApp image → review pending, **not paid** ([CU-03](#cu-03)). `Payment` records only verified commercial money, possibly unallocated; unknown or personal transfers are not payments. Excess remains unallocated for manual application or Admin-authorized refund. `Refund` is a separate linked historical operation; only execution reduces retained funds, without exceeding available funds. Cash refunds require an open session and physical cash movement; transfer refunds are bank outflows, not cash movements. The original payment is never mutated; payment and its cash movement are not two incomes. Admin alone performs post-close adjustments and agreed-price changes. See [business rules](../uc-03/business-rules.md).
 
 **Result:** Verified collected money and remaining debt are traceable. Only service/rental charges are in scope; no POS/product sales or inventory.
 
@@ -359,12 +371,12 @@ flowchart TD
 **Actor/channel:** Staff/Admin → CRM. **Trigger:** Review absences or apply/remove a customer-specific restriction. **Preconditions:** Same tenant, authorized personnel.
 
 **Main flow**
-1. Show **own no-shows** separately from **incidents in bookings managed for other attendees**.
-2. At **two own no-shows**, show the internal **“Problematic customer”** classification with reason and count.
+1. Count current `NO_SHOW` bookings by requester; show other operational incidents separately, never duplicate no-shows as incidents.
+2. At two no-shows, show the internal indicator with reason and count.
 3. Staff/Admin may continue normally, require **100% advance payment**, or block new bookings; record the actor and reason.
 4. Backend/AI enforce explicit restriction without disclosing the internal label to customer.
 
-**Alternatives:** No decision → **no automatic sanction**. Corrected absence → recalculate with audit; do not merge people by name. Blocked customer → decline booking without insulting label. Third-party incident aggregation specifics remain undecided.
+**Alternatives:** No decision → **no automatic sanction**. Corrected absence → recalculate with audit; do not merge people by name. Blocked customer → decline booking without insulting label.
 
 **Result:** Tenant-specific, manually controlled measures and separated incident history.
 
@@ -374,12 +386,12 @@ flowchart TD
 **Actor/channel:** Admin or specifically authorized Staff → CRM. **Trigger:** Cash opening or closing. **Preconditions:** One shared logical register per tenant; correct privilege.
 
 **Main flow**
-1. Open **manually** with declared cash or **automatically** with cash declared at previous close, according to tenant setting.
+1. Open manually before cash collection, or automatically on the first collection if configured. At most one session is open. Opening balance is explicit and auditable: declare the first, reconcile later openings with the previous close.
 2. Staff/Admin record booking-related receipts, cash-ins/outs (reason and employee) and transfers **separately from physical cash**.
 3. Authorized person requests **manual close**, reviews expected physical cash, counts actual cash and records discrepancies.
 4. Confirm immutable close with responsible person, period, timestamp and totals.
 
-**Alternatives:** Difference → still allow recorded close. Unpaid bookings → do not block close or count unreceived money. Post-close adjustment → **Admin-only audited subsequent entry**, never rewrite closed session. Session boundaries/late reconciliation remain deferred.
+**Alternatives:** Difference → recorded close. Unpaid bookings do not block close. Post-close adjustment is Admin-only. Transfers need no cash session and late verification never changes a closed session. Serialize collection against close; the collection belongs before close or requires a new valid session.
 
 **Result:** Shared cash history, individual operator accountability. **Automatic opening is configurable; closing is always manual.** Excludes bar/shop POS sales.
 
@@ -387,7 +399,7 @@ flowchart TD
 flowchart TD
     A[Start of business session] --> B{Configured opening mode?}
     B -->|Manual| C[Authorized person declares opening cash]
-    B -->|Automatic| D[Carry declared cash balance from prior close]
+    B -->|Automatic on first collection| D[Declare or reconcile auditable opening balance]
     C --> E[Shared cash register open]
     D --> E
     E --> F[Staff and Admin record payments and cash movements]
@@ -434,11 +446,11 @@ flowchart TD
 <a id="cu-15"></a>
 ## CU-15 — Configure and Supervise Business Operations
 
-**Actor/channel:** Admin → CRM; Staff with delegated operational-hours/availability permission. **Trigger:** Configuration change or day overview. **Preconditions:** Correct tenant and privilege.
+**Actor/channel:** Admin → CRM; personnel with applicable role-based configuration or availability permissions. **Trigger:** Configuration change or day overview. **Preconditions:** Correct tenant and permission.
 
 **Main flow**
-1. Admin configures services/combos, compatible professionals/resources, prices, duration, business hours, deposit rules/aliases, notice periods, booking limits, personnel and global AI setting.
-2. Authorized Staff can change **operational hours/availability blocks only** when delegated; commercial policy, prices, aliases and staff privileges remain Admin-only.
+1. Personnel with applicable configuration permissions manage services/combos, compatible professionals/resources, catalog prices, duration, business hours, deposit rules/aliases, notice periods, booking limits and personnel accounts. Admin alone manages roles and global AI.
+2. Personnel with the applicable role permission manage operational availability; exceptional openings are available on both channels without overriding blocks or claims. Non-delegable Admin operations, including agreed-price changes and commercial exceptions, remain protected.
 3. CRM provides mobile-first **today overview**: bookings, collected money, pending payment reviews, unresolved operational items and links to agenda/cash; customer incidents have a separate view.
 
 **Alternatives:** Reject unauthorized settings. Changes to existing agreed price require Admin reason and **customer acceptance when increasing**. Availability conflicts must preserve confirmed bookings; exact change policy is deferred. Multiple Admins allowed; disabling personnel must preserve historical attribution.
@@ -452,11 +464,11 @@ flowchart TD
 
 **Main flow**
 1. Before sending, re-check booking/offer validity and **unrevoked consent**.
-2. Send booking reminder or [CU-06](#cu-06) offer and record attempt/delivery/failure.
+2. Send the reminder or [CU-06](#cu-06) offer. One `Notification` represents the logical notice; each attempt is a `NotificationAttempt` with optional message. Retries do not duplicate the notice; provider acceptance is not delivery.
 
 **Alternatives:** No/removal of consent → send nothing. Cancelled booking → no reminder. Waitlist consent is **separate** from reminder consent. WhatsApp failure → log/retry durably; do not alter booking/payment or block offers indefinitely (precise delivery policy deferred).
 
-**Result:** Authorized proactive messaging only. Default **one reminder on booking day**, with configurable advance time. Use durable/idempotent `pg-boss` work; late jobs never invalidate a confirmed booking.
+**Result:** Authorized proactive messaging only. If the computed reminder time is at or before confirmation, omit it; confirmation is a separate notice. Rescheduling invalidates the old reminder and schedules a new one only if applicable; cancellation prevents sending. Calendar rules use tenant timezone and instants use UTC, including day crossings. Consent grants and revocations alone are audited transactionally with actor, channel, scope and time; individual messages and retries are not consent audit events. Recheck before each attempt.
 
 ## Cross-Cutting Verification Examples
 
@@ -466,7 +478,7 @@ flowchart TD
 | Receipt arrives just before HOLD expiry | Remains blocked for human payment verification | [CU-03](#cu-03) |
 | Fixed Friday 22:00 slot is unavailable | Direct waitlist option | [CU-01](#cu-01), [CU-05](#cu-05) |
 | Waitlisted customer accepts exclusive offer | Five-minute offer converts to normal HOLD, **not** confirmation | [CU-06](#cu-06) |
-| Change requires more deposit | Verify actual extra credit before rescheduling; preserve original meanwhile | [CU-09](#cu-09) |
+| Change requires more deposit after a credited partial deposit | Move confirmed booking atomically first; verify difference later, without automatic cancellation | [CU-09](#cu-09) |
 | Cash counted below expected | Manual close allowed with documented variance | [CU-13](#cu-13) |
 | Human stops responding for 60 minutes | Resume AI only if global mode remains enabled | [CU-14](#cu-14) |
 
@@ -474,12 +486,11 @@ flowchart TD
 
 1. Exact persisted states/transitions, late events and concurrency details for HOLDs, five-minute offers and human payment review.
 2. Waitlist expiry, caps, repeated offers and **failed delivery** handling.
-3. Default notice periods, future-booking limits and counting rules for bookings/absences involving third parties.
-4. Late/unmatched transfers, no-image deposit evidence, indefinite-review abuse mitigation, legal refunds/business cancellations and overpayments.
-5. Cash-session boundaries, delegated cash/schedule permissions, withdrawals and reconciliation after close.
+3. Default notice periods and future-booking limits.
+4. Resolution of late commercial transfers, no-image deposit evidence, review abuse mitigation and legal refunds/business cancellations.
+5. Cash-session day boundaries and withdrawals.
 6. How a barbecue area is configured for a specific club; **no required atomic multi-resource booking**.
 7. Reliability/fallback for detecting direct human WhatsApp replies through Evolution/Baileys.
-8. Updating older `rules.md`, `mvp.md` and `architecture-bootcamp.md` is **another task**.
 
 ## UC-01 Acceptance Check
 
