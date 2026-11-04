@@ -209,7 +209,7 @@ flowchart TD
 
 **Alternatives:** Customer accepts alternative → regular booking, no waitlist. Declines opt-in → nothing registered. Duplicate interest → avoid duplicate requester/conditions entries.
 
-**Result:** Registered interest, not guaranteed capacity. Entry expires when its requested range has no future slot, or closes on successful booking/customer withdrawal. A queue holds at most 10 people in the MVP; the full-queue message (P-29) and physical round representation remain open.
+**Result:** Registered interest, not guaranteed capacity. Entry expires when its requested range has no future slot, or closes on successful booking/customer withdrawal. A queue holds at most 10 people in the MVP; the next person is told it is full and offered other times, with no reserve list. Physical round representation remains open.
 
 <a id="cu-06"></a>
 ## CU-06 — Receive a Waitlist Invitation and Claim a Slot
@@ -297,7 +297,7 @@ flowchart TD
 3. Ask for explicit confirmation. For an allowed change with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving payments and allocations.
 4. Request and verify any additional deposit afterwards; record the change request, booking event and financial consequences. Consider [CU-06](#cu-06) for the old slot and notify the customer.
 
-**Alternatives:** Outside the notice window → warn of the consequence and proceed on acceptance without Admin, counting a late reschedule; the deposit effect of a late move is open (P-28). Over the limit or an exception to the consequence → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
+**Alternatives:** Outside the notice window → warn of the consequence and proceed on acceptance without Admin, counting a late reschedule. If the deposit is lost under tenant policy, personnel resolve the case and the AI only communicates the policy and next steps. Over the limit or an exception to the consequence → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
 
 **Result:** New conditions/balance, or original preserved. A professional change retains client credit and actual receiving-account history; manual internal compensation never blocks an otherwise valid move or charges the deposit twice.
 
@@ -507,13 +507,13 @@ flowchart TD
 
 ## Customer Data Deletion Request
 
-The customer asks by chat from the same number and confirms. Their data is blocked at once, and they have 30 days to withdraw; otherwise deletion runs automatically. Verified payments and their receipts remain. Rules, retained data and pending legal validation are in [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat).
+The customer asks by chat from the same number and confirms. Their data is blocked at once, and they have 30 days to withdraw; otherwise deletion runs automatically. Verified payments and their receipts remain. The request does not cancel bookings automatically; personnel resolve bookings and pending money before day 30. Rules, retained data and pending legal validation are in [UC-03 §18](../uc-03/business-rules.md#18-personal-data-and-retention-dat).
 
 ## Deferred Decisions — Do Not Infer as Approved
 
 1. Exact persisted states/transitions, late events and concurrency details for HOLDs, five-minute offers and human payment review.
-2. Full-queue message and physical round representation; queue limit, round behavior, requested-range expiry, progressive/broadcast behavior and one failed-send retry are resolved.
-3. Deposit effect of a late reschedule (P-28); notice defaults to 10 hours, booking lead time defaults 0 and future limit defaults off with agreed counting.
+2. Physical round representation; full-queue message, queue limit, round behavior, requested-range expiry, progressive/broadcast behavior and one failed-send retry are resolved.
+3. Notice defaults to 10 hours, personnel resolve a late reschedule with a lost deposit, booking lead time defaults 0 and future limit defaults off with agreed counting.
 4. Applicable legal refund duties and legal validation of data deletion; evidence fallback, partial-deposit protection, abuse supervision and cancellation/business authority are resolved.
 5. Date-based reporting/financial correction representation; cash sessions survive midnight until manual close.
 6. How a barbecue area is configured for a specific club; **no required atomic multi-resource booking**.

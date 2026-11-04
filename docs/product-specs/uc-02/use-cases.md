@@ -444,7 +444,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A2 — Opt-in declined:** At step 3, nothing is recorded.
 - **A3 — Duplicate interest:** At step 3, the existing entry is kept with its original arrival order.
 - **A4 — Blocked customer:** At step 2, the waitlist is not offered *(proposal)*.
-- **A5 — Queue full:** At step 3, a queue already holds the MVP limit of 10 people (BR-WL-14); nothing is recorded. The message is open (P-29).
+- **A5 — Queue full:** At step 3, a queue already holds the MVP limit of 10 people (BR-WL-14); nothing is recorded. The AI says it is full and offers other times, with no reserve list.
 
 #### Outcome / Postconditions
 - **Success:** A registered interest with consent; no slot is reserved.
@@ -454,7 +454,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - Matrix row "Join waitlist / receive invitation".
 
 #### Open Questions
-- Expire when requested range has no future slots; close on fulfilled booking/customer withdrawal, not unanswered/failed delivery. Full-queue wording is open (P-29); physical round storage is ERD T-01/T-05.
+- Expire when requested range has no future slots; close on fulfilled booking/customer withdrawal, not unanswered/failed delivery. Physical round storage is ERD T-01/T-05.
 
 ---
 
@@ -584,7 +584,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 6. Request and verify any additional deposit afterwards ([CU-11](#cu-11)); reschedule reminders, notify the customer and consider [CU-06](#cu-06) for the old slot. `FULL_PREPAYMENT` remains applicable unless Admin authorizes an exception.
 
 #### Alternatives and Exceptions
-- **A1 — Outside the notice window:** At step 4, the AI warns of the configured consequence; on acceptance the move proceeds without Admin and counts as a late reschedule (BR-CAN-14). The deposit effect is open (P-28).
+- **A1 — Outside the notice window:** At step 4, the AI warns of the configured consequence; on acceptance the move proceeds without Admin and counts as a late reschedule (BR-CAN-14). If the deposit is lost under tenant policy, personnel resolve the case and the AI only communicates the policy and next steps.
 - **A1b — Over the limit, or an exception to the late consequence:** Only an Admin can approve a documented exception.
 - **A2 — Candidate slot unavailable:** At step 2, alternatives are offered; the original booking stays intact.
 - **A3 — Extra deposit rejected, unpaid or pending:** After the eligible move, the new booking remains confirmed; resolve manually, without automatic cancellation or restoring the old slot. The initial-evidence rejection window does not apply.

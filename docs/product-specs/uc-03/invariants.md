@@ -82,7 +82,7 @@ stateDiagram-v2
 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and manually allocated to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
 | Initial evidence rejection / correction | New evidence or valid manual resolution | Authorized role | Yes | Guarded timeout only | BR-SEN-10 applies only without verified partial deposit; pending review suspends timeout, started slots require manual handling. Partial verified funds invoke BR-SEN-11, never automatic release. | Updated F-018; follow-up P-27 |
 | Pending review / partial-deposit waiting → `CANCELLED` | Explicit confirmation; accepted consequence if late | Applicable permission/policy | Yes | No financial timeout | Release immediately upon authorized cancellation; review/refund continues separately. | BR-CAN-04, BR-SEN-11 |
-| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With partial deposit already verified, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late deposit effect: P-28. | Product-owner decision F-006, F-010; BR-CAN-14 |
+| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With partial deposit already verified, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late reschedule with a lost deposit: personnel resolve it (BR-CAN-14). | Product-owner decision F-006, F-010; BR-CAN-14 |
 | `CONFIRMED` → `CANCELLED` | Explicit confirmation; accepted consequence if late | Same rule, or operational business cause with reason | Also exceptions to the consequence | No | Release without waiting for finances; notify customer. | BR-CAN-03–06, BR-CAN-14 |
 | `CONFIRMED` → `COMPLETED` | No | Yes | Yes | **No** | Manual, current instant >= start. | Follow-up P-06 |
 | `CONFIRMED` → `NO_SHOW` | No | Yes | Yes | **No** | Manual, current instant >= start + 15 minutes. | Follow-up P-06 |
@@ -403,7 +403,7 @@ The guarantee in the "Holds meanwhile" column is valid today; the rest waits for
 | INV-WL-01–12 | ERD T-01/T-05 | Progressive/broadcast behavior, rounds, queue limit and single winner are agreed; validate physical round/claim representation before schema implementation. |
 | INV-NOT-05, INV-NOT-07 | ERD T-04/T-05 | Durable recovery, no blind uncertain resend and independent reusable preferences are agreed; provider capabilities/storage details remain unvalidated. |
 | INV-NOT-08, INV-DAT-03 | TD-01 | No age-based deletion runs; retention periods are still to be chosen. |
-| INV-DAT-01–02 | P-31, P-32 | The agreed 30-day process applies; handling of active bookings/pending money and legal validation remain open. |
+| INV-DAT-01–02 | P-31, P-32 | The agreed 30-day process applies; the outcome of bookings or money still unresolved on day 30 and legal validation remain open. |
 
 See the [decision register](./business-rules.md#16-pending-decisions) for remaining questions and resolved portions.
 

@@ -368,7 +368,7 @@ These are **technical and operational MVP acceptance criteria**, not assertions 
 |---|---|
 | **Unofficial WhatsApp integration** | Informed pilot, monitoring, bounded message types, human fallback and tenant-level disconnect/disable capability; no promise of ban-free operation |
 | **Long-running human deposit review** | Active review has no inactivity timeout; initial-evidence rejection uses the defined correction window. Started slots and supplemental reschedule money require manual handling rather than automatic release |
-| **Waitlist corner cases** | Behavior, rounds, a fixed limit of 10 per queue, range expiry and one confirmed-failure retry agreed; full-queue wording and physical round details remain open |
+| **Waitlist corner cases** | Behavior, rounds, a fixed limit of 10 per queue, range expiry and one confirmed-failure retry agreed, with no reserve list when a queue is full; physical round details remain open |
 | **Cancellation, refunds and legal exceptions** | Release independent of financial review; operational cancellation authority, tenant deposit policies and manual refunds agreed. Applicable legal duties and retained-funds reporting remain open |
 | **Personal data deletion and retention** | 30-day window accepted as an MVP risk even though Ley 25.326 art. 16 sets five business days for suppression; legal validation required before real customers. Age-based periods are technical debt |
 | **Customer identity and no-shows** | Name-only attendee data, requester attribution, timing and corrections agreed; safe identity changes remain detailed design |

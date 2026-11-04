@@ -337,7 +337,7 @@ The following discrepancies are reconciled in this proposal against the product-
 - **T-04:** One confirmed-failure retry, no automatic uncertain resend and durable recovery are agreed. Validate actual Evolution/Baileys identity/status/reconciliation/deduplication capabilities. Specify blocking, idempotent execution and withdrawal of a customer deletion request, plus anonymization that keeps financial links. Age-based periods are TD-01.
 - **T-05:** Define scoped calendar/policy uniqueness, professional-account and collection-stage snapshots, Customer preference/entry provenance bindings, actor/recipient audiences, invitation round/priority/validity fields, notification/attempt correlation/purge references, partial-deposit waiting and correction-window timestamps, asset MIME/size, types, indexes and physical constraints in Step 3.
 
-Remaining product portions (late-reschedule deposit, full-queue wording, deletion effects and legal/reporting duties) stay in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). Notice defaults, queue limit, round behavior, outcome timing, attendee name-only data, booking-limit defaults/counting, evidence fallback and partial-deposit/cancellation behavior are resolved, not pending schema choices.
+Remaining product portions (bookings or money unresolved on day 30 of a deletion request and legal/reporting duties) stay in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). Notice defaults, queue limit, round behavior, outcome timing, attendee name-only data, booking-limit defaults/counting, evidence fallback and partial-deposit/cancellation behavior are resolved, not pending schema choices.
 
 ## 6. Step 3 — Detailed schema specification (not started)
 
