@@ -152,7 +152,7 @@ These do not block identification of actors or main flows, and **must not be int
 
 1. Notice defaults, queue limit and its full-queue message, late-reschedule deposit handling, booking lead time, future-limit defaults/counting, requested-range expiry and failed-send behavior are resolved in UC-03.
 2. Applicable legal refund obligations, definitive retained-funds reporting and legal validation of data deletion (P-07, P-32); cancellation releases independently of financial review, and operational business cancellation authority is resolved.
-3. Bookings or money still unresolved on day 30 of a data-deletion request (P-31). PDF/image-first text fallback, attendee name-only requirements and human supervision as the abuse control are resolved.
+3. PDF/image-first text fallback, attendee name-only requirements and human supervision as the abuse control are resolved.
 4. Physical storage/concurrency of progressive invitations, reusable consent preferences and financial corrections; see the ERD, not new product defaults.
 5. Whether barbecue areas require a separate schedulable resource or a commercial request in a given pilot configuration; no mandatory joint multi-resource booking.
 6. Date-based reporting cutoffs/financial correction mechanics; cash sessions persist across midnight until manual close.

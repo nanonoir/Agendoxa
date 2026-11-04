@@ -403,7 +403,7 @@ The guarantee in the "Holds meanwhile" column is valid today; the rest waits for
 | INV-WL-01–12 | ERD T-01/T-05 | Progressive/broadcast behavior, rounds, queue limit and single winner are agreed; validate physical round/claim representation before schema implementation. |
 | INV-NOT-05, INV-NOT-07 | ERD T-04/T-05 | Durable recovery, no blind uncertain resend and independent reusable preferences are agreed; provider capabilities/storage details remain unvalidated. |
 | INV-NOT-08, INV-DAT-03 | TD-01 | No age-based deletion runs; retention periods are still to be chosen. |
-| INV-DAT-01–02 | P-31, P-32 | The agreed 30-day process applies; the outcome of bookings or money still unresolved on day 30 and legal validation remain open. |
+| INV-DAT-01–02 | P-32 | The agreed 30-day process applies; legal validation remains open. |
 
 See the [decision register](./business-rules.md#16-pending-decisions) for remaining questions and resolved portions.
 
@@ -412,7 +412,7 @@ See the [decision register](./business-rules.md#16-pending-decisions) for remain
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-DAT-01 | After a confirmed deletion request, no notice is sent and the data has no operational use until the request is withdrawn or executed. | UC + JOB | BR-DAT-01 |
-| INV-DAT-02 | Automatic deletion runs only for a confirmed request whose 30 days elapsed without withdrawal, and is idempotent. A withdrawal within the window always prevents it. | JOB + TX | BR-DAT-02 |
+| INV-DAT-02 | Automatic deletion runs only for a confirmed request whose 30 days elapsed without withdrawal, and is idempotent. A withdrawal within the window always prevents it; unresolved bookings or money do not delay it. | JOB + TX | BR-DAT-02, BR-DAT-08 |
 | INV-DAT-03 | A deletion never removes payments, refunds, cash records or receipts of verified payments, and nothing is deleted just for its age. | UC + JOB | BR-DAT-03, BR-DAT-04, BR-DAT-06 |
 
 **EJ-54 · Deletion withdrawn.** Given a confirmed deletion request on day 0, when the customer withdraws it on day 20, then the profile is recovered and nothing is deleted. Without withdrawal, deletion runs on day 30 and the verified payment and its receipt remain.
