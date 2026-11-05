@@ -416,7 +416,7 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 |---|---|---|---|
 | email | Text | Y | Unique within the installation |
 | full_name | Text | Y | |
-| credential_ref | Text | Y | Authentication mechanism is detailed design |
+| credential_ref | Text | N | Empty until the person establishes access, for example after a tenant move; without it the account cannot sign in. Authentication mechanism is detailed design |
 | status | Enum | Y | ACTIVE, DISABLED |
 
 #### `TenantMembership`
@@ -850,7 +850,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
 | provider | Enum | Y | Evolution in the MVP; adapter-friendly |
-| provider_instance_ref | Text | Y | |
+| provider_instance_ref | Text | Cond. | Required while the connection is enabled; may be empty on a disabled connection, for example after a tenant move until it is reconnected |
 | phone_number | Phone | Y | |
 | is_enabled | Bool | Y | |
 | status | Enum | Y | CONNECTED, DISCONNECTED; a temporary drop is not a new connection |
