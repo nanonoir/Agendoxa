@@ -904,7 +904,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 - **A1 — QR expired:** A new one is generated.
 - **A2 — Disconnection:** The status shows it; customer self-service is unavailable while the CRM and core keep working.
 - **A3 — Channel disabled during an incident:** No proactive messages are sent and the AI stops replying.
-- **A4 — Number already linked to another tenant:** Rejected *(proposal)*.
+- **A4 — Number or provider instance already enabled for another tenant:** Rejected *(proposal)*, because an incoming message must resolve to one tenant. An owner with two businesses needs two numbers; disabling a connection frees its number.
 
 #### Outcome / Postconditions
 - **Success:** One validated connection per tenant, with visible status.

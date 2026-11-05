@@ -1,7 +1,7 @@
 # DOM-01 — Agendoxa MVP Entity–Relationship Model
 
 > **Status:** In Review — product-owner decisions agreed 2026-11-04; **not team-ratified or implemented**.
-> **Prepared:** 2026-11-03; reconciled 2026-11-04.
+> **Prepared:** 2026-11-03; reconciled 2026-11-04; tenant-isolation review observations applied 2026-11-05.
 > **Scope:** Logical/conceptual ERD for the two MVP verticals: barbershops/beauty businesses and sports clubs/courts.
 > **Inventory:** 38 candidate entities in 9 modules: the original 36 plus `Refund` and `NotificationAttempt`.
 > **Contents:** Entities, relationships and decisions (§1–§5), logical attributes, keys and constraints (§6), and compatibility checks (§7).
@@ -214,7 +214,7 @@ erDiagram
   CONVERSATION ||--o{ MESSAGE : contains
 ```
 
-- Each tenant retains historical WhatsApp connections but has **at most one enabled connection** at a time in the MVP (**DM-13**). Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
+- Each tenant retains historical WhatsApp connections but has **at most one enabled connection** at a time in the MVP (**DM-13**). A number or provider instance can be enabled for only one tenant across the installation, so an incoming message always resolves to one tenant. Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
 - Keep one continuous `Conversation` per `(connection_id, sender_id)`, uniquely scoped to that connection. `customer_id` may be null before identity resolution; linking a customer never authorizes based on untrusted message text.
 - `Message` records direction, author/source (customer, AI, human), provider identity, and deduplication. A conversation is under **either** AI or human control at a time; enforce safe takeover and prevent simultaneous responses.
 - Authorized Staff/Admin can take over from the CRM. Admin can disable the AI across the tenant. Human inactivity may restore AI after 60 minutes only if global AI is enabled and the chosen handoff rules permit it.
@@ -304,7 +304,7 @@ erDiagram
 | `DM-10` | Payment allocations | Payments can be split across charges and temporarily left unallocated |
 | `DM-11` | Receiving accounts | Three collection modes, professional account/business fallback; sequential business-pool rotation, immutable issued instructions |
 | `DM-12` | Cash corrections | `CashAdjustment` after close; immutable closed session |
-| `DM-13` | WhatsApp | One enabled connection per tenant; one continuous thread per sender/connection |
+| `DM-13` | WhatsApp | One enabled connection per tenant; a number or instance enabled for only one tenant; one continuous thread per sender/connection |
 | `DM-14` | Assets | At most one asset per message or payment review; direct optional references |
 | `DM-15` | Notifications | One logical notice, zero or more distinct attempts; proposed pg-boss execution |
 | `DM-16` | Consent | One question, independent reusable Customer preferences; entry interest/provenance, current preference rechecked, configurable reminder lead time |
@@ -354,14 +354,14 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 
 - Every entity has an opaque surrogate primary key `id`, except the two join entities with a composite key.
 - Tables below omit `id`, `tenant_id` and `created_at`, which every entity has unless its scope line says otherwise. `updated_at` applies to mutable entities only.
-- **Tenant-aware foreign keys:** a reference between two tenant-owned entities must match on tenant, so a relationship can never cross businesses (`ERD-I01`).
+- **Tenant-aware foreign keys:** a reference from `Tenant` or a tenant-owned entity to a tenant-owned entity must resolve to the same tenant, so a relationship can never cross businesses (`ERD-I01`). This includes the `Tenant` cursors, whose target's `tenant_id` must equal `Tenant.id`. The only exception is the polymorphic `AuditEvent.target_id`.
 - Foreign keys restrict deletion by default. History is preserved by deactivating, anonymizing or closing, not by cascading.
 
 **Conceptual types**
 
 | Type | Meaning |
 |---|---|
-| Identifier | Opaque reference, used for keys |
+| Identifier | Stable opaque reference, used for keys; UUID by default for future tenant portability (BR-TEN-06) |
 | Text / Bool / Int / Enum | Plain values; Enum values are conceptual. Those UC-03 defines, such as `Booking.status`, are canonical there; the rest are proposals |
 | Money | Exact decimal in the tenant's single currency, never floating point; precision is chosen at implementation. Proposal: no multi-currency in the MVP |
 | Instant | Unambiguous point in time, stored in UTC and interpreted in the tenant's timezone for calendar rules |
@@ -382,7 +382,7 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 
 ### 6.2 Global versus tenant scope
 
-- **Global (2):** `User`, `Permission`.
+- **Global (2):** `User`, `Permission`. "Global" means within one installation: a person in two installations has two `User` rows.
 - **Tenant root (1):** `Tenant`.
 - **Tenant-owned (35):** all others. They carry `tenant_id` and are never shared between businesses.
 
@@ -414,7 +414,7 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
-| email | Text | Y | Unique globally |
+| email | Text | Y | Unique within the installation |
 | full_name | Text | Y | |
 | credential_ref | Text | Y | Authentication mechanism is detailed design |
 | status | Enum | Y | ACTIVE, DISABLED |
@@ -745,7 +745,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `Payment`
 
-**Deletion:** Never, including under a deletion request; immutable. Kept at least 10 years.
+**Unique:** (`tenant_id`, `idempotency_key`) when present. **Deletion:** Never, including under a deletion request; immutable. Kept at least 10 years.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -761,7 +761,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 | unallocated_reason | Text | N | Why it has no allocations |
 | corrects_payment_id | Identifier | N | FK → `Payment`; recording correction as an appended record **[T-03]** |
 | correction_reason | Text | Cond. | Required with `corrects_payment_id` |
-| idempotency_key | Text | N | Prevents duplicates on retry **[T-03]** |
+| idempotency_key | Text | N | Prevents duplicates on retry; who generates it and when is **[T-03]** |
 
 #### `PaymentAllocation`
 
@@ -781,7 +781,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `Refund`
 
-**Deletion:** Never.
+**Unique:** (`tenant_id`, `idempotency_key`) when present. **Deletion:** Never.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -793,7 +793,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 | authorized_by_membership_id | Identifier | Y | FK → `TenantMembership`; Admin only |
 | executed_at | Instant | Cond. | When EXECUTED |
 | destination_trace | Text | N | |
-| idempotency_key | Text | N | **[T-03]** |
+| idempotency_key | Text | N | Who generates it and when is **[T-03]** |
 
 #### `CashSession`
 
@@ -845,7 +845,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `ChannelConnection`
 
-**Unique:** at most one enabled connection per tenant (DM-13). **Deletion:** Deactivate; history is retained.
+**Unique:** at most one enabled connection per tenant (DM-13). Among enabled connections across the installation, `phone_number` is unique and so is (`provider`, `provider_instance_ref`). Disabling a connection frees its number for another tenant. **Deletion:** Deactivate; history is retained.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -900,7 +900,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `Notification`
 
-**Unique:** `dedupe_key`. **Deletion:** Never; final result is retained, identity goes through `Customer`.
+**Unique:** (`tenant_id`, `dedupe_key`). **Deletion:** Never; final result is retained, identity goes through `Customer`.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -911,7 +911,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 | offer_id | Identifier | Cond. | FK → `ExclusiveOffer` |
 | scheduled_for | Instant | N | |
 | status | Enum | Y | PENDING, SENT, FAILED, UNKNOWN, SUPPRESSED, OMITTED |
-| dedupe_key | Text | Y | One logical notice **[T-04]** |
+| dedupe_key | Text | Y | One logical notice; how the key is composed is **[T-04]** |
 | omission_reason | Text | N | An omitted notice has zero attempts |
 
 The advance alert for a pending customer deletion needs no `Notification`: the CRM derives it from `Customer.deletion_due_at`.
@@ -970,7 +970,7 @@ The advance alert for a pending customer deletion needs no `Notification`: the C
 | actor_kind | Enum | Y | MEMBER, CUSTOMER, SYSTEM |
 | actor_membership_id | Identifier | Cond. | FK → `TenantMembership`, when MEMBER |
 | target_type | Text | Y | |
-| target_id | Identifier | Y | Polymorphic reference, not a foreign key |
+| target_id | Identifier | Y | Polymorphic reference, so `ERD-I01` cannot be enforced as a foreign key; the application must verify that the target belongs to the event's tenant |
 | channel | Enum | N | WHATSAPP, CRM, SYSTEM |
 | reason | Text | N | |
 | occurred_at | Instant | Y | |
@@ -1031,6 +1031,8 @@ The same entities serve both verticals; differences are configuration values, wi
 
 The items needing validation are in the [technical register](#technical-review-register) (T-01 to T-05) and marked in §6. Product and legal questions are in [UC-03 §16](../product-specs/uc-03/business-rules.md#16-pending-decisions). None adds an entity to this proposal so far.
 
+The team's tenant-isolation review left two questions that do not block this proposal: who may disable a global `User` without leaving a tenant with no Admin, and how technical-operator actions are attributed in `AuditEvent`, which depends on the open question in CU-20. DOM-02 tracks them as `TEN-Q1` and `TEN-Q2`.
+
 ## 8. DOM-01 completion checklist
 
 - [x] 38 candidate entities inventoried.
@@ -1040,6 +1042,7 @@ The items needing validation are in the [technical register](#technical-review-r
 - [x] Attributes, conceptual types and identifiers specified for every entity (§6).
 - [x] Primary keys, foreign keys, optionality, uniqueness and delete rules specified logically (§6).
 - [x] Compatibility with use cases and both verticals checked analytically (§7).
+- [x] Observations from the [team's tenant-isolation review](https://github.com/nanonoir/Agendoxa/pull/26#issuecomment-6664473184) applied. That review covers isolation and portability only and is not approval.
 - [ ] Items marked T-01 to T-05 architecturally validated.
 - [ ] Team approval recorded.
 
