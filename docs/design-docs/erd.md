@@ -1,6 +1,6 @@
 # DOM-01 — Agendoxa MVP Entity–Relationship Model
 
-> **Status:** In Review — product-owner decisions agreed 2026-11-04; **not team-ratified or implemented**.
+> **Status:** In Review — product-owner decisions agreed 2026-11-04 and 2026-11-05; **not team-ratified or implemented**.
 > **Prepared:** 2026-11-03; reconciled 2026-11-04; tenant-isolation review observations applied 2026-11-05.
 > **Scope:** Logical/conceptual ERD for the two MVP verticals: barbershops/beauty businesses and sports clubs/courts.
 > **Inventory:** 38 candidate entities in 9 modules: the original 36 plus `Refund` and `NotificationAttempt`.
@@ -214,7 +214,7 @@ erDiagram
   CONVERSATION ||--o{ MESSAGE : contains
 ```
 
-- Each tenant retains historical WhatsApp connections but has **at most one enabled connection** at a time in the MVP (**DM-13**). A number or provider instance can be enabled for only one tenant across the installation, so a message on an enabled connection always resolves to one tenant. A message on a disabled connection is stored without AI handling only if it resolves to exactly one connection (BR-NOT-05). Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
+- Each tenant retains historical WhatsApp connections but has **at most one active or paused connection** at a time in the MVP (**DM-13**). A number or provider instance can be active or paused for only one tenant across the installation, so an incoming message always resolves to one tenant or to none. A paused connection stores messages without AI handling; messages to a retired one are not processed (BR-NOT-05). Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
 - Keep one continuous `Conversation` per `(connection_id, sender_id)`, uniquely scoped to that connection. `customer_id` may be null before identity resolution; linking a customer never authorizes based on untrusted message text.
 - `Message` records direction, author/source (customer, AI, human), provider identity, and deduplication. A conversation is under **either** AI or human control at a time; enforce safe takeover and prevent simultaneous responses.
 - Authorized Staff/Admin can take over from the CRM. Admin can disable the AI across the tenant. Human inactivity may restore AI after 60 minutes only if global AI is enabled and the chosen handoff rules permit it.
@@ -304,7 +304,7 @@ erDiagram
 | `DM-10` | Payment allocations | Payments can be split across charges and temporarily left unallocated |
 | `DM-11` | Receiving accounts | Three collection modes, professional account/business fallback; sequential business-pool rotation, immutable issued instructions |
 | `DM-12` | Cash corrections | `CashAdjustment` after close; immutable closed session |
-| `DM-13` | WhatsApp | One enabled connection per tenant; a number or instance enabled for only one tenant; one continuous thread per sender/connection |
+| `DM-13` | WhatsApp | One active or paused connection per tenant; a number or instance active or paused for only one tenant; one continuous thread per sender/connection |
 | `DM-14` | Assets | At most one asset per message or payment review; direct optional references |
 | `DM-15` | Notifications | One logical notice, zero or more distinct attempts; proposed pg-boss execution |
 | `DM-16` | Consent | One question, independent reusable Customer preferences; entry interest/provenance, current preference rechecked, configurable reminder lead time |
@@ -465,7 +465,7 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 
 #### `Customer`
 
-**Unique:** (`tenant_id`, `phone`) when phone is present. **Deletion:** On request, anonymized; the row stays because bookings and payments reference it.
+**Unique:** (`tenant_id`, `phone`) when phone is present. **Deletion:** On request, anonymized: phone and preferences are always removed, and the name is removed unless the customer has verified payments (BR-DAT-03). The row stays because bookings and payments reference it.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -659,7 +659,7 @@ Current resource and time come from the active `SlotClaim`; `Booking` holds no c
 
 #### `WaitlistEntry`
 
-**Unique:** one active entry per requester and conditions, keeping the original arrival. **Deletion:** On request.
+**Unique:** one active entry per requester and conditions, keeping the original arrival. **Deletion:** On request; closed as WITHDRAWN when its customer confirms a deletion request (BR-DAT-09).
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -845,14 +845,14 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `ChannelConnection`
 
-**Unique:** at most one enabled connection per tenant (DM-13). Among enabled connections across the installation, `phone_number` is unique and so is (`provider`, `provider_instance_ref`). Disabling a connection frees its number for another tenant. **Deletion:** Deactivate; history is retained.
+**Unique:** at most one ACTIVE or PAUSED connection per tenant (DM-13). Among ACTIVE and PAUSED connections across the installation, `phone_number` is unique and so is (`provider`, `provider_instance_ref`). Pausing keeps them; only retiring frees them for another tenant. **Deletion:** Retire; history is retained.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
 | provider | Enum | Y | Evolution in the MVP; adapter-friendly |
-| provider_instance_ref | Text | Cond. | Required while the connection is enabled; may be empty on a disabled connection, for example after a tenant move until it is reconnected |
+| provider_instance_ref | Text | Cond. | Required while ACTIVE or PAUSED; may be empty when RETIRED, for example after a tenant move until it is reconnected |
 | phone_number | Phone | Y | |
-| is_enabled | Bool | Y | |
+| lifecycle | Enum | Y | ACTIVE, PAUSED, RETIRED (BR-NOT-05) |
 | status | Enum | Y | CONNECTED, DISCONNECTED; a temporary drop is not a new connection |
 | credential_ref | Text | N | Reference to a secret, never the secret |
 
@@ -888,7 +888,7 @@ Legacy name for one recipient's invitation in a release round. **Unique:** (`rou
 
 #### `StoredAsset`
 
-**Deletion:** On request, unless it evidences a verified payment or an open claim. The bytes live in private object storage.
+**Deletion:** On request, unless it evidences a verified payment or belongs to a pending `PaymentReview` (BR-DAT-03). The bytes live in private object storage.
 
 | Attribute | Type | Req | Notes |
 |---|---|---|---|
@@ -1007,7 +1007,7 @@ Every [UC-02 case](../product-specs/uc-02/use-cases.md) is covered by existing e
 | CU-20 Onboard a business | `Tenant`, `Role`, `User`, `TenantMembership`, `AvailabilityCalendar`, `BookingPolicy` |
 | CU-21 Agenda | `Booking`, `SlotClaim`, `Resource`, `PaymentReview` |
 | CU-22 Expire HOLD | `Booking`, `SlotClaim`, `Payment`, `Notification` |
-| CU-23 Request data deletion | `Customer`, `Conversation`, `Message`, `StoredAsset`, `Notification`, `AuditEvent` |
+| CU-23 Request data deletion | `Customer`, `Conversation`, `Message`, `StoredAsset`, `PaymentReview`, `WaitlistEntry`, `Notification`, `AuditEvent` |
 
 ### 7.2 Both verticals on the same model
 
