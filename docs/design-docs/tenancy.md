@@ -50,7 +50,7 @@
 |---|---|---|
 | `TenantMembership.user_id` → `User` | Target is global | Plain foreign key; membership is the only path from a tenant to a person |
 | `RolePermission.permission_id` → `Permission` | Target is global | Plain foreign key; delegable check from the ERD |
-| `AuditEvent.target_id` | Polymorphic, not a foreign key | The application writes it only from the validated context; a negative test covers it |
+| `AuditEvent.target_id` | Polymorphic, not a foreign key | The application writes it only from the validated context; a negative test covers it. The target is always a tenant-owned record: an action about a person targets their `TenantMembership`, never `User`, so a move never has to rewrite it |
 
   Actor references always use `TenantMembership`, never `User`, so history never reaches across tenants.
 
@@ -92,10 +92,9 @@
   - `User` holds identity only: email, name, credential reference and status. Roles, permissions and history hang from `TenantMembership`.
   - A tenant Admin acts on the membership in their tenant, never on the global `User`, and cannot change another business's access.
   - Personnel of a tenant see no information about a person's other memberships.
-  - Adding someone by email does not reveal whether the account already exists, in line with [CU-17 A1](../product-specs/uc-02/use-cases.md#cu-17).
   - Authorization reads the active membership on each request. Choosing another business re-establishes the context; it never carries the previous role over.
 - **Example:** A person is Admin of a barbershop and Staff of a club. If the club deactivates that membership, only access to the club ends, past actions keep their attribution ([BR-IAM-06](../product-specs/uc-03/business-rules.md#3-personnel-roles-and-privileges-iam)), and the barbershop role is unchanged.
-- **Open:** Who can disable a `User`, given that it affects every tenant ([TEN-Q1](#10-open-questions)).
+- **Open:** Who can disable a `User`, given that it affects every tenant ([TEN-Q1](#10-open-questions)), and how personnel is added to a tenant ([TEN-Q6](#10-open-questions)).
 - **Reference:** [ERD §6.3](./erd.md#63-module-1--identity), [BR-TEN-08](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten).
 
 ## 5. Tenant context
@@ -113,16 +112,17 @@
 | Background job | Job payload, checked against the current record ([TEN-DM-08](#ten-dm-08-jobs-carry-and-recheck-their-tenant)) | System |
 | Operational tooling | Not a business context: no default access ([ACT-06](../product-specs/uc-01/actors.md#11-human-actors)) | Operator |
 
-  **Allowed lookups before a tenant is known**, each returning the minimum needed:
+  **Operations that run before a tenant is known or read across tenants.** Each returns the minimum needed and needs an explicit path in REP-02. Any other cross-tenant read or write is a defect.
 
-| Lookup | Key | Returns |
-|---|---|---|
-| Sign-in | `User.email` | The user and their active memberships |
-| Incoming webhook | (`provider`, `provider_instance_ref`) | The connection it resolves to and its tenant: an enabled one, otherwise exactly one disabled one |
-| Public routing, if used | `Tenant.slug` | Public display data only; never authorization |
-| Permission catalog | `Permission.key` | Global catalog |
-
-  Any other query without a tenant is a defect.
+| Operation | Context | Reads | Returns |
+|---|---|---|---|
+| Sign-in ([CU-17](../product-specs/uc-02/use-cases.md#cu-17)) | None yet | `User` by `email` | The user and their active memberships |
+| Incoming webhook | None yet | `ChannelConnection` by (`provider`, `provider_instance_ref`) | The connection it resolves to and its tenant: an enabled one, otherwise exactly one disabled one |
+| Public routing, if used | None | `Tenant` by `slug` | Public display data only; never authorization |
+| Permission catalog | Any | `Permission` | The global catalog |
+| Business onboarding ([CU-20](../product-specs/uc-02/use-cases.md#cu-20)) | Operational tooling, outside any business | Uniqueness of `Tenant.slug` and `User.email` | The new tenant, its first Admin and their membership; no access to other tenants' data |
+| Adding personnel | The Admin's validated tenant | `User` by `email` | Whether a membership can be created, without exposing the person's other memberships; the flow itself is open ([TEN-Q6](#10-open-questions)) |
+| Worker scheduling and recovery ([architecture §6.5](./target-architecture.md#65-cross-module-atomicity-and-delayed-effects), [§10.3](./target-architecture.md#103-durable-jobs-and-notifications)) | System | Due work in every tenant, such as pending notices and expiring HOLDs | Only `tenant_id` and record IDs; each item then runs in its own tenant context ([TEN-DM-08](#ten-dm-08-jobs-carry-and-recheck-their-tenant)) |
 
 - **Example:** A Staff member of tenant A who requests a booking of tenant B gets `not_found`, so its existence is not confirmed ([EJ-01](../product-specs/uc-03/invariants.md#1-tenant-isolation)). A message that matches no connection, or several disabled ones, resolves no tenant and is not processed. One that matches a single disabled connection is stored in that tenant's CRM inbox, with no AI reply.
 - **Reference:** [architecture §8.2](./target-architecture.md#82-tenant-boundary-and-authentication), [EJ-03](../product-specs/uc-03/invariants.md#1-tenant-isolation).
@@ -151,7 +151,7 @@
 - **What the RLS evaluation must answer:**
   - How the context is set per transaction with the chosen connection pool.
   - Which database role the application uses, since table owners and `BYPASSRLS` roles skip policies unless configured otherwise.
-  - How the [allowed lookups](#ten-dm-07-every-entry-point-has-one-source-of-tenant-context) and workers run under it.
+  - How the [operations without a single tenant](#ten-dm-07-every-entry-point-has-one-source-of-tenant-context), such as onboarding and worker recovery, run under it, for example with a separate role or policy.
   - That queue tables are not covered by tenant policies.
 - **Alternatives:** One schema or database per tenant was rejected because it multiplies migrations and operations, and departs from the [same tenant-aware model for every installation](./target-architecture.md#81-deployment-modes).
 - **Example:** A repository forgets `tenant_id` in a read. Without RLS, only the [two-tenant negative tests](#9-future-verification) catch it, which is why those tests are required regardless of the RLS outcome. RLS must not be described as active until it is implemented.
@@ -162,7 +162,7 @@
 ### TEN-DM-10: Each record has a known treatment in a future move
 
 - **What:** Conditions for moving one tenant to another installation without redesigning the model. **This defines no tool or MVP feature.**
-- **Rule:** The IDs of tenant records never change. Each entity falls into one of three groups.
+- **Rule:** Record IDs never change. Only two references to installation-global records may be rewritten: `TenantMembership.user_id` and `RolePermission.permission_id`. No record points to `RolePermission`, and only memberships point to `User`, so nothing else changes. Each entity falls into one of three groups.
 
 | Treatment | Entities |
 |---|---|
@@ -176,8 +176,8 @@
 |---|---|
 | `Tenant` | Keeps its ID. `slug` may already be taken at the destination, which needs a human decision. Cursors are set after the rows they reference exist. |
 | `User` | Only people with a membership in the moved tenant. Matched by `email` at the destination, never merged silently. `credential_ref` does not travel: each person re-establishes access. Other memberships are not exported. |
-| `TenantMembership` | `user_id` is rewritten when the person already exists at the destination. It is the only reference to rewrite. |
-| `Permission`, `RolePermission` | The destination has its own catalog. `permission_id` is resolved through `Permission.key`. An unknown key stops the import. |
+| `TenantMembership` | `user_id` is rewritten when the person already exists at the destination. The membership keeps its ID, so actor references stay valid. |
+| `Permission`, `RolePermission` | The destination has its own catalog. `permission_id` is resolved through `Permission.key`, which changes the `RolePermission` key. An unknown key stops the import. |
 | `ChannelConnection` | Same row, to keep [one continuous thread](./erd.md#27-module-6--whatsapp-conversations-and-messages). It arrives disabled, without `provider_instance_ref` or `credential_ref` values from the source, and is reconnected through [CU-18](../product-specs/uc-02/use-cases.md#cu-18). |
 | `StoredAsset` | Bytes are copied and `storage_key` is rewritten, so it must stay relative to the installation's storage. Rows with `deleted_at` have no bytes to copy. |
 
@@ -252,9 +252,10 @@ These are flagged, not resolved here.
 |---|---|---|---|---|
 | `TEN-Q1` | Who can disable a global `User`, and what happens if that person is a tenant's last active Admin? | [BR-IAM-02](../product-specs/uc-03/business-rules.md#3-personnel-roles-and-privileges-iam) protects the last Admin, and the ERD applies that to the membership only. Disabling a `User` could leave a business without an Admin. | Product | User administration |
 | `TEN-Q2` | How are technical operator actions recorded? | [CU-20](../product-specs/uc-02/use-cases.md#cu-20) proposes the operator as an actor (its actor is still pending), and `AuditEvent.actor_kind` has no such value. | Team | Onboarding audit |
-| `TEN-Q3` | Who authorizes a move, and what happens to the source's data afterward? | The operator has [no default business authorization](../product-specs/uc-01/actors.md#11-human-actors), the export holds personal and financial data, and financial records have [retention duties](../product-specs/uc-03/business-rules.md#18-personal-data-and-retention-dat). Needs the legal validation in P-32. | Product and legal | Any real move, not the MVP |
+| `TEN-Q3` | Who authorizes a move, and what happens to the source's data afterward, including pending customer deletions? | The operator has [no default business authorization](../product-specs/uc-01/actors.md#11-human-actors), the export holds personal and financial data, and financial records have [retention duties](../product-specs/uc-03/business-rules.md#18-personal-data-and-retention-dat). A pending deletion travels with the tenant, but a copy kept at the source would also have to be deleted on its date. Needs the legal validation in P-32. | Product and legal | Any real move, not the MVP |
 | `TEN-Q4` | How is a tenant frozen during a move? | `Tenant` has no status attribute. Adding one later is compatible with this model, so it is not requested now. | Team | Any real move, not the MVP |
 | `TEN-Q5` | Is RLS adopted? | See [TEN-DM-09](#ten-dm-09-application-and-database-constraints-are-required-rls-is-evaluated-in-rep-02). | REP-02 | Nothing in DOM-02 |
+| `TEN-Q6` | How is personnel added to a tenant, and may adding someone by email reveal whether that person already has an account? | No use case defines it; [CU-17 A1](../product-specs/uc-02/use-cases.md#cu-17) covers sign-in only. Hiding whether an account exists probably needs an invitation flow. | Product | Personnel management |
 
 `TEN-Q1` and `TEN-Q2` are also listed in [ERD §7.3](./erd.md#73-pending-architectural-validation) as not blocking the ERD.
 
