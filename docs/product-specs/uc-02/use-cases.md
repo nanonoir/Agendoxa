@@ -903,7 +903,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 #### Alternatives and Exceptions
 - **A1 — QR expired:** A new one is generated.
 - **A2 — Disconnection:** The status shows it; customer self-service is unavailable while the CRM and core keep working.
-- **A3 — Channel disabled during an incident:** No proactive messages are sent and the AI stops replying.
+- **A3 — Channel disabled during an incident:** No proactive messages are sent and the AI stops replying. Incoming messages are still stored in the CRM inbox, which shows that the channel is disabled; personnel reply from the business phone ([BR-NOT-05](../uc-03/business-rules.md#14-notifications-and-consent-not)).
 - **A4 — Number or provider instance already enabled for another tenant:** Rejected *(proposal)*, because an incoming message must resolve to one tenant. An owner with two businesses needs two numbers; disabling a connection frees its number.
 
 #### Outcome / Postconditions

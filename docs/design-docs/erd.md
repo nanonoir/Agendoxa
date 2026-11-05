@@ -214,7 +214,7 @@ erDiagram
   CONVERSATION ||--o{ MESSAGE : contains
 ```
 
-- Each tenant retains historical WhatsApp connections but has **at most one enabled connection** at a time in the MVP (**DM-13**). A number or provider instance can be enabled for only one tenant across the installation, so an incoming message always resolves to one tenant. Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
+- Each tenant retains historical WhatsApp connections but has **at most one enabled connection** at a time in the MVP (**DM-13**). A number or provider instance can be enabled for only one tenant across the installation, so a message on an enabled connection always resolves to one tenant. A message on a disabled connection is stored without AI handling only if it resolves to exactly one connection (BR-NOT-05). Temporary Evolution/Baileys disconnection does not create a new connection; a permanent number change may.
 - Keep one continuous `Conversation` per `(connection_id, sender_id)`, uniquely scoped to that connection. `customer_id` may be null before identity resolution; linking a customer never authorizes based on untrusted message text.
 - `Message` records direction, author/source (customer, AI, human), provider identity, and deduplication. A conversation is under **either** AI or human control at a time; enforce safe takeover and prevent simultaneous responses.
 - Authorized Staff/Admin can take over from the CRM. Admin can disable the AI across the tenant. Human inactivity may restore AI after 60 minutes only if global AI is enabled and the chosen handoff rules permit it.
