@@ -4,7 +4,7 @@
 > **Prepared:** 2026-11-05, on top of the [DOM-01 ERD](./erd.md), itself in review ([PR #26](https://github.com/nanonoir/Agendoxa/pull/26)).
 > **Scope:** How data ownership, isolation and future single-tenant moves work on the logical model, for shared and dedicated installations.
 > **Out of scope:** RLS, guards and authorization policies as implementation; Drizzle schema and migrations; export/import tooling; moves between servers; dedicated infrastructure setup.
-> **Next step:** Team review, and a decision on the [ERD changes requested from DOM-01](#ten-dm-05-uniqueness-has-an-explicit-scope).
+> **Next step:** Team review. The [ERD changes this design needed](#ten-dm-05-uniqueness-has-an-explicit-scope) are already applied in PR #26.
 
 ## 1. How to use this document
 
@@ -36,7 +36,7 @@
 
 - **What:** Applies [BR-TEN-03](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten) and the [ERD's tenant-aware foreign keys](./erd.md#61-shared-conventions).
 - **Rule:** Each tenant-owned record has a required, immutable `tenant_id`. A reference between tenant-owned records includes `tenant_id` on both sides, so each parent also needs a unique (`tenant_id`, `id`). A record never changes tenant.
-- **Root references:** `Tenant.rotation_cursor` and `Tenant.resource_rotation_cursor` follow the same rule, with `Tenant.id` playing the part of `tenant_id`. The ERD's wording does not cover them yet ([requested change](#ten-dm-05-uniqueness-has-an-explicit-scope)).
+- **Root references:** `Tenant.rotation_cursor` and `Tenant.resource_rotation_cursor` follow the same rule, with `Tenant.id` playing the part of `tenant_id`, as [ERD §6.1](./erd.md#61-shared-conventions) states.
 - **Example:** A booking that combines tenant A's service with tenant B's resource claim is rejected even if a use case skips its validation ([EJ-02](../product-specs/uc-03/invariants.md#1-tenant-isolation)). If tenant A's rotation cursor points to tenant B's account, the write fails instead of issuing payment instructions for the wrong business.
 - **Implementation note for REP-02:** `NotificationAttempt.message_id` is cleared when a message is deleted on request. A plain `SET NULL` on a composite foreign key would also try to clear `tenant_id`, so it must target that column only or be an explicit update.
 - **Reference:** [INV-TEN-02](../product-specs/uc-03/invariants.md#1-tenant-isolation), [`ERD-I01`](./erd.md#3-cross-cutting-invariants).
@@ -59,7 +59,7 @@
 
 ### TEN-DM-04: Identifiers are UUIDs, not derived from the installation
 
-- **What:** Makes the ERD's opaque `Identifier` concrete, following [BR-TEN-06](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten).
+- **What:** Details the ERD's `Identifier` type, a UUID by default, following [BR-TEN-06](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten).
 - **Rule:** Primary keys are UUIDs that do not depend on a sequence or installation. They carry no meaning and are kept when a tenant moves. The UUID version is chosen in REP-02. Natural values (`slug`, `email`, `phone`, `key`) are never used as foreign keys.
 - **Alternatives:** Sequences would collide between installations and force every reference to be rewritten on a move. A per-tenant prefix would add meaning without adding protection.
 - **Example:** A booking keeps its ID in a dedicated installation, so its links and any `dedupe_key` built from it remain valid. If a UUID ever collided at the destination, the import fails rather than overwriting.
@@ -70,15 +70,15 @@
 - **What:** A constraint that is wider than the tenant can leak or block across businesses; one that is narrower can leave tenant resolution ambiguous.
 - **Rule:**
 
-| Scope | Values | ERD today |
+| Scope | Values | In the ERD |
 |---|---|---|
-| Installation | `Tenant.slug`, `User.email`, `Permission.key` | As proposed |
-| Installation, among enabled connections | `ChannelConnection.provider_instance_ref`, `ChannelConnection.phone_number` | **Change requested** |
-| Tenant | `Notification.dedupe_key` | **Change requested:** unique across the installation today |
-| Tenant | `Payment.idempotency_key`, `Refund.idempotency_key`, when present | **Change requested:** no uniqueness declared |
-| Parent record, already inside a tenant | `Message.provider_message_id`, `Conversation.sender_id`, and the other constraints in the ERD | As proposed |
+| Installation | `Tenant.slug`, `User.email`, `Permission.key` | Yes |
+| Installation, among enabled connections | `ChannelConnection.phone_number`, (`provider`, `provider_instance_ref`) | Yes, since PR #26 |
+| Tenant | `Notification.dedupe_key` | Yes, since PR #26 |
+| Tenant | `Payment.idempotency_key`, `Refund.idempotency_key`, when present | Yes, since PR #26 |
+| Parent record, already inside a tenant | `Message.provider_message_id`, `Conversation.sender_id`, and the other constraints in the ERD | Yes |
 
-- **Requested ERD changes:** The rows above, the [root references](#ten-dm-02-same-tenant-references-are-enforced-by-the-database), the [identifier type](#ten-dm-04-identifiers-are-uuids-not-derived-from-the-installation) and the meaning of ["global"](#ten-dm-01-global-means-installation-wide). They are proposed in [PR #26](https://github.com/nanonoir/Agendoxa/pull/26), not applied in this change, to avoid two sources for the same model.
+- **ERD changes:** The rows marked "since PR #26", the [root references](#ten-dm-02-same-tenant-references-are-enforced-by-the-database), the [identifier type](#ten-dm-04-identifiers-are-uuids-not-derived-from-the-installation) and the meaning of ["global"](#ten-dm-01-global-means-installation-wide) came from the [tenant-isolation review of PR #26](https://github.com/nanonoir/Agendoxa/pull/26#issuecomment-6664473184) and are applied there. The ERD remains their only source.
 - **Comparison limit:** `PaymentReview.evidence_fingerprint` is compared only inside its tenant. A receipt seen in one business says nothing about another.
 - **Example:** If two tenants could enable the same number, an incoming message would match two connections and the requester could act on the wrong business. With this rule the second connection is rejected ([CU-18 A4](../product-specs/uc-02/use-cases.md#cu-18), still a proposal) and the first keeps working.
 - **Reference:** [BR-TEN-02](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten), [T-02 to T-05](./erd.md#technical-review-register).
@@ -108,8 +108,8 @@
 | Entry point | Tenant comes from | Identity comes from |
 |---|---|---|
 | CRM ([CU-17](../product-specs/uc-02/use-cases.md#cu-17)) | Business selected among the user's active memberships, revalidated on each request | Authenticated `User` and its membership |
-| WhatsApp message | The enabled `ChannelConnection` matched by a verified webhook | Validated sender, inside that tenant |
-| AI agent tools | Fixed by the validated connection; the model does not choose it ([BR-AGT-02](../product-specs/uc-03/business-rules.md#13-ai-agent-agt-and-human-handoff-hnd)) | The conversation's requester |
+| WhatsApp message | The `ChannelConnection` a verified webhook resolves to. An enabled connection prevails; a message that resolves only to one disabled connection is stored there with no AI reply or automatic notices ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)) | Validated sender, inside that tenant |
+| AI agent tools | Fixed by the enabled connection; the model does not choose it ([BR-AGT-02](../product-specs/uc-03/business-rules.md#13-ai-agent-agt-and-human-handoff-hnd)) | The conversation's requester |
 | Background job | Job payload, checked against the current record ([TEN-DM-08](#ten-dm-08-jobs-carry-and-recheck-their-tenant)) | System |
 | Operational tooling | Not a business context: no default access ([ACT-06](../product-specs/uc-01/actors.md#11-human-actors)) | Operator |
 
@@ -118,13 +118,13 @@
 | Lookup | Key | Returns |
 |---|---|---|
 | Sign-in | `User.email` | The user and their active memberships |
-| Incoming webhook | `provider_instance_ref` | The enabled connection and its tenant |
+| Incoming webhook | (`provider`, `provider_instance_ref`) | The connection it resolves to and its tenant: an enabled one, otherwise exactly one disabled one |
 | Public routing, if used | `Tenant.slug` | Public display data only; never authorization |
 | Permission catalog | `Permission.key` | Global catalog |
 
   Any other query without a tenant is a defect.
 
-- **Example:** A Staff member of tenant A who requests a booking of tenant B gets `not_found`, so its existence is not confirmed ([EJ-01](../product-specs/uc-03/invariants.md#1-tenant-isolation)). A message for a disabled or unknown connection resolves no tenant: it is logged technically and not processed.
+- **Example:** A Staff member of tenant A who requests a booking of tenant B gets `not_found`, so its existence is not confirmed ([EJ-01](../product-specs/uc-03/invariants.md#1-tenant-isolation)). A message that matches no connection, or several disabled ones, resolves no tenant and is not processed. One that matches a single disabled connection is stored in that tenant's CRM inbox, with no AI reply.
 - **Reference:** [architecture §8.2](./target-architecture.md#82-tenant-boundary-and-authentication), [EJ-03](../product-specs/uc-03/invariants.md#1-tenant-isolation).
 
 ### TEN-DM-08: Jobs carry and recheck their tenant
@@ -218,7 +218,7 @@ The only cycle is the `Tenant` cursors, solved by setting them last. `Payment.co
 - **Rule:** A dedicated installation keeps `tenant_id`, memberships, tenant context and every constraint. It has no special code path. Uniqueness across an installation cannot be enforced between installations, so a WhatsApp number must be disabled at the source before it is enabled at the destination.
 - **Example, on paper, moving tenant Y from a shared to a dedicated installation:**
   1. Confirm authorization and the source's fate ([TEN-Q3](#10-open-questions)), and that both installations run a compatible version.
-  2. Stop tenant Y's activity at the source ([TEN-Q4](#10-open-questions)) and disable its WhatsApp connection.
+  2. Stop tenant Y's activity at the source ([TEN-Q4](#10-open-questions)) and disable its WhatsApp connection. A disabled connection still stores incoming messages ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)), so the provider instance must also stop delivering to the source.
   3. Copy tenant Y's records and asset bytes, following the [treatments and order](#ten-dm-10-each-record-has-a-known-treatment-in-a-future-move).
   4. Verify counts, references and that every record has tenant Y's `tenant_id`.
   5. Rebuild pending jobs, reconnect WhatsApp and have personnel re-establish access.
@@ -237,6 +237,8 @@ None of these checks exists yet. They are inputs for REP-02 and REP-03, using th
 | Point a `Tenant` cursor at another tenant's record | Rejected by the database | TEN-DM-02 |
 | Write an `AuditEvent` naming another tenant's record | Rejected by the application | TEN-DM-03 |
 | Enable the same number in a second tenant | Rejected; the first keeps working | TEN-DM-05 |
+| Message whose only matching connection is disabled | Stored in that tenant's inbox; no AI reply or notices | TEN-DM-07, BR-NOT-05 |
+| Message matching no connection, or several disabled ones | Not processed | TEN-DM-07 |
 | Same `dedupe_key` in two tenants | Both accepted | TEN-DM-05 |
 | Person with two memberships switches business | Only the new role applies; no data from the other tenant | TEN-DM-06 |
 | Job with a mismatched `tenant_id` | No effect; reported | TEN-DM-08 |
@@ -254,6 +256,8 @@ These are flagged, not resolved here.
 | `TEN-Q4` | How is a tenant frozen during a move? | `Tenant` has no status attribute. Adding one later is compatible with this model, so it is not requested now. | Team | Any real move, not the MVP |
 | `TEN-Q5` | Is RLS adopted? | See [TEN-DM-09](#ten-dm-09-application-and-database-constraints-are-required-rls-is-evaluated-in-rep-02). | REP-02 | Nothing in DOM-02 |
 
+`TEN-Q1` and `TEN-Q2` are also listed in [ERD §7.3](./erd.md#73-pending-architectural-validation) as not blocking the ERD.
+
 ## 11. Traceability
 
 **[DOM-02 (#7)](https://github.com/nanonoir/Agendoxa/issues/7)**
@@ -267,7 +271,7 @@ These are flagged, not resolved here.
 | Identifiers compatible with future moves | TEN-DM-04 |
 | Dependencies and external references identified | TEN-DM-03, §7 |
 | Compatible with multi-tenant and single-tenant installations | §8 |
-| ERD reviewed and adjusted as needed | TEN-DM-05: changes requested, **pending in PR #26** |
+| ERD reviewed and adjusted as needed | TEN-DM-05: changes applied in PR #26 |
 | Reviewed and approved by the team | **Pending** |
 
 **[EPIC-02 (#5)](https://github.com/nanonoir/Agendoxa/issues/5), tenancy criteria**
