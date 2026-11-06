@@ -27,6 +27,13 @@ Deliver a reviewable first increment of [REP-02 / #15](https://github.com/nanono
 
 ## Decisions
 
+### PR #29 review follow-up
+
+- [x] Reproduce missing system-role activation, WhatsApp-author and attendee-phone constraints with failing PostgreSQL tests.
+- [x] Add the three row checks through a new additive migration; preserve all previously published migrations.
+- [x] Document transactional service/resource compatibility and last-active-Admin/role-lifecycle obligations for future application use cases, with acceptance checks.
+- [x] Validate affected database/API consumers and prepare the review follow-up for the existing PR.
+
 Use the bounded implementation proposal linked above. In particular, the candidate set is 17 logical entities, with omitted cross-cut references listed explicitly; T-01/T-05 are addressed only for included mechanisms. No payment, messaging, queue, public booking or CRM use case is added.
 
 ## Progress
@@ -42,7 +49,7 @@ Use the bounded implementation proposal linked above. In particular, the candida
 
 ## Validation
 
-Results on 2026-11-06, Windows, Node 24.15.0, pnpm 12.16.1 and PostgreSQL 18:
+Initial-increment results before the review follow-up, on 2026-11-06, Windows, Node 24.15.0, pnpm 12.16.1 and PostgreSQL 18:
 
 | Check | Result |
 |---|---|
@@ -63,6 +70,22 @@ Results on 2026-11-06, Windows, Node 24.15.0, pnpm 12.16.1 and PostgreSQL 18:
 In the clean clone, an auxiliary `pnpm exec turbo run build --filter=@agendoxa/api` invocation could not resolve the package-manager binary in the local Windows environment. The documented `pnpm build` command succeeded for all four packages. No unrelated toolchain change was introduced. An additional temporary compiled-API HTTP smoke process was blocked by automatic execution policy before launch, with no more specific reason supplied; it is not counted as validation. The separate health E2E and actual PostgreSQL/NestJS integration checks above did run successfully.
 
 The test service is `agendoxa-postgres-test-1` on loopback 5433. Existing unrelated containers are not test targets. Tenant-authorized reads, full booking/payment workflows, deployment and production infrastructure were not validated because they are outside this increment.
+
+### Review follow-up validation
+
+Added 15 integration cases covering rejected inserts/updates, valid inactive custom roles, valid WhatsApp attribution and optional/normalized attendee phones. The missing constraints reproduced in red before implementation; after adding the migration, all 72 persistence tests passed.
+
+| Check | Result |
+|---|---|
+| Database lint / typecheck / build | Passed |
+| `pnpm test:db` | 72 passed against real PostgreSQL, including the 15 new cases and migration from an empty database |
+| `pnpm db:check` / `pnpm db:generate --name verify-review-no-changes` | Passed; no further schema changes or migration |
+| API lint / typecheck / build | Passed with the rebuilt database package |
+| API unit / health E2E / NestJS-PostgreSQL | 2 + 1 + 1 passed |
+| Populated development database upgrade | Applied migration 0003 twice through the CLI, advancing from 3 to 4 migrations; retained 2 tenants, 4 roles and 0 bookings; all 3 new CHECKs validated |
+| Independent read-only follow-up review | No blocking defect found; schema, SQL, snapshot chain and test coverage agree. Not human approval |
+
+The published 0000–0002 SQL and snapshots remain unchanged. No dependency, build configuration or web change was made in this follow-up; checks target database and its API consumer. Service/resource compatibility, last-Admin protection, system-role identity preservation and full PRIVATE_REMAINDER state validation remain explicit application obligations rather than database guarantees.
 
 ## Final implementation outcome
 

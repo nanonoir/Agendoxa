@@ -112,6 +112,14 @@ export const bookings = pgTable(
       'bookings_crm_author',
       sql`${t.origin} <> 'CRM' OR (${t.createdByMembershipId} IS NOT NULL AND ${t.status} <> 'HOLD')`,
     ),
+    check(
+      'bookings_whatsapp_author',
+      sql`${t.origin} <> 'WHATSAPP' OR ${t.createdByMembershipId} IS NULL`,
+    ),
+    check(
+      'bookings_attendee_phone_e164',
+      sql`${t.attendeePhone} IS NULL OR ${t.attendeePhone} ~ '^[+][1-9][0-9]{1,14}$'`,
+    ),
   ],
 );
 

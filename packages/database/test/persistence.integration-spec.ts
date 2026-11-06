@@ -302,6 +302,160 @@ describe('versioned core persistence', () => {
     });
   });
 
+  it.each(['ADMIN', 'STAFF'])(
+    'rejects creating an inactive %s system role',
+    async (systemKey) => {
+      await inTransaction(async (client) => {
+        const tenant = await client.query(
+          "INSERT INTO tenants (name, slug, timezone, currency) VALUES ('Role test', $1, 'America/Argentina/Buenos_Aires', 'ARS') RETURNING id",
+          [randomUUID()],
+        );
+        await expect(
+          client.query(
+            "INSERT INTO roles (tenant_id, name, system_key, is_protected, is_active) VALUES ($1, 'System role', $2, true, false)",
+            [tenant.rows[0].id, systemKey],
+          ),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'roles_system_active',
+        });
+      });
+    },
+  );
+
+  it.each(['ADMIN', 'STAFF'])(
+    'rejects deactivating an existing %s system role',
+    async (systemKey) => {
+      await inTransaction(async (client) => {
+        let roleId = first.role;
+        if (systemKey === 'STAFF') {
+          const role = await client.query(
+            "INSERT INTO roles (tenant_id, name, system_key) VALUES ($1, 'Staff', 'STAFF') RETURNING id",
+            [first.tenant],
+          );
+          roleId = role.rows[0].id;
+        }
+        await expect(
+          client.query('UPDATE roles SET is_active = false WHERE id = $1', [
+            roleId,
+          ]),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'roles_system_active',
+        });
+      });
+    },
+  );
+
+  it('allows custom roles to be created inactive and deactivated', async () => {
+    await inTransaction(async (client) => {
+      const role = await client.query(
+        "INSERT INTO roles (tenant_id, name, is_active) VALUES ($1, 'Custom', false) RETURNING id, is_active",
+        [first.tenant],
+      );
+      expect(role.rows[0].is_active).toBe(false);
+      await client.query('UPDATE roles SET is_active = true WHERE id = $1', [
+        role.rows[0].id,
+      ]);
+      const result = await client.query(
+        'UPDATE roles SET is_active = false WHERE id = $1 RETURNING is_active',
+        [role.rows[0].id],
+      );
+      expect(result.rows[0].is_active).toBe(false);
+    });
+  });
+
+  it.each([
+    ['WhatsApp member author', 'WHATSAPP', null, 'bookings_whatsapp_author'],
+    ['attendee phone', 'CRM', 'not-a-phone', 'bookings_attendee_phone_e164'],
+  ])(
+    'rejects inserting a booking with an invalid %s',
+    async (_, origin, phone, constraint) => {
+      await inTransaction(async (client) => {
+        await expect(
+          client.query(
+            "INSERT INTO bookings (tenant_id, customer_id, service_id, status, origin, agreed_price, notice_snapshot, collection_mode_snapshot, created_by_membership_id, attendee_phone) VALUES ($1, $2, $3, 'CONFIRMED', $4, '7500.00', 600, 'ALL_PROFESSIONAL', $5, $6)",
+            [
+              first.tenant,
+              first.customer,
+              first.service,
+              origin,
+              first.member,
+              phone,
+            ],
+          ),
+        ).rejects.toMatchObject({ code: '23514', constraint });
+      });
+    },
+  );
+
+  it('rejects changing a CRM booking to WhatsApp while retaining a member author', async () => {
+    await inTransaction(async (client) => {
+      const id = await booking(client);
+      await expect(
+        client.query("UPDATE bookings SET origin = 'WHATSAPP' WHERE id = $1", [
+          id,
+        ]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'bookings_whatsapp_author',
+      });
+    });
+  });
+
+  it('allows WhatsApp bookings without a member author while preserving the CRM author requirement', async () => {
+    await inTransaction(async (client) => {
+      const id = await booking(client);
+      const result = await client.query(
+        "UPDATE bookings SET origin = 'WHATSAPP', created_by_membership_id = null WHERE id = $1 RETURNING origin, created_by_membership_id",
+        [id],
+      );
+      expect(result.rows).toEqual([
+        { origin: 'WHATSAPP', created_by_membership_id: null },
+      ]);
+      await expect(
+        client.query("UPDATE bookings SET origin = 'CRM' WHERE id = $1", [id]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'bookings_crm_author',
+      });
+    });
+  });
+
+  it.each([
+    'not-a-phone',
+    '5491100000000',
+    '+0491100000000',
+    '+1234567890123456',
+  ])('rejects changing an attendee phone to %s', async (phone) => {
+    await inTransaction(async (client) => {
+      const id = await booking(client);
+      await expect(
+        client.query('UPDATE bookings SET attendee_phone = $1 WHERE id = $2', [
+          phone,
+          id,
+        ]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'bookings_attendee_phone_e164',
+      });
+    });
+  });
+
+  it.each([null, '+5491100000000'])(
+    'allows the optional attendee phone %s',
+    async (phone) => {
+      await inTransaction(async (client) => {
+        const id = await booking(client);
+        const result = await client.query(
+          'UPDATE bookings SET attendee_phone = $1 WHERE id = $2 RETURNING attendee_phone',
+          [phone, id],
+        );
+        expect(result.rows[0].attendee_phone).toBe(phone);
+      });
+    },
+  );
+
   it.each([
     'role',
     'service-resource',

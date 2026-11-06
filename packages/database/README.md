@@ -33,6 +33,8 @@ Para mecanismos SQL: `pnpm --filter @agendoxa/database exec drizzle-kit generate
 
 Las referencias operativas incluyen tenant_id; User y Permission son globales por instalación. Los importes se devuelven como strings. Los casos de uso deberán mantener updated_at y resolver permisos, estados y políticas.
 
+`0003_review-invariants.sql` mantiene activos los roles ADMIN/STAFF, exige autor vacío para reservas de WhatsApp y valida attendee_phone opcional en E.164. La compatibilidad servicio–recurso y la protección del último Admin requieren validaciones transaccionales de aplicación; sus responsables y criterios están explícitos en el [diseño del incremento](../../docs/design-docs/rep-02-core-persistence.md#row-checks-and-application-obligations).
+
 Antes de comandos filtrados de API: `pnpm --filter @agendoxa/database build`. DatabaseModule exporta DATABASE_CONNECTION, tipado como DatabaseConnection, con un pool por aplicación, conexión diferida y cierre con NestJS. DATABASE_URL es obligatorio. GET /health sigue siendo una comprobación de vida sin consultar PostgreSQL.
 
 ## Pruebas de integración

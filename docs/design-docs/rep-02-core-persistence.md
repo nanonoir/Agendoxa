@@ -38,6 +38,26 @@ No scalar ID substitutes for an omitted foreign key. Later increments introduce 
 - Deletes are RESTRICT by default. Booking events and occupancy history are append-only; closing an occupancy claim preserves its owner, interval and resource.
 - One bounded node-postgres pool per Nest application instance, managed through DI and closed on shutdown. Queues/checkpointers are not coupled to this pool.
 
+## Row checks and application obligations
+
+The review follow-up adds `0003_review-invariants.sql` without changing the published migrations. It enforces these row-local checks on inserts and updates:
+
+- `roles_system_active`: ADMIN and STAFF roles must stay active; custom roles may be deactivated. The existing ADMIN protection check remains in force.
+- `bookings_whatsapp_author`: a WHATSAPP booking has no created_by_membership_id. The existing CRM author requirement is preserved; later personnel actions belong in BookingEvent rather than replacing the booking creator.
+- `bookings_attendee_phone_e164`: attendee_phone remains optional and, when present, uses the same E.164 representation as Customer.phone. Input normalization belongs to the application.
+
+The following cross-record guarantees are **not enforced by this schema**. They remain required acceptance criteria for the corresponding application use cases; the first tenant-facing mutation must not rely on FK integrity alone.
+
+| Guarantee and owner | Required behavior and verification |
+|---|---|
+| Service/resource compatibility — booking creation/rescheduling (`ERD-I04` in [DOM-01](./erd.md)) | Validate the same-tenant ServiceResource association when acquiring or replacing occupancy and when changing the booking's service. Coordinate concurrent booking/catalog mutations so an incompatible assignment cannot be accepted. Test an existing resource in the same tenant that is not linked to the chosen service, plus a concurrent compatibility change. Preserve closed-claim history when the catalog evolves; historical claims must not be rewritten to match the current catalog. |
+| Last active Admin — personnel management ([BR-IAM-02](../product-specs/uc-03/business-rules.md#3-personnel-roles-and-privileges-iam)) | Reject deactivation, removal or demotion of the last active ADMIN membership. All relevant writers must serialize the check and mutation per tenant, for example by locking the tenant row in the same transaction; an uncoordinated COUNT followed by UPDATE is insufficient. Test each removal path and two concurrent operations against the last two Admins, requiring at least one to remain active. |
+| System-role lifecycle — role administration (DOM-01 / BR-IAM-02) | Preserve ADMIN/STAFF identity and reject deletion or clearing/changing their system_key. The active-role CHECK does not enforce those operations. Test unused as well as assigned system roles and preserve historical actor attribution. |
+
+Global User disabling and its interaction with the last Admin remain [TEN-Q1](./tenancy.md#10-open-questions); this increment does not resolve that product decision. State-dependent PRIVATE_REMAINDER validation remains assigned to the reuse use case below. These obligations are explicit deferrals for the partial PR, not completed application safeguards.
+
+Email uniqueness currently distinguishes case; normalization and matching must be decided with authentication before that flow is exposed. Additional FK/query indexes and a HOLD-expiry index will be selected with the first repository/worker queries and their access patterns; neither email normalization nor a worker is introduced by this follow-up.
+
 ## T-01: occupancy subset
 
 SlotClaim is the only resource/time occupancy record. This increment has BOOKING and PRIVATE_REMAINDER claims, each owned by a same-tenant Booking. An exclusion constraint protects half-open [start, end) intervals for ACTIVE claims of both kinds. A partial unique index permits at most one ACTIVE BOOKING claim per booking while allowing several non-overlapping private remainder fragments.

@@ -128,6 +128,7 @@ export const roles = pgTable(
       'roles_admin_protected',
       sql`${t.systemKey} IS DISTINCT FROM 'ADMIN' OR ${t.isProtected}`,
     ),
+    check('roles_system_active', sql`${t.systemKey} IS NULL OR ${t.isActive}`),
   ],
 );
 

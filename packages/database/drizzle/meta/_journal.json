@@ -22,6 +22,13 @@
       "when": 1794002876826,
       "tag": "0002_finite-money",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794008659703,
+      "tag": "0003_review-invariants",
+      "breakpoints": true
     }
   ]
 }
