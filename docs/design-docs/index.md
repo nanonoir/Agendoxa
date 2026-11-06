@@ -4,15 +4,16 @@ This catalog distinguishes proposed technical direction from the [observable arc
 
 | Reference | Responsibility | Declared status |
 |---|---|---|
-| [Architecture proposal](./target-architecture.md) | Target component boundaries, dependency direction, transactional safeguards, tenant isolation, integrations, and operational/testing direction | v1.1; updated architecture proposal for team review |
+| [Architecture proposal](./target-architecture.md) | Component boundaries, transactional safeguards, tenant isolation, integrations and operational/testing direction | v1.2; reconciled proposal, team review pending, not implemented |
+| [DOM-01 ERD](./erd.md) | 38 candidate entities, relationships, logical attributes and keys, occupancy/financial invariants, compatibility checks and remaining technical choices | In Review; product-owner reconciliation 2026-11-04, team ratification and implementation pending; included in this versioned documentation change |
 
-The proposal is preserved in this catalog. Its internal “adopted” wording and final summary are not independent evidence of team approval; this harness does not promote them to approved decisions. No separate approved ADRs or historical decision records were found.
+The [2026-11-04 handoff](../../agendoxa_audit_handoff.md) is historical provenance; later product-owner agreements now in [UC-03](../product-specs/uc-03/business-rules.md) supersede incompatible portions. ERD registers separate agreed behavior from pending physical/provider validation. Neither this reconciliation nor independent review is collective approval, an approved schema or implementation.
 
 ## Reading the proposal safely
 
 - Its module trees, infrastructure, and integration diagrams are target designs, not an inventory of implemented code.
 - Its behavioral references resolve through the [product catalog](../product-specs/index.md).
-- Its suggested `docs/adr/` location is part of the preserved proposal, not an existing ADR collection. Use `docs/design-docs/` for new durable technical decisions under this harness; do not establish a parallel active catalog.
+- Use `docs/design-docs/` and this catalog for durable technical decisions; do not establish a parallel active collection.
 - Preserve context, status, rationale, alternatives, and consequences when recording a significant decision. Do not reconstruct a historical rationale from code alone or resolve a pending product decision in a technical document.
 
 Add future design documents here with their scope and explicit proposal/decision status. [ExecPlans](../PLANS.md) track implementation progress and link to the relevant specifications and designs instead of duplicating them.

@@ -1,20 +1,21 @@
 # UC-03 — Business Rules
 
-> **Status:** In Review
+> **Status:** In Review — product-owner reconciliation and follow-up decisions of 2026-11-04 and 2026-11-05; not collective team approval and not implemented. The [handoff](../../../agendoxa_audit_handoff.md) is historical provenance; the later agreements incorporated here supersede its incompatible portions, notably waitlist exclusivity and verified partial-deposit release.
 > **Objective:** Turn the agreed product decisions into verifiable business rules: what must hold and who may do it.
-> **Scope:** Channels, tenants, roles and delegated privileges, customers, catalog, availability, booking lifecycle, cancellation and rescheduling, deposits, charges and payments, cash register, waitlist, AI and human handoff, notifications and audit.
+> **Scope:** Channels, tenants, role-based permissions, customers, catalog, availability, booking lifecycle, cancellation and rescheduling, deposits, charges and payments, cash register, waitlist, AI and human handoff, notifications, audit, personal data and retention.
 > **Out of scope:** Tables, enums, endpoints, DTOs and screens (DOM-01, DOM-02, CON-XX). Where each rule is guaranteed (database, transaction, job) is in [invariants.md](./invariants.md).
-> **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md) (authoritative); [UC-02 use cases](../uc-02/use-cases.md); [MVP definition](../mvp.md) v0.2; [target architecture](../../design-docs/target-architecture.md) v1.1 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)); `rules.md` (30/10/2026, not stored in the repository, partly superseded — see [§17](#17-differences-with-earlier-documents)).
-> **Closing condition:** Team review of this document together with UC-02. No rule here resolves a `P-NN` pending decision on its own; decisions taken in team review are recorded in [§16](#16-pending-decisions) with their source.
+> **References:** [UC-01 actors](../uc-01/actors.md), [UC-01 flows](../uc-01/flows.md), [UC-02 use cases](../uc-02/use-cases.md), [MVP definition](../mvp.md) and [target architecture](../../design-docs/target-architecture.md) are complementary proposals; incompatible earlier text is superseded by the handoff. The implemented system is described in [`ARCHITECTURE.md`](../../../ARCHITECTURE.md); `rules.md` is not stored here (see [§17](#17-differences-with-earlier-documents)).
+> **Closing condition:** Team review of this document together with UC-02; product-owner resolutions and remaining questions are recorded in [§16](#16-pending-decisions).
 
 ## 0. How to Read This Document
 
 - Each rule has an identifier `BR-<AREA>-NN` and an **origin**:
   - `ACT` / `FLW` / `CU-XX`: [actors.md](../uc-01/actors.md), [flows.md](../uc-01/flows.md) or a use case in [use-cases.md](../uc-02/use-cases.md).
-  - `MVP §x` / `ARQ §x`: a section of [`mvp.md`](../mvp.md) v0.2 or of the [target architecture](../../design-docs/target-architecture.md) v1.1. `MVP §6.3.n` is item *n* of the invariant list in `mvp.md` §6.3; `ARQ §13.n` is outcome *n* of the target architecture §13. `ARQ` never refers to `ARCHITECTURE.md`, which describes what is implemented today.
+  - `MVP §x` / `ARQ §x`: a section of [`mvp.md`](../mvp.md) v0.3 or of the [target architecture](../../design-docs/target-architecture.md) v1.2. `MVP §6.3.n` is item *n* of the invariant list in `mvp.md` §6.3; `ARQ §13.n` is outcome *n* of the target architecture §13. `ARQ` never refers to `ARCHITECTURE.md`, which describes what is implemented today.
   - `RG-XX`: a rule from `rules.md` that is still valid. `rules.md` is a team document from 30/10/2026 that is **not stored in the repository**; RG citations are kept only for traceability.
   - **Proposal**: an interpretation needed to make the rule implementable. **It is not an agreed decision** and must be validated in review.
 - Pending decisions are `P-NN` in [§16](#16-pending-decisions). Their numbering is kept from the first draft; resolved ones stay listed with their resolution.
+- **Follow-up** in an origin means the product-owner agreements in the subsequent conversation on 2026-11-04. The [execution record](../../exec-plans/completed/dom-01-follow-up-decisions.md) maps their coverage; this document remains the canonical rule source.
 - State names (`HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `EXPIRED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`) are **conceptual** (MVP §6.1, ARQ §9.1), not persisted enums. Their transitions are in [invariants.md §2](./invariants.md#2-booking-lifecycle).
 
 ### Areas
@@ -37,6 +38,7 @@
 | Human handoff | `HND` | `messaging` |
 | Notifications and consent | `NOT` | `notifications` |
 | Audit | `AUD` | — (cross-cutting) |
+| Personal data and retention | `DAT` | — (cross-cutting) |
 
 ## 1. Channels (`CH`)
 
@@ -48,7 +50,7 @@
 | BR-CH-04 | Authenticated personnel operate through the **mobile-first CRM**, including walk-in bookings. | ACT-03; MVP §7.1 |
 | BR-CH-05 | CRM and WhatsApp invoke **the same tenant-scoped use cases**. A channel may add its own validation before the use case, but never different availability, state or payment rules. | FLW Shared Rules; ARQ §6.4; RG-05 |
 | BR-CH-06 | A WhatsApp/Evolution outage interrupts customer self-service and outgoing messages only; **the CRM and the booking core keep working**. | actors.md §5; MVP §3.5; ARQ §10.2 |
-| BR-CH-07 | The AI handles **text and images** in individual chats. Voice notes and group chats are out of the MVP. | SYS-01; MVP §8.1 |
+| BR-CH-07 | Individual chats support text, images and PDF transfer evidence. PDF/image is requested first; text-only transfer reporting is available only on explicit inability to attach evidence (BR-SEN-12). Voice notes and group chats remain out of scope. | Follow-up; SYS-01 |
 
 ## 2. Tenants and Isolation (`TEN`)
 
@@ -67,11 +69,11 @@
 
 | ID | Rule | Origin |
 |---|---|---|
-| BR-IAM-01 | A personnel user is global and joins one or more tenants through **memberships**; role and privileges belong to the membership. | MVP §6.1; ARQ §8.2 |
-| BR-IAM-02 | Roles: `Staff` and `Admin`. A tenant may have **several Admins**. Customers have no CRM access. | ACT-01, ACT-05; MVP §5.1 |
-| BR-IAM-03 | **Staff** may manage every booking of the tenant (including colleagues'), record completion and no-shows, verify transfers, record payments (including partial and mixed), correct payments while the cash session is open, register cash-in/cash-out with a reason, apply or remove individual customer restrictions, and handle conversations. | ACT-03; actors.md §2; ARQ §6.1 |
-| BR-IAM-04 | **Admin only**: services, prices, resources, deposit rules, commercial policies, receiving aliases, personnel and their privileges, the global AI mode, out-of-policy exceptions, price changes on agreed bookings, refunds and post-close adjustments. | ACT-05; actors.md §2; MVP §6.3.13 |
-| BR-IAM-05 | **Delegated privileges** (Authorized Staff, ACT-04), each granted separately by an Admin: (a) open/close cash sessions; (b) edit operational hours and availability blocks, and book outside regular hours from the CRM (BR-DISP-06). They do **not** include prices or commercial policy. There is no general permission editor. | ACT-04; MVP §5.1; ARQ §6.1 |
+| BR-IAM-01 | A global personnel user joins tenants through memberships; each membership has exactly one tenant-local role. Permissions come only from that role, never direct member grants. | Handoff F-001 |
+| BR-IAM-02 | Tenants may define custom roles; `Staff` is editable. `Admin` has full access, cannot be deleted or reduced, and the last active Admin is protected. Customers have no CRM access. | Handoff F-001 |
+| BR-IAM-03 | Operational permissions, including booking, payment verification, restrictions and conversation handling, are assigned through roles from the system permission catalog; backend authorization checks effective permissions. | Handoff F-001 |
+| BR-IAM-04 | Admin-only, non-delegable operations include role administration, commercial-policy exceptions, post-close adjustments, refunds and changes to agreed prices. | Handoff F-001 |
+| BR-IAM-05 | Cash and availability permissions may be assigned to tenant roles, not individuals; these do not grant commercial-policy exceptions. | Handoff F-001 |
 | BR-IAM-06 | Disabling a member **preserves the historical attribution** of everything they did. | CU-15 |
 | BR-IAM-07 | The AI acts **only in the requester's context**. A human joining the conversation grants the AI no Staff/Admin permission. | SYS-01; actors.md §2 (invariant 6) |
 
@@ -81,17 +83,18 @@
 |---|---|---|
 | BR-CLI-01 | Over WhatsApp, the **requester** is identified by the **sender number within the tenant**. A WhatsApp profile name is not assumed to be the full name. | ACT-01; ARQ §8.2; RG-12 |
 | BR-CLI-02 | The same number in two tenants is **two independent customers**, each with its own history and restrictions. | actors.md §1.1; RG-15 |
-| BR-CLI-03 | A requester may book for **attendees**; an attendee's phone is optional. Being named on a booking grants **no** management rights. | ACT-02; MVP §6.3.8 |
+| BR-CLI-03 | A requester may book for another attendee; only the attendee's name is mandatory, phone is optional and no separate account is required. Being named grants no booking-management rights. | Follow-up P-23 |
 | BR-CLI-04 | A CRM walk-in booking requires the customer's **name**; the phone is **optional**. Without a phone there is no automatic communication with that customer. | CU-02 A7; RG-14 |
 | BR-CLI-05 | Customers are **never merged** because their names match. | CU-12; RG-14 |
-| BR-CLI-06 | The requester's **own no-shows** are tracked separately from **incidents in bookings managed for other attendees**. | CU-10, CU-12; MVP §6.3.11 |
-| BR-CLI-07 | From **two own no-shows**, the CRM shows the internal **"Problematic customer"** label with reason and count. It is **never shown to the customer** and **does not sanction** on its own. | CU-12; MVP §6.3.12 |
-| BR-CLI-08 | Individual restrictions: `NONE` (normal service), `FULL_PREPAYMENT` or `BLOCKED`. **Staff or Admin** apply or remove them with a recorded reason and actor; the general restriction policy belongs to Admin. | CU-12; ARQ §9.4 |
-| BR-CLI-09 | The backend enforces restrictions **in every channel**: `BLOCKED` → no new bookings; `FULL_PREPAYMENT` → no new booking is confirmed without **100% verified**, except by an Admin exception from the CRM (BR-SEN-09 c). The AI applies them without revealing the label. | CU-12; MVP §6.3.12 (CRM booking for a `BLOCKED` customer: P-16; full prepayment in the CRM: BR-SEN-09, P-17) |
-| BR-CLI-10 | A tenant may configure a **limit of simultaneous future bookings** per requester. | actors.md open question 1; RG-17 (values and counting: P-01) |
+| BR-CLI-06 | Every `NO_SHOW` is attributed to `Booking.customer_id`, including bookings for another attendee. Current booking outcome is the sole count source; `CustomerIncident` records other incidents, not no-shows. | Handoff F-017 |
+| BR-CLI-07 | From **two no-shows**, the CRM shows an internal indicator and count; it does not itself sanction the customer. | Handoff F-017 |
+| BR-CLI-08 | Individual restrictions: `NONE`, `FULL_PREPAYMENT` or `BLOCKED`; authorized roles apply or remove them with actor and reason. | Handoff F-001, F-017 |
+| BR-CLI-09 | `BLOCKED` prevents new WhatsApp bookings. Any CRM actor with booking-creation permission may create an exceptional booking after a clear internal warning; record the actor and exception, without lifting the restriction or requiring an additional exception permission. Other policies, required payments and availability still apply. `FULL_PREPAYMENT` requires 100% verified and explicitly manually allocated unless Admin authorizes its existing exception. | Follow-up P-16; F-004, F-010 |
+| BR-CLI-10 | The future-booking limit is tenant-configurable and disabled by default. If enabled, count future occupying bookings of that requester in that tenant: HOLD, confirmed, pending review/correction and partial-deposit waiting bookings, including third-party bookings. Exclude cancelled, expired, completed and no-show bookings. Enforce the count atomically on creation/claim; a reschedule must not count its same booking twice. | Follow-up P-01 |
 | BR-CLI-11 | The requester's name is captured when needed, **reused** in later conversations and may be updated. | MVP §5.1 |
+| BR-CLI-12 | The CRM shows a **late-changes** count separate from no-shows, with its history and split into late cancellations and late reschedules. It increases once when a customer-requested change is confirmed and executed after the applicable notice window (BR-CAN-14), not for inquiries, declined confirmations, technical repeats or business-caused changes. It is attributed to the requester within the tenant, is never a `NO_SHOW`, is not added to the no-show count and applies no automatic sanction. | Follow-up P-01 |
 
-**Proposal:** the no-show count is **derived** from the requester's own `NO_SHOW` bookings instead of being stored as an accumulator, so a correction (BR-RES-12) updates it with no extra step. To validate in DOM-01.
+Corrections recalculate the count from current bookings; booking events retain the history.
 
 ## 5. Catalog (`CAT`)
 
@@ -102,20 +105,21 @@
 | BR-CAT-03 | A service is booked only with a resource **compatible** with it. | ARQ §6.1 |
 | BR-CAT-04 | Each booking has **one service and one resource**. There is no atomic multi-resource booking; a court and a barbecue area are separate bookings, and the barbecue area may be free. | actors.md §4; MVP §7.3 |
 | BR-CAT-05 | An inactive service or resource is not offered for new bookings; existing bookings are not changed automatically. | Proposal |
-| BR-CAT-06 | Only an **Admin** creates or modifies services, resources and prices. | BR-IAM-04 |
+| BR-CAT-06 | Catalog operations require the corresponding role permission; changing a price already agreed is Admin-only. | BR-IAM-03, BR-IAM-04 |
 
 ## 6. Availability (`DISP`)
 
 | ID | Rule | Origin |
 |---|---|---|
-| BR-DISP-01 | Each resource has **recurring hours** per weekday in the tenant's timezone. | MVP §5.1 |
-| BR-DISP-02 | Admins, and Staff with the availability privilege, register **blocks** (absences, maintenance) and one-off exceptions. | BR-IAM-05; RG-19 |
-| BR-DISP-03 | A slot is offered only if it is within the resource's hours, outside blocks, compatible with the service, and **not overlapping** any occupying booking or active exclusive offer ([invariants.md §3](./invariants.md#3-availability-and-concurrency)). | MVP §6.3.2; ARQ §9.1 (which states occupy: P-06; how offers occupy: P-18) |
+| BR-DISP-01 | Resource recurring hours inherit tenant hours when not defined; calendar rules use the tenant timezone. | Handoff F-011 |
+| BR-DISP-02 | Roles with availability permission register blocks and authorized extraordinary openings; removing or changing a block requires explicit permitted action. | Handoff F-001, F-011 |
+| BR-DISP-03 | A slot must be within effective regular hours or an authorized extraordinary opening, outside blocks, compatible and free of occupying claims ([invariants.md §3](./invariants.md#3-availability-and-concurrency)). | Handoff F-011 |
 | BR-DISP-04 | An availability query **never reserves** a slot; the final check runs inside the booking transaction. | FLW Shared Rules; ARQ §9.1 |
-| BR-DISP-05 | Over WhatsApp the customer may ask for a specific resource or "any compatible one". | ACT-01; CU-01 (assignment criterion: P-03) |
-| BR-DISP-06 | From the CRM, **Admins, and Staff with the availability privilege,** may book **outside regular hours** if the resource is free; they can never create an overlap, and the booking records who authorized it. Other Staff book only within regular hours. | ACT-04; CU-02 A9; MVP §5.1; RG-18 (blocks: P-04) |
-| BR-DISP-07 | The AI offers only slots **within regular hours**; the exception in BR-DISP-06 is CRM-only. | Proposal, derived from RG-18 |
+| BR-DISP-05 | A customer may select a resource or any compatible one. For the latter, the tenant selects preference-order assignment or rotation among available compatible resources. Recheck selection and occupancy atomically; a query never advances into an actual reservation by itself. Exact concurrent rotation implementation remains technical design. | Follow-up P-03 |
+| BR-DISP-06 | An authorized extraordinary opening can extend regular hours, but cannot override blocks or active claims; its authorization is recorded. | Handoff F-011 |
+| BR-DISP-07 | Authorized extraordinary openings are available through CRM and WhatsApp alike. | Handoff F-011 |
 | BR-DISP-08 | A change of hours or blocks **preserves confirmed bookings**; the detailed policy for conflicts is deferred. | CU-15 A3 |
+| BR-DISP-09 | Booking lead time is configurable per tenant, default 0 minutes; never create a reservation for a slot whose start has passed. This is distinct from cancellation/reschedule notice periods, which default to 10 hours (BR-CAN-01). | Follow-up |
 
 ## 7. Booking Lifecycle (`RES`)
 
@@ -127,55 +131,61 @@
 | BR-RES-04 | **Without a deposit**, `HOLD` → `CONFIRMED` only with **explicit customer confirmation** before the HOLD expires. No human approval is needed. | MVP §6.3.4 |
 | BR-RES-05 | **With a deposit**, the price, deposit amount, receiving alias and holder, and the cancellation policy are shown **before** the transfer. | MVP §6.3.5; ARQ §9.3 |
 | BR-RES-06 | A receipt received **within the HOLD** moves the booking to `PENDING_PAYMENT_REVIEW`. The slot stays blocked **with no automatic review timeout**, and the booking is visible in the CRM review queue. | MVP §6.3.5, §9.2 (accepted risk) |
-| BR-RES-07 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` only when Staff/Admin **verify the actual credit**. A rejection releases the slot and the customer is notified. | MVP §6.3.6; ARQ §9.3 (rejected state: P-21) |
-| BR-RES-08 | A HOLD with no confirmation (no deposit) or no receipt (deposit) by its deadline becomes `EXPIRED`; the slot is released and the waitlist is considered. | MVP §6.3.6 |
-| BR-RES-09 | From the CRM, Staff/Admin may create a booking **directly in `CONFIRMED`**, without a conversational HOLD, using the same occupancy check. When a deposit applies, BR-SEN-09 decides the resulting state. | MVP §5.2; ARQ §6.4; CU-03 (CRM flow) |
-| BR-RES-10 | `CONFIRMED` → `COMPLETED` is recorded by Staff/Admin. **Completing does not mean paid**: a booking may be completed with a balance due. | CU-10; MVP §6.3.11 |
-| BR-RES-11 | `CONFIRMED` → `NO_SHOW` is recorded by Staff/Admin, identifying **who was absent** when the attendee differs from the requester. | CU-10; MVP §6.3.11 (attribution: P-23) |
-| BR-RES-12 | A recorded no-show may be corrected (`NO_SHOW` → `COMPLETED`) by Staff/Admin, **with audit** of who, when and the previous state. | actors.md §2; RG-37 (reverse correction: P-05) |
+| BR-RES-07 | Actual credit must be verified by authorized personnel. Initial-deposit rejection follows BR-SEN-10; a pending human review has no automatic decision timeout. | Handoff F-005, F-018 |
+| BR-RES-08 | An unconfirmed HOLD without timely evidence or a verified partial deposit expires at deadline and may wake the waitlist. A worker must first recheck current state/funds; a verified partial deposit invokes BR-SEN-11, not release. | Follow-up; MVP §6.3.6 |
+| BR-RES-09 | Authorized CRM personnel may create a booking directly in `CONFIRMED` without a conversational HOLD, using the same occupancy check; BR-SEN-09 applies to deposits. | MVP §5.2; Handoff F-001 |
+| BR-RES-10 | Authorized personnel may manually record `COMPLETED` from the booking start instant, never earlier; completion does not mean paid. | Follow-up P-06 |
+| BR-RES-11 | Authorized personnel may manually record `NO_SHOW` from start + 15 minutes, never earlier; the requester bears the count even for another attendee. No automatic no-show. | Follow-up P-06; F-017 |
+| BR-RES-12 | Personnel with outcome-correction permission may correct `NO_SHOW` ↔ `COMPLETED`, respecting the destination outcome's timing guard, with mandatory reason, actor, time and prior/new state history. Recalculate the requester count; do not automatically alter payments, refund money or displace a reused walk-in. | Follow-up P-05 |
 | BR-RES-13 | **No automatic close**: when its time ends, a `CONFIRMED` booking stays *pending operational close* until personnel record what happened. Time passing never completes it, marks a no-show or proves payment. | FLW Shared Rules; RG-34 |
 | BR-RES-14 | CRM quick actions: complete, complete and collect (amount prefilled), complete with balance due, record no-show. | CU-10; RG-35 |
 | BR-RES-15 | The booking's origin (`WHATSAPP`, `CRM`) is recorded. There is no `LANDING` origin. | BR-CH-02 |
 | BR-RES-16 | An `EXPIRED` HOLD or a valid cancellation **never** counts as a no-show. | CU-10 A4; RG-36 |
+| BR-RES-17 | Early completion or no-show keeps the remaining time private, not offered automatically. A role permitted to book may atomically adjust the former occupancy and create a CRM walk-in, preserving history and preventing overlap; later no-show correction never displaces that walk-in. No automatic charge recalculation or refund follows early completion. | Handoff F-007, F-017 |
 
 **Proposals to validate:**
 
 - *Pending operational close* (BR-RES-13) is a **derived condition** (`CONFIRMED` and end < now), not another state.
-- A rejected receipt ends the booking in `CANCELLED` with reason `PAYMENT_REJECTED`, not in a new state (P-21). Every `CANCELLED` booking carries a reason: `CUSTOMER`, `BUSINESS`, `PAYMENT_REJECTED`.
-- `COMPLETED` and `NO_SHOW` are recorded only **after the start** of the booking (P-06).
+- Outcome timing and corrections are agreed in BR-RES-10–12, not pending proposals.
 
 ## 8. Cancellation and Rescheduling (`CAN`)
 
 | ID | Rule | Origin |
 |---|---|---|
-| BR-CAN-01 | Each tenant configures a **minimum notice** for cancelling and rescheduling, with service/resource overrides. | MVP §6.3.9 (values: P-01) |
+| BR-CAN-01 | Each tenant configures a **minimum notice** for cancelling and rescheduling, **10 hours before start by default**, with service/resource overrides. It defines when a change is free of late consequences, not an absolute prohibition (BR-CAN-14). | MVP §6.3.9; follow-up P-01 |
 | BR-CAN-02 | Over WhatsApp, the customer cancels or reschedules only bookings **managed by their sender number** in that tenant; any other number needs business intervention. | MVP §6.3.8; RG-13 |
-| BR-CAN-03 | Outside the notice window the AI **declines** and explains the policy. **Only an Admin** may authorize an out-of-policy change, with an auditable reason. | MVP §6.3.9; actors.md §2 |
-| BR-CAN-04 | Before a **voluntary cancellation with a verified deposit**, the customer is warned that the deposit is forfeited, and rescheduling is offered when possible. | MVP §6.3.9; RG-25 |
+| BR-CAN-03 | Outside the notice window the customer may still proceed by accepting the configured consequences (BR-CAN-14), without Admin intervention. **Only an Admin** may authorize an exception to those consequences, with an auditable reason. | Follow-up P-01; supersedes MVP §6.3.9 refusal |
+| BR-CAN-04 | Explain applicable cancellation conditions, including the tenant's deposit policy (BR-SEN-13), and request explicit confirmation to cancel and release the slot; nothing is forfeited or refunded automatically. An authorized confirmed cancellation releases immediately, including during review or partial-deposit collection. Financial verification/resolution continues separately: verified funds may be manually applied to another booking or resolved by personnel, including an Admin-managed refund. Neither review nor refund completion may freeze a cancelled slot. | Follow-up P-24, P-26 |
 | BR-CAN-05 | Every customer cancellation or reschedule needs **explicit confirmation**. | CU-08, CU-09 |
-| BR-CAN-06 | A **business-caused cancellation** does not forfeit the deposit automatically; any refund is handled manually and recorded by an Admin. | CU-08 A6; MVP §6.3.9 |
+| BR-CAN-06 | Personnel with cancellation permission may cancel for an operational business cause, including near the appointment, recording reason, releasing occupancy, notifying the customer and offering another date. This is not authority to grant customer commercial-policy exceptions. Review and any Admin-managed refund remain separate; no automatic forfeiture or refund. | Follow-up P-07 |
 | BR-CAN-07 | The reschedule limit is configurable and **unlimited by default**. | CU-09 |
 | BR-CAN-08 | A reschedule checks the new slot **without releasing the current one**; if anything fails, **the original booking stays intact**. | MVP §6.3.10; ARQ §9.1 |
 | BR-CAN-09 | Verified payments are **preserved**; the new price and the balance are recalculated under the new conditions. | CU-09; MVP §6.3.10 |
-| BR-CAN-10 | If the new conditions require **more deposit**, the difference must be **human-verified** before the change is applied. | MVP §6.3.10; ARQ §9.3 |
-| BR-CAN-11 | If they require **less**, nothing is refunded automatically: verified funds reduce the remaining balance. An overpayment is resolved manually. | MVP §6.3.10 |
+| BR-CAN-10 | For a permitted reschedule of a `CONFIRMED` booking whose verified deposit does not cover the destination's requirement, atomically move to the free target and release the old slot; retain verified funds and allocations, then request and verify any additional deposit. It remains `CONFIRMED` if unpaid, for manual handling, without automatic rollback or cancellation. `FULL_PREPAYMENT` and Admin-only exceptions still apply. A change awaiting prior human authorization does not occupy the target. A late reschedule whose deposit is lost under tenant policy follows BR-CAN-14. This is not the partial-deposit waiting of BR-SEN-11: a reschedule never confirms a booking that is still unconfirmed. | Handoff F-006, F-010 |
+| BR-CAN-11 | If they require **less**, nothing is refunded automatically: retained valid allocations reduce the remaining balance; unallocated verified funds require explicit manual allocation. An overpayment is resolved manually. | MVP §6.3.10; Handoff F-004 |
 | BR-CAN-12 | A successful reschedule moves the booking and releases the old slot **in one atomic change**; reminders are rescheduled and the waitlist is considered for the old slot. | ARQ §9.1 |
+| BR-CAN-13 | On a change of professional, preserve the customer's verified deposit credit and actual receiving-account history; collect only the remaining amount under the booking's collection modality. Internal compensation is manual and must not block an otherwise permitted move or require the customer to pay the credited amount twice. No automatic bank transfer, refund or commission calculation. | Follow-up |
+| BR-CAN-14 | A customer may cancel or reschedule after the notice window. Before confirming, the AI states that the change is late and its consequence under the tenant's policy, for example: “Estás dentro de las 10 horas previas al turno. Podés cancelar o reprogramar, pero según la política del negocio perderías la seña de esta reserva. ¿Querés continuar?”, adapting hours and consequence to the configuration. Explicit acceptance needs no Admin. The executed change records a late change (BR-CLI-12), never a `NO_SHOW`. Any money consequence is managed manually by personnel. If the deposit is lost under tenant policy, personnel resolve whether another deposit applies; the system neither requires it automatically nor cancels the moved booking, and the AI only communicates the policy and the next steps. | Follow-up P-01, P-28 |
 
-**Proposal:** a reschedule modifies **the same booking** and keeps the history of previous slots (P-15).
+Rescheduling preserves the booking and records the request, slot history and financial consequence in `BookingChangeRequest` and `BookingEvent` (F-006).
 
 ## 9. Deposits (`SEN`)
 
 | ID | Rule | Origin |
 |---|---|---|
 | BR-SEN-01 | A deposit is **optional** per tenant. | MVP §9.1 |
-| BR-SEN-02 | The tenant defines a **default rule** and may override or disable it per **service** or **resource**. | MVP §9.1; RG-26 (precedence: P-08) |
+| BR-SEN-02 | Policy fields distinguish inherit, set and disable; precedence is resource > service > tenant. No default values are implied. | Handoff F-010 |
 | BR-SEN-03 | A deposit is a **fixed amount** or a **percentage** of the price. | MVP §9.1; RG-27 |
 | BR-SEN-04 | The `FULL_PREPAYMENT` restriction replaces the deposit rule: **100%** is required. | BR-CLI-09 |
 | BR-SEN-05 | The required amount is **computed by the backend**; neither the AI nor the frontend decides it. | ARQ §7 |
-| BR-SEN-06 | In the MVP, deposits are paid by **bank/wallet transfer** to a configured alias. A tenant may have several aliases with **one default**; there is no automatic rotation. Aliases are Admin-only. | MVP §9.1; ARQ §9.3 |
-| BR-SEN-07 | **Only human verification of the actual credit** settles a deposit. A screenshot, OCR result or AI interpretation never does, and there is no bank API. | MVP §3.8, §9.1 |
+| BR-SEN-06 | Resolve the receiving account by the booking's collection modality (BR-COB-19). Business collection uses its default account or optional sequential rotation through active business accounts in configured order (A → B → C → A), selecting when instructions are issued, not on verification. Persist the instruction/account before showing it; retries reuse it rather than rotate again. Later account/configuration changes never rewrite issued instructions or received payments. | Follow-up; F-002 |
+| BR-SEN-07 | Deposit funds require **human verification of actual credit** and explicit manual allocation to the booking's charge to satisfy its required threshold. Verification alone does not reduce a charge balance. A screenshot, OCR result or AI interpretation never proves credit, and there is no bank API. | MVP §3.8, §9.1; Handoff F-004 |
 | BR-SEN-08 | Mercado Pago and other payment gateways are **not integrated** in the MVP. | EXT-05; MVP §5.3 |
-| BR-SEN-09 | From the CRM, a booking that requires a deposit is created **without a HOLD**: (a) cash received, or a transfer whose credit the employee verified → `CONFIRMED`; (b) a transfer receipt not yet verified → `PENDING_PAYMENT_REVIEW`, blocking the slot until human review (BR-RES-06, BR-RES-07); (c) no payment and no receipt → not confirmed and occupying nothing, unless an **Admin** authorizes the exception. The exception records that no deposit was paid and the outstanding balance, so the full charge remains due; a reason is optional. The exception also applies to a `FULL_PREPAYMENT` customer (P-17). | ACT Confirmed Decisions; CU-03 (CRM flow); P-17 |
+| BR-SEN-09 | CRM bookings have no conversational HOLD: verified funds manually allocated to meet the required threshold confirm; unverified evidence occupies under review; a verified but insufficient deposit occupies under BR-SEN-11 without confirmation. With neither funds nor evidence the slot stays free unless Admin confirms the existing no-deposit exception, recording unpaid deposit and full balance (reason optional). The existing FULL_PREPAYMENT exception remains Admin-only. | Follow-up; P-17, P-20 |
+| BR-SEN-10 | With no verified partial deposit, first rejection of initial evidence retains occupancy for a 15-minute correction window; timely distinct evidence opens a new pending review and suspends timeout. A second distinct human rejection or correction-window expiry cancels before start, subject to atomic current-state/review/funds checks; technical duplicates do not count. Started appointments, supplemental reschedule collection and BR-SEN-11 verified partial deposits never auto-cancel through this mechanism. Notify customer/staff of a permitted second-rejection cancellation. | F-018, superseded in part by follow-up P-27 |
+| BR-SEN-11 | The initial deposit may be completed through multiple payments. Any verified partial deposit associated with the booking retains occupancy without automatic release for a missing remainder, rejected subsequent evidence or elapsed time. Until the required threshold is verified and manually allocated, the booking stays unconfirmed in an occupying partial-deposit waiting condition, distinct from an actually pending review. Show missing amount and contact action in CRM. Authorized personnel may cancel/release manually subject to applicable permissions/policy; explicit authorized customer cancellation also releases under BR-CAN-04. Preserve received money/history and resolve manually; no automatic forfeiture/refund. | Follow-up P-27 |
+| BR-SEN-12 | Ask first for PDF/image transfer evidence. Only when the customer explicitly says they cannot provide it, accept transfer details by text within the same evidence deadline; create a human PaymentReview, not verified money. Never demand a new image after that explicit fallback or reset the HOLD by retrying. Securely retain any file in StoredAsset; no AI/image/PDF/text proves bank credit. | Follow-up P-27 |
+| BR-SEN-13 | Each tenant configures its deposit policy: **no money back**, with rescheduling or a change of service as the alternatives, or **refund possible**. The AI only communicates the configured policy; authorized personnel always manage the money manually, refunds keep their Admin boundary (BR-COB-18) and nothing is forfeited or returned automatically. Configuration cannot replace applicable legal duties (P-07). | Follow-up P-07, P-26 |
 
 ## 10. Charges, Balances and Payments (`COB`)
 
@@ -184,21 +194,26 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 | ID | Rule | Origin |
 |---|---|---|
 | BR-COB-01 | In the MVP only charges **linked to bookings** of services or rentals are recorded. No products, bar or shop. | MVP §5.1; RG-29, RG-47 |
-| BR-COB-02 | Every payment identifies its **origin**; in the MVP it is always a booking of the same tenant. The design leaves room for a future POS sale origin without duplicating payments or cash. | RG-50; MVP §14 |
-| BR-COB-03 | A booking accepts **several payments** (deposit, partial payments, mixed methods). **Balance = charge − verified payments**; the deposit is never counted twice. | CU-11; MVP §9.1 |
-| BR-COB-04 | Methods: `CASH` and `TRANSFER` (bank/wallet). The **method** is recorded separately from the **verification status** (`PENDING_REVIEW`, `VERIFIED`, `REJECTED`). | MVP §9.1; RG-30 (status labels: Proposal) |
-| BR-COB-05 | A transfer is verified when Staff/Admin **check that the money arrived**; amount, verifier and time are recorded. | ACT-03; RG-31 |
+| BR-COB-02 | A `Payment` represents verified money belonging to a known commercial operation of the tenant; personal or wholly unknown transfers are not payments. A verified commercial payment may have zero allocations, including after booking expiry; retain origin, method, verification, dates and reason. | Handoff F-003 |
+| BR-COB-03 | Explicit `PaymentAllocation`s distribute verified funds across charges, including partial and cross-booking allocations. Charge balance is max(0, net amount due minus valid allocations); available funds are net verified, unrefunded funds minus valid allocations. No automatic allocation or negative debt. | Handoff F-004 |
+| BR-COB-04 | `PaymentReview` is human evidence evaluation (pending, approved, rejected); `Payment` is verified commercial money, with cash or transfer method. Direct CRM verification needs no review; an approved review and a payment have at most one counterpart each. Rejected evidence creates no payment. | Handoff F-005 |
+| BR-COB-05 | Authorized personnel verify a transfer by checking actual credit; amount, verifier and time are recorded. | Handoff F-001, F-005 |
 | BR-COB-06 | A cash payment is recorded by the employee who **physically receives** it, and is verified when recorded. | CU-11 step 3 |
-| BR-COB-07 | The AI may interpret a receipt and attach it to the booking as a transfer **pending review**. **The AI never verifies a payment.** | SYS-01; RG-32 |
+| BR-COB-07 | The AI may attach evidence for a pending `PaymentReview`; it never verifies money or creates a verified payment. | Handoff F-005 |
 | BR-COB-08 | The CRM may record cash, or a bank-verified transfer, **without an attached image**. | MVP §9.1 |
-| BR-COB-09 | Time passing **never** turns a pending payment into a verified one, nor a completed booking into a paid one. | FLW Shared Rules; RG-33 |
+| BR-COB-09 | Time passing **never** approves a pending `PaymentReview`, creates a verified `Payment`, or turns a completed booking into a paid one. | FLW Shared Rules; RG-33; Handoff F-005 |
 | BR-COB-10 | Every payment keeps its responsible employee, amount, method and timestamp. | RG-43 |
-| BR-COB-11 | While its cash session is **open**, Staff/Admin may correct a payment with audit; nothing is deleted silently. **After the close**, only an Admin records a new audited adjustment. | actors.md §2 (invariant 3) |
+| BR-COB-11 | Original payments are immutable and never deleted; corrections append linked history. For physical-cash corrections, authorized personnel act while the associated cash session is open; after close only an Admin records a separate audited `CashAdjustment`, leaving the close unchanged. Transfers need no cash session. The technical ledger-correction mechanism for transfers and other non-cash-session corrections remains pending; `CashAdjustment` is not a general financial log and `AuditEvent` does not replace a financial ledger. Refunds use separate `Refund` operations, never negative payments. | Handoff F-001, F-012, F-013 |
 | BR-COB-12 | A transfer that arrives after the slot was released, or cannot be matched, is a **financial incident** for human handling. It never reconfirms a booking automatically. | MVP §6.3.6; ARQ §9.3 |
 | BR-COB-13 | Changing an agreed price is **Admin-only**, with a reason, and needs **customer acceptance** when the price increases. | CU-11 A5; CU-15 A2 |
 | BR-COB-14 | Refunds are **manual**, recorded by an Admin; there are no automated bank refunds. | CU-11 A6; MVP §5.3 |
 | BR-COB-15 | Overpayments are resolved manually, with traceability. | MVP §9.1 |
 | BR-COB-16 | A **retry of the same payment operation** (repeated request, repeated verification, duplicated message) never records the payment twice. Two **separate manual entries** that may be the same money cannot be told apart automatically: both are kept and flagged for human review, and corrected through BR-COB-11. | MVP §6.3.14; ARQ §9.3; CU-11 A9 (flagging: Proposal) |
+| BR-COB-17 | Allocations are atomic and idempotent, capped by both available funds and charge balance; excess remains unallocated for manual application or Admin-authorized refund. Corrections preserve history and account for refunds without double counting. | Handoff F-004 |
+| BR-COB-18 | `Refund` is a separate operation linked to the original immutable `Payment`, with amount, method, reason, Admin authorization, execution status, dates and source/destination trace. Only execution reduces retained funds; prevent excess across pending refunds and allocations. Correct allocations historically. Cash refunds create an outgoing cash movement in an open session; transfers are bank outflows, not cash movements. | Handoff F-013 |
+| BR-COB-19 | Each tenant configures one collection modality: **all to professional** (default), **deposit to business / remainder to professional**, or **all to business**. A professional Resource may have a receiving account without being a CRM user. Missing professional account falls back to a business account using its default/rotation, never another professional's account. If no business fallback exists, involve personnel rather than invent an account or waive a required deposit. These are transfer-routing choices, not extra physical cash registers. | Follow-up |
+| BR-COB-20 | Preserve the collection modality with booking conditions and each stage's actual receiver/account instruction. Identify the payee clearly; verified deposit allocations reduce the total once, never an additional fee for split collection. Configuration changes are not retroactive. Distributions/compensations between business and professionals are manual; no automated payouts, commissions or internal bank transfers. | Follow-up |
+| BR-COB-21 | Recording mistakes (e.g. $10,000 entered instead of $1,000 received) require correction permission, mandatory reason, actor/time and linked immutable original/correction history. Recompute valid funds, allocations and debt without inventing a refund or physical movement for money never received, and without automatically cancelling the booking. Closed physical-cash corrections remain Admin-only; ledger representation remains technical work. | Follow-up; BR-COB-11 |
 
 **Proposal:** the **charge** is fixed when the booking is created, from the price in force (snapshot), and does not change if the Admin later edits the service price. It changes only through BR-COB-13 or a reschedule (BR-CAN-09).
 
@@ -207,34 +222,41 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 | ID | Rule | Origin |
 |---|---|---|
 | BR-CAJA-01 | Each tenant has **one shared logical register**; several employees record payments in it. | MVP §9.2; RG-40 |
-| BR-CAJA-02 | Admins, and Staff with the cash privilege, **open and close** sessions. | BR-IAM-05 |
-| BR-CAJA-03 | Opening is **manual** (declared opening cash) or **automatic** (carries the physical cash declared at the previous close), according to the tenant setting. | MVP §9.2; ARQ §9.4 |
+| BR-CAJA-02 | Roles with the cash permission open and close sessions. | Handoff F-001 |
+| BR-CAJA-03 | Cash requires an open session: configured automatic opening occurs on the first cash payment; otherwise an authorized person opens it first. Opening cash is explicit and auditable, declared on first opening and reconciled to the prior close thereafter. | Handoff F-012 |
 | BR-CAJA-04 | **Closing is always manual** and records who closed, when, the period, expected cash, counted cash, difference and totals. | MVP §9.2; RG-42 |
-| BR-CAJA-05 | Staff/Admin register **cash-in and cash-out movements** with a reason and responsible person. No product sales. | ACT-03; MVP §9.2 |
+| BR-CAJA-05 | Personnel with the corresponding role permission register cash-in and cash-out with reason and responsible person. No product sales. | Handoff F-001 |
 | BR-CAJA-06 | A session may close **with a difference** between expected and counted cash, as long as the difference and the responsible person are recorded. | RG-44 |
 | BR-CAJA-07 | Transfers are shown **separately** and are never added to physical cash. | MVP §9.2; RG-45 |
 | BR-CAJA-08 | Unpaid bookings **do not block** the close, and money not received is never counted. | CU-13 A2; MVP §9.2 |
 | BR-CAJA-09 | Closed sessions are **immutable**; only an Admin adds a separate audited adjustment afterwards. | MVP §9.2; RG-46 |
 | BR-CAJA-10 | The register covers **only booking income** recorded in Agendoxa, not the business's total revenue. | MVP §5.1; RG-47 |
+| BR-CAJA-11 | Crossing midnight does not close or replace an open cash session, nor block new collections. It remains open until manual close; preserve actual movement instants and show the session opening time in CRM. Reporting date cutoffs are distinct from session lifetime. | Follow-up P-10 |
 
-**Proposal:** expected cash = opening cash + verified cash payments of the session + cash-in − cash-out.
+Expected cash is opening cash plus signed physical movements. A cash payment and its linked movement represent the same money and must not be summed twice. Cash payment versus close is serialized; verified transfers need no physical session and never alter a closed one (F-012, F-014).
 
 ## 12. Waitlist and Exclusive Offers (`WL`)
 
 | ID | Rule | Origin |
 |---|---|---|
 | BR-WL-01 | The waitlist is **voluntary**. Available alternatives are offered first, unless the customer says the time is non-negotiable. | MVP §6.3.7 |
-| BR-WL-02 | Joining needs an **explicit opt-in**; the requested conditions and a **waitlist-specific consent** are recorded under the requester and tenant, with arrival time. | CU-05; MVP §8.3 |
+| BR-WL-02 | Joining requires the customer's explicit request for those conditions and current waitlist-notice consent, independent of reminder consent. Reuse the recorded four-option preference (BR-NOT-09); do not ask the same consent question on each entry. Record entry conditions, arrival time and applicable consent provenance, rechecking current customer preference before sending. | Follow-up; F-020 |
 | BR-WL-03 | A waitlist entry **does not reserve or guarantee** a slot. | CU-05; ARQ §9.2 |
 | BR-WL-04 | A requester has at most one entry for the same conditions; a repeated request keeps the original arrival order. | FLW CU-05; CU-05 A3 (arrival order: Proposal) |
-| BR-WL-05 | An offer starts only when a compatible slot is **actually released**: cancellation, reschedule, expired HOLD, rejected receipt or lifted block. | CU-06 |
-| BR-WL-06 | The next eligible entry **in arrival order** receives an **exclusive 5-minute offer**, with its expiry time stated. | MVP §6.3.7; ARQ §9.2 |
-| BR-WL-07 | There is **at most one exclusive offer** per released slot at a time; an offer never displaces a confirmed booking. | MVP §6.3.7 |
-| BR-WL-08 | Acceptance within 5 minutes creates a standard **HOLD of up to 10 minutes**; it is not a confirmation. Offers are never renewed automatically. | MVP §6.3.7 |
-| BR-WL-09 | A declined, unanswered or expired offer moves to the next eligible entry or back to general availability. | CU-06 A1 |
-| BR-WL-10 | A failed notice **never blocks the slot indefinitely**. | CU-06 A3; ARQ §9.2 (retries: P-19) |
+| BR-WL-05 | An offer starts only when a compatible slot is actually released; early completion or no-show does not release residual time to automatic offers. | Handoff F-007 |
+| BR-WL-06 | For a released slot with **1–4 eligible people**, notify the first in arrival order with five minutes of exclusive priority. If unclaimed, invite the next every five minutes; previously notified people may still claim. Later invitees have no exclusive five-minute window. With **5 or more eligible people**, notify all simultaneously without exclusive priority. Eligibility is specific to the released slot, tenant and preferences. | Follow-up P-19; replaces incompatible earlier exclusive-per-person chain |
+| BR-WL-07 | At most one active exclusive-priority claim exists per released slot; only the first small-cohort priority window creates it. Later progressive or simultaneous notices are nonexclusive invitations and create no occupancy claims. They never displace a booking, HOLD or another protected claim; after priority ends, remaining invitations do not freeze public availability. | Follow-up |
+| BR-WL-08 | A permitted claim atomically rechecks eligibility, current slot/start and occupancy, closes any first-priority offer claim and creates exactly one distinct booking-owned ten-minute HOLD claim, linking the winning invitation to at most one booking. Concurrent replies produce one winner, not multiple HOLDs; claims never change owners. Only the successful HOLD winner receives payment instructions. An invitation itself never asks for a transfer or guarantees a booking. | Follow-up; retains F-008 distinct-claim invariant |
+| BR-WL-09 | End of five-minute priority is not loss of invitation eligibility. Previously notified customers may claim later while the opportunity remains valid and no protected claim/booking has taken it. If unavailable, explain that priority ended and someone else took it, and offer another slot or continued waiting; never displace the winner. Late acceptance cannot recover an expired booking or bypass a newer HOLD. | Follow-up |
+| BR-WL-10 | On a confirmed send failure, retry that same notice once while still valid. If the retry fails, advance to the next eligible person without deleting the failed recipient's entry. No renewal of priority or extra offer is created by retry. Unknown outcomes follow BR-NOT-10, not blind retransmission; no communication failure extends priority or freezes a slot. | Follow-up P-19 |
+| BR-WL-11 | An optional resource preference restricts eligibility to that same-tenant compatible resource; without one, any compatible resource is eligible. Respect time preferences; arrival order controls progressive invitation, not first-claim winner once competition is open. | F-009; follow-up |
+| BR-WL-12 | An entry expires when no future slot remains in its requested date/time range. Keep unanswered/failed-send entries for later opportunities while in range; close the fulfilled entry on successful booking or when the customer asks to leave. Do not add an arbitrary fixed-day expiry or the rejected three-offer cap. Never continue inviting for a slot whose start has passed. Exact round/progression persistence remains technical design. | Follow-up P-19 |
+| BR-WL-13 | First-person notice states the five-minute exclusive priority and subsequent competition. Later-person notice says others were already notified and first successful claim wins. A simultaneous notice makes the same competition clear. Every invitation says not to transfer until HOLD acquisition is confirmed and payment instructions are given. | Follow-up |
+| BR-WL-14 | In the MVP a waitlist queue holds at most **10 people**, a fixed value. A queue is per service or resource and requested range, not one list for the whole tenant. Tenant configuration is deferred to later versions. When a queue is full, the next person is told so and offered other times, with no reserve list. | Follow-up P-19, P-29 |
+| BR-WL-15 | One release round corresponds to one released slot. Its mode (BR-WL-06) is fixed at the start from the people then eligible and does not change if the queue grows or shrinks. Someone enrolling during a round joins last: progressive rounds invite them in turn, simultaneous rounds notify them at once if the slot is still free. If the priority holder declines or leaves the queue, priority ends and the next person is invited without waiting out the five minutes. Anyone else leaving gets no further invitations and can no longer claim. If the winner's HOLD expires, a new round starts with the current queue, excluding that person from that round, though they may still book the slot normally if it stays free. If everyone was invited and nobody claimed, the slot stays in general availability and invited people may claim while it is free. The round ends when the slot starts. | Follow-up P-19 |
+| BR-WL-16 | A `BLOCKED` customer cannot win an invitation, because BR-CLI-09 prevents the WhatsApp booking. So a `BLOCKED` customer is not enrolled: the AI replies as it does when they cannot book, without revealing the label. An entry whose requester becomes `BLOCKED` keeps its place and counts toward the queue limit, but is not eligible or invited while the restriction lasts. Removing the restriction makes it eligible again. | Follow-up P-39 |
 
-**Proposals to validate:** a `BLOCKED` customer is not offered the waitlist, and an entry whose requester became `BLOCKED` or reached the future-booking limit is skipped.
+**Proposal to validate:** an entry whose requester reached the future-booking limit is skipped.
 
 ## 13. AI Agent (`AGT`) and Human Handoff (`HND`)
 
@@ -257,13 +279,18 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 
 | ID | Rule | Origin |
 |---|---|---|
-| BR-NOT-01 | By default, **one reminder per confirmed booking**, on the booking day, with configurable lead time, in the tenant's timezone. | MVP §8.3 |
-| BR-NOT-02 | Reminders require **explicit, recorded and revocable consent**; having a phone number is not consent. Waitlist notices use their own consent (BR-WL-02). The AI may record consent. | MVP §8.3; actors.md §5 |
-| BR-NOT-03 | Before sending, the current state is re-checked. Nothing is sent if the booking was cancelled, expired or moved to another slot, if consent was revoked, if the channel is disabled or if there is no phone. | MVP §8.3; ARQ §10.3 |
-| BR-NOT-04 | Attempts, deliveries and failures are recorded; a failure **does not change** the booking or payments. | ARQ §10.3 |
-| BR-NOT-05 | The tenant may **disable** the WhatsApp channel during an incident. | MVP §8.1 |
+| BR-NOT-01 | By default, **one logical reminder per confirmed booking slot**, at the configured lead time before its start, subject to BR-NOT-08. Use the tenant timezone for calendar rules and UTC instants, including day crossings; the reminder need not fall on the booking day. | MVP §8.3; Handoff F-023 |
+| BR-NOT-02 | Reminder and waitlist-notice consent remain independent, explicit, recorded and revocable. A phone number is not consent. One combined question collects both preferences without forcing acceptance of both (BR-NOT-09). | Follow-up; F-015, F-020 |
+| BR-NOT-03 | Before each attempt, validate conditions for its notice kind: reminders need a confirmed current slot and reminder consent; offers need a valid unexpired offer and its waitlist opt-in. Customer sends also require an ACTIVE connection and phone; revocation stops queued sends. The required staff alert after a second initial-evidence rejection is tied to that booking/rejection event and authorized tenant personnel, not to customer reminder consent or a still-confirmed booking. Its dispatch mechanism remains technical design. | Handoff F-015, F-016, F-018, F-020 |
+| BR-NOT-04 | One logical Notification has zero or more NotificationAttempts with time, outcome, error and optional conversation Message. Persist the send intention before dispatch; restarts do not lose it. Retry the same notice, recording a separate actual attempt, not duplicate notices. Provider acceptance is not delivery; apply BR-NOT-10–11. | Follow-up; F-016 |
+| BR-NOT-05 | The tenant may **pause** the WhatsApp channel during an incident. A paused connection keeps its number and instance; no automatic notices are sent and the AI does not reply. Incoming messages are still stored in the tenant's shared CRM inbox, the CRM shows that the channel is paused, and personnel reply from the business phone, not from the CRM. **Retiring** a connection is different: it frees the number and instance for another tenant. A message that does not resolve to an active or paused connection is not processed. | MVP §8.1; P-33, P-35 |
 | BR-NOT-06 | Allowed outgoing messages: replies, notices about real bookings (confirmation, HOLD, reminders) and opted-in waitlist offers. **No campaigns or cold contact.** | MVP §8.1 |
 | BR-NOT-07 | Notification jobs are durable and idempotent; a late job never invalidates or modifies a confirmed booking. | MVP §6.3.14; ARQ §10.3 |
+| BR-NOT-08 | If start minus reminder lead time is at or before confirmation, omit the reminder, not the separate confirmation. Rescheduling invalidates the old reminder and schedules a new one only if due in the future; cancellation prevents sending. Calendar rules use tenant timezone and instants UTC. An omission may have zero attempts. | Handoff F-023 |
+| BR-NOT-09 | At first booking confirmation, if preferences are not yet recorded, ask one optional question: “¿Querés recibir avisos por WhatsApp sobre tus turnos y oportunidades de la lista de espera? Podés cambiar tus preferencias en cualquier momento desde el chat.” Choices: **Sí, ambos / Solo recordatorios de turnos / Solo lista de espera / No recibir avisos**. Retain both choices per customer/tenant, including refusal, without re-prompting on each booking or entry. A first waitlist flow with no prior choice uses this same question; joining for specific conditions is not blanket consent. Preferences may be changed in chat; refusal never prevents booking. | Follow-up P-12 |
+| BR-NOT-10 | Confirmed send failure permits one retry while still authorized/valid. Sent, delivered or read are not failures and absence of delivery/read acknowledgement does not trigger resend. For an interrupted/unknown send outcome, recover provider status/correlation when supported; if still unknown, show it in CRM without automatic resend. Work not yet dispatched can resume on recovery, after validity checks. Outages never prolong offer priority or cause expired offers to be sent. Provider deduplication capabilities must be validated, not assumed. | Follow-up |
+| BR-NOT-11 | The MVP implements no age-based purge of per-attempt technical details. When [TD-01](../../exec-plans/tech-debt-tracker.md) is resolved, the suggested value is 90 days from the attempt, keeping the logical notice's final result. Retention of other data is in [§18](#18-personal-data-and-retention-dat). Do not claim end-to-end exactly-once delivery. | Follow-up |
+| BR-NOT-12 | CRM-origin reservations send a separate transactional WhatsApp confirmation when confirmed, if a customer phone and available channel exist. This is neither a reminder nor consent for other messages; no phone does not prevent booking. Dispatch remains state-aware and does not block booking success on channel failure. | Follow-up P-12 |
 
 ## 15. Audit (`AUD`)
 
@@ -271,56 +298,85 @@ Three concepts are kept apart (ARQ §6.1): the **booking** (what and when), the 
 |---|---|---|
 | BR-AUD-01 | The following record who did it and when: creating or changing a booking slot, verifying or rejecting a deposit, correcting a no-show or a payment, applying or removing a restriction, cash movements, opening and closing the register, approving exceptions, price changes, refunds, conversation takeovers and global AI changes. | actors.md §5; MVP §6.3.13 |
 | BR-AUD-02 | Personnel may consult the audit trail of their tenant; customers may not. | actors.md §2 |
+| BR-AUD-03 | Customer retains independent reminder/waitlist preferences; WaitlistEntry records the relevant enrollment/consent provenance and consumes current preference, not an irrevocable snapshot. A preference change and its scope-specific grant/revocation AuditEvent are atomic, with channel, actor and time, including changes applied to active entries. One combined answer can change both scopes without a second question; do not create consent entities or audit every delivery/retry. | Follow-up; supersedes earlier entry-only storage, preserves F-015/F-020 independence |
 
 ## 16. Pending Decisions
 
-None is resolved by this document. P-17 and P-20 were resolved in the UC-02 review; P-20 is recorded in UC-01. **Blocking** means it affects the entity model (DOM-01) or how occupancy is guaranteed. Resolved ones keep their number for traceability. The invariants that depend on an open decision are listed in [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions).
+The handoff and the product-owner agreements of 2026-11-04 and 2026-11-05 (P-33 to P-39, from the team's review of PR #26) resolve the portions below, subject to team review. Later agreements take precedence; resolved IDs remain for traceability. See [invariants.md §14](./invariants.md#14-invariants-that-depend-on-pending-decisions). “Resolved” never means implemented or collectively approved.
 
 | ID | Question | Status | Blocks |
 |---|---|---|---|
-| P-01 | Default notice period and future-booking limit. Which states count toward the limit, and do bookings for third parties count? | Open | No |
+| P-01 | Booking lead time, cancellation/reschedule notice defaults and future-booking limit/counting. | **Resolved** — booking lead time defaults to 0; future limit configurable and disabled by default, counting future occupying bookings including third parties (BR-DISP-09, BR-CLI-10). Cancellation/reschedule notice defaults to 10 hours, tenant-configurable; later changes proceed with warning/acceptance and a separate late-changes count (BR-CAN-01, BR-CAN-14, BR-CLI-12). Deposit effect of a late reschedule is resolved by personnel (P-28). | — |
 | P-02 | Multi-service bookings vs. combined services. | **Resolved** — a combination is one preconfigured service (BR-CAT-01). | — |
-| P-03 | With "any compatible resource", how is the resource assigned? | Open | No |
-| P-04 | Can a CRM booking outside regular hours fall on a **block**, or only outside the usual hours? | Open | No |
-| P-05 | Can `COMPLETED` be corrected to `NO_SHOW`, or only the reverse? | Open | No |
-| P-06 | When can `COMPLETED`/`NO_SHOW` be recorded (proposal: after the start)? Do they keep occupying the slot, or does an early no-show free the rest of it? | Open | **Yes** (occupancy) |
-| P-07 | Business-caused cancellation outside the notice window: who may do it? Legally required refunds; how a forfeited deposit shows in cash. | **Partly resolved** — no automatic forfeiture; refunds manual by Admin; reschedule uses the new price. | Partial |
-| P-08 | Precedence when the **service** and the **resource** have different deposit rules. | Open | **Yes** (deposit calculation) |
+| P-03 | With "any compatible resource", how is the resource assigned? | **Resolved** — tenant chooses configured preference order or rotation among free compatible resources (BR-DISP-05); concurrency mechanics remain technical design. | — |
+| P-04 | Can an opening override a block? | Resolved — no; explicit authorized modification or removal is required (F-011). | — |
+| P-05 | Can `COMPLETED` be corrected to `NO_SHOW`, or only the reverse? | **Resolved** — both directions with correction permission, mandatory reason/history and destination timing guards; no automatic financial effect or walk-in displacement (BR-RES-12). | — |
+| P-06 | Earliest time `COMPLETED`/`NO_SHOW` may be recorded? | **Resolved** — manually from start for completion and start + 15 minutes for no-show; early remainder stays private (BR-RES-10–12, BR-RES-17). | — |
+| P-07 | Business-caused cancellation, refund obligations and financial reporting. | **Partly resolved** — cancellation-capable personnel may cancel for operational business causes with reason/notification, without waiting for financial resolution (BR-CAN-06). No automatic forfeiture/refund; actual refunds remain manual/Admin-authorized. Tenants configure a no-money-back or refund-possible policy, communicated by the AI and managed by personnel (BR-SEN-13); no default policy was agreed. Applicable legal duties and reporting treatment of definitively retained funds still require professional review. | Partial |
+| P-08 | Policy precedence and disabling. | Resolved — resource > service > tenant; inherit/set/disable (F-010). | — |
 | P-09 | Mercado Pago down with a deposit required. | **Obsolete** — no Mercado Pago in the MVP. | — |
-| P-10 | Session boundaries and day changes; does a payment require an open session? How does a transfer verified late enter the cash records? | **Partly resolved** — automatic opening carries the previous close; cash-in/out with reason; manual close; Admin-only post-close adjustment. | **Yes** (cash model) |
-| P-11 | Corrections after a close. | **Resolved** — Admin-only new audited adjustment (BR-COB-11, BR-CAJA-09). | — |
-| P-12 | Is reminder consent per customer or per booking, and when is it asked? Does a CRM booking with a phone send a WhatsApp confirmation? | **Partly resolved** — separate, recorded, revocable; the AI may record it. | No |
+| P-10 | Session boundaries and day changes. | **Resolved operationally** — same session remains open across midnight until manual close; collections continue with actual timestamps (BR-CAJA-11). Date-based reporting cutoffs remain technical/reporting design, not an automatic close. | — |
+| P-11 | Physical-cash corrections after a close. | **Resolved** — Admin-only separate audited `CashAdjustment`, preserving original payment and close (BR-COB-11, BR-CAJA-09); other technical ledger-correction mechanisms remain P-26. | — |
+| P-12 | Consent question timing/scopes and CRM booking confirmation. | **Resolved** — one four-option question at first confirmation (or first waitlist enrollment without preferences); retain independent choices, no repeated prompts, changeable in chat. CRM confirmed bookings send transactional confirmation with phone/available channel (BR-NOT-09, BR-NOT-12). | — |
 | P-13 | Transfer deposit vs. a 10-minute HOLD. | **Resolved** — a timely receipt moves to review with no timeout (BR-RES-06). | — |
-| P-14 | Is "recording payments" a separate permission? | **Resolved** — every Staff member records payments and verifies transfers (BR-IAM-03). | — |
-| P-15 | Does a reschedule modify the same booking (with history) or create a linked one? | **Proposed** — same booking with history (§8). Confirm in DOM-01. | **Yes** (DOM-01) |
-| P-16 | Can Staff create a CRM booking for a `BLOCKED` customer? Proposal: no; Staff lift the restriction first, with a reason. | Open | No |
-| P-17 | A `FULL_PREPAYMENT` customer booking from the CRM. Can an Admin exception (BR-SEN-09 c) confirm without the 100%? | **Resolved** — paying 100% in cash at the counter verifies it and confirms the booking (BR-SEN-09 a, BR-COB-06); an Admin exception may also confirm without the 100%, recording that it was not paid and the outstanding balance (BR-SEN-09 c). | — |
-| P-18 | How does an exclusive 5-minute offer occupy the slot (a kind of HOLD, or its own record in the same exclusion)? Until decided, exclusivity is guaranteed transactionally, without naming the mechanism. | Open | **Yes** (occupancy, DOM-01) |
-| P-19 | Waitlist expiry, queue limits, long offer chains, retries after a failed notice. | Open | No |
-| P-20 | Must a CRM booking for a service with a deposit rule collect it? | **Resolved** — no HOLD from the CRM; a verified deposit confirms, a pending receipt goes to review, and without payment only an Admin exception confirms (BR-SEN-09). | — |
-| P-21 | Final state of a booking whose receipt was rejected. Proposal: `CANCELLED` with reason `PAYMENT_REJECTED`. | **Proposed** | Partial (DOM-01) |
-| P-22 | Can Staff cancel or reschedule outside the notice window? | **Resolved** — only an Admin authorizes out-of-policy changes (MVP §6.3.9). | — |
-| P-23 | Minimum attendee data; how a third party's no-show is attributed and aggregated. | Open | Partial (DOM-01 needs the attendee) |
-| P-24 | Pending review edge cases: the booking start arrives while still pending; the customer cancels while pending; safeguards against abuse of indefinite review (accepted risk, MVP §9.2). | Open | No |
-| P-25 | During a reschedule that waits for an extra deposit, is the target slot protected? | Open | **Yes** (occupancy) |
-| P-26 | Final resolution of late or unmatched transfers and overpayments (refund, credit to another booking). | Open | No |
-| P-27 | Deposit evidence without an image; a receipt for less than the required amount. | Open | No |
+| P-14 | Is payment recording assigned to every Staff member? | Resolved — permissions are role-based, including payment operations (F-001). | — |
+| P-15 | Reschedule identity and history. | Resolved — same booking, with request and event history (F-006). | — |
+| P-16 | Can personnel create a CRM booking for a `BLOCKED` customer? | **Resolved** — anyone with booking-creation permission may create an exceptional CRM booking with warning and actor attribution, without lifting the block (BR-CLI-09). | — |
+| P-17 | A `FULL_PREPAYMENT` customer booking from the CRM. Can an Admin exception (BR-SEN-09 c) confirm without the 100%? | **Resolved** — receiving 100% in cash at the counter verifies the payment; explicit manual allocation to the charge satisfies the threshold and permits confirmation (BR-SEN-09 a, BR-COB-06); an Admin exception may also confirm without the 100%, recording that it was not paid and the outstanding balance (BR-SEN-09 c). | — |
+| P-18 | How does an offer occupy and convert? | **Resolved conceptually, updated** — only initial exclusive priority owns a claim; progressive/broadcast invitations have none. On a valid claim close any initial offer claim and create a distinct unique booking HOLD, never mutate ownership (BR-WL-07–09). Physical round/invitation representation remains T-01/T-05 in ERD. | — |
+| P-19 | Waitlist expiry, queue limits, progression and delivery failure. | **Resolved** — requested-range expiry, 1–4 progressive versus 5+ simultaneous invitations, late claims, one confirmed-failure retry then advance/retain entry; no three-offer cap (BR-WL-06–13). Fixed MVP limit of 10 per queue and round behavior agreed (BR-WL-14–15). Exact persistence remains ERD T-01/T-05. | — |
+| P-20 | Must a CRM booking for a service with a deposit rule collect it? | **Resolved** — no HOLD from the CRM; verified funds explicitly manually allocated to meet the deposit threshold permit confirmation, a pending receipt goes to review, and without payment only an Admin exception confirms (BR-SEN-09). | — |
+| P-21 | Initial evidence rejection outcome. | **Resolved, updated** — F-018 correction window/cancellation applies only without a verified partial deposit; partial funds invoke manual release only (BR-SEN-10–11). Started/supplemental safeguards remain; reason labels are conceptual. | — |
+| P-22 | Can Staff cancel or reschedule outside the notice window? | **Resolved, updated** — the customer may proceed by accepting the consequences; only an Admin authorizes an exception to those consequences (BR-CAN-03, BR-CAN-14). | — |
+| P-23 | Minimum attendee data. | **Resolved** — attendee name only is mandatory; no phone/account requirement. Requester responsibility remains unchanged (BR-CLI-03). | — |
+| P-24 | Review at start, customer cancellation and indefinite occupancy risk. | **Resolved** — started slots require manual handling; explicit authorized cancellation releases without waiting for review/refund, which continue separately (BR-CAN-04). Verified partial deposits also have no automatic timeout; show missing amount in CRM. The MVP accepts human supervision as the abuse control; no automatic deadline. | — |
+| P-25 | Occupancy during rescheduling and additional deposit. | Resolved — after permitted move target is confirmed; prior authorization does not hold target (F-006). | — |
+| P-26 | Financial incidents and recording corrections. | **Partly resolved** — offer verified credit for another booking, or manual personnel resolution/Admin refund on definitive cancellation; never automatic refund or rebooking. Recording mistakes append reasoned corrections, recalculate debt and do not auto-cancel (BR-COB-21). Unknown/personal funds remain excluded. Applicable legal obligations and exact immutable ledger-correction representation remain pending. | No |
+| P-27 | Deposit evidence without an image; insufficient amount. | **Resolved** — PDF/image first, text fallback only on explicit inability, human verification; multiple partial payments allowed, verified partial deposit retains occupied unconfirmed slot without automatic release (BR-SEN-11–12). | — |
+| P-28 | Does a late reschedule whose deposit is lost under tenant policy need a new deposit before confirmation? | **Resolved** — personnel resolve the case; the AI only communicates the policy and the next steps (BR-CAN-14). | — |
+| P-29 | What is the next person told when a queue already has 10 people? | **Resolved** — tell them it is full and offer other times, without a reserve list (BR-WL-14). | — |
+| P-30 | A `BLOCKED` customer or one with no-shows deletes their data and returns with no restriction or history. | **Resolved for the MVP** — accepted and recorded as debt [TD-02](../../exec-plans/tech-debt-tracker.md) (BR-DAT-07). | — |
+| P-31 | What happens to future bookings and pending money when a customer requests deletion? | **Resolved** — the request does not cancel bookings automatically; personnel resolve bookings and money before day 30, alerted in the CRM, and deletion runs on day 30 regardless, keeping payments (BR-DAT-08). | — |
+| P-32 | Legal validation of the 30-day deletion window, retention periods, the payer's name kept with payments and handling of deletion requests. | **Risk accepted for the MVP, validation pending** — see BR-DAT-05. | **Yes** (real customers) |
+| P-33 | What happens to incoming messages while the WhatsApp channel is paused? | **Resolved** — product-owner agreement of 2026-11-05: they are stored and shown in the CRM without AI replies or automatic notices; personnel reply from the business phone (BR-NOT-05). | — |
+| P-34 | What keeps a receipt from deletion when its review is unfinished? | **Resolved** — product-owner agreement of 2026-11-05: a pending `PaymentReview` keeps its receipt until decided. Disputes outside a payment review are not modeled in the MVP (BR-DAT-03). | — |
+| P-35 | Does disabling a WhatsApp connection free its number? | **Resolved** — product-owner agreement of 2026-11-05: pausing keeps the number and instance; only retiring frees them (BR-NOT-05). | — |
+| P-36 | Can personnel use a customer's data during the deletion window? | **Resolved** — product-owner agreement of 2026-11-05: only to resolve that customer's bookings and pending money; no reminders are sent (BR-DAT-01, BR-DAT-08). | — |
+| P-37 | Does a customer in the deletion window keep their waitlist places? | **Resolved** — product-owner agreement of 2026-11-05: entries close on confirmation and withdrawing does not restore them (BR-DAT-09). | — |
+| P-38 | What stays with a payment after deletion? | **Resolved** — product-owner agreement of 2026-11-05: with verified payments the name stays and the phone is removed; without them, both are removed (BR-DAT-03). Legal validation is in P-32. | — |
+| P-39 | What happens on the waitlist with a `BLOCKED` customer? | **Resolved** — product-owner agreement of 2026-11-05: they are not enrolled; an entry whose requester becomes `BLOCKED` keeps its place but is skipped until the restriction is removed (BR-WL-16). | — |
 
-**Blocking for DOM-01 or the occupancy model:** P-06, P-08, P-10, P-15, P-18, P-25 (and partly P-21, P-23).
+Remaining product questions are the unresolved portions of P-07 and P-26, plus P-32. Technical schema/concurrency and provider capabilities remain in the [ERD register](../../design-docs/erd.md#technical-review-register); age-based retention periods are in the [debt tracker](../../exec-plans/tech-debt-tracker.md). No additional product defaults are inferred.
 
 ## 17. Differences With Earlier Documents
 
-`mvp.md` v0.2 and the target architecture v1.1 are aligned with UC-01; **no contradiction was found with them**. The remaining differences are with `rules.md` (not in the repository) and with issues written before UC-01:
+The handoff supersedes incompatible earlier text, including earlier MVP and architecture proposals; dependent documents require reconciliation. Historical differences include:
 
 | Document | Says | Current decision |
 |---|---|---|
 | `rules.md` RG-21, RG-28 | HOLD only with a deposit; Mercado Pago confirms the deposit. | WhatsApp always starts with a HOLD; deposit by transfer with human verification (BR-RES-03, BR-SEN-06, BR-SEN-07). |
 | `rules.md` RG-30 | Methods include Mercado Pago. | `CASH` and `TRANSFER` only (BR-COB-04). |
-| `rules.md` RG-08, RG-10, RG-39 | Only Admin applies restrictions to customers. | Staff and Admin apply individual restrictions (BR-CLI-08). |
-| `rules.md` RG-09, RG-10 | The cash permission is the only granular permission. | Two delegated privileges: cash and availability (BR-IAM-05). |
-| `rules.md` RG-23 | Personnel exceptions to be defined later. | Only an Admin authorizes out-of-policy changes (BR-CAN-03). |
-| `rules.md` RG-41 | Mechanics of automatic opening to be defined. | Carries the cash declared at the previous close (BR-CAJA-03). |
+| `rules.md` RG-08, RG-10, RG-39 | Only Admin applies restrictions to customers. | Personnel with the applicable role permission apply individual restrictions (BR-CLI-08); Staff membership alone grants none. |
+| `rules.md` RG-09, RG-10 | The cash permission is the only granular permission. | Configurable role-based permissions (BR-IAM-05). |
+| `rules.md` RG-23 | Personnel exceptions to be defined later. | Only an Admin authorizes exceptions to the consequences of a late change (BR-CAN-03). |
+| `rules.md` RG-41 | Mechanics of automatic opening to be defined. | Opening cash is explicit and auditable: declare it at the first opening, reconcile subsequent openings with the previous close; closing is always manual (BR-CAJA-03, BR-CAJA-04). |
 | Issue CON-02 (#11) | The public API creates, consults, cancels and reschedules bookings. | Public endpoints are read-only landing information (ARQ §11). |
 | Issue UC-02 — Scope | "Contemplar … reservas públicas". | Excluded from the MVP (MVP §5.3); see [use-cases.md §7](../uc-02/use-cases.md#7-excluded-and-deferred-use-cases). |
 
-**Recommendation:** mark `rules.md` as superseded by UC-01 and `mvp.md` v0.2, or update it, so that the team does not work from two sources.
+**Recommendation:** mark `rules.md` as superseded by UC-03, UC-01 and `mvp.md` v0.3, or update it, so that the team does not work from two sources.
+
+## 18. Personal Data and Retention (`DAT`)
+
+Product-owner decisions for the MVP. They are not legal advice and need validation before use with real customers (BR-DAT-05).
+
+| ID | Rule | Origin |
+|---|---|---|
+| BR-DAT-01 | A customer may request deletion of their data by chat, from the same WhatsApp number, and must confirm it explicitly. On confirmation their data is blocked: no more notices and no operational use. It is kept only to execute or revert the deletion and for personnel to resolve that customer's bookings and pending money (BR-DAT-08). | Follow-up; P-36 |
+| BR-DAT-02 | The customer may withdraw the request for **30 days** and recover their profile. If they do not, deletion runs automatically on day 30. There is no immediate-deletion option. The window is a configurable value. | Follow-up |
+| BR-DAT-03 | Deletion removes conversations, rejected receipts and receipts with no payment. A receipt whose `PaymentReview` is still pending is kept until it is decided, and then follows this rule or BR-DAT-04. Phone and preferences are always removed. The name is kept only if the customer has verified payments, to keep those records traceable, and is removed otherwise. The customer is told what was deleted, what is kept and why. | Follow-up; P-34, P-38 |
+| BR-DAT-04 | Payments, refunds, cash records and receipts of verified payments are never removed by a deletion request and are kept for at least **10 years**, with no automatic deletion. Audit and consent records are kept only as needed to show what happened; their final period is to be validated. | Follow-up; CCyC art. 328 |
+| BR-DAT-05 | Risk accepted for the MVP: Ley 25.326 art. 16 sets a maximum of five business days for suppression, except where the law requires keeping the data, and the 30-day window may not satisfy it. A lawyer must validate this and the retention periods **before use with real customers** (P-32). | Follow-up |
+| BR-DAT-06 | Only what the customer asked to delete is deleted automatically; nothing is deleted just for its age. Age-based periods are technical debt ([TD-01](../../exec-plans/tech-debt-tracker.md)), with suggested values of 12 months for conversations and 90 days for technical attempt details. The period for rejected receipts is to be chosen. Storing them must not be documented as indefinite retention policy. | Follow-up |
+| BR-DAT-07 | Accepted for the MVP: a `BLOCKED` customer, or one with no-shows or late changes, who deletes their data and writes again starts with no restriction or history. Nothing is kept to prevent it. Recorded as [TD-02](../../exec-plans/tech-debt-tracker.md). | Follow-up P-30 |
+| BR-DAT-08 | A deletion request does not cancel future bookings automatically. Personnel resolve the requester's bookings and pending money before day 30, with an advance alert in the CRM, and no reminders are sent for those bookings. Deletion runs on day 30 even if something remains unresolved: payments are kept, and a future booking still active stays without the customer's phone, and without their name unless BR-DAT-03 keeps it. | Follow-up P-31, P-36 |
+| BR-DAT-09 | On confirmation, the customer's active waitlist entries close and stop counting toward the queue limit (BR-WL-14), and any invitation still pending for them ends. Withdrawing the request recovers the profile but not those entries; the customer can join again at the end of the queue. | Follow-up P-37 |

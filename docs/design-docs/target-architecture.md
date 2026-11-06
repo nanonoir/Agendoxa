@@ -1,10 +1,10 @@
 # Agendoxa — Architecture: Modular Booking and Customer Service Platform
 
-> **Version:** 1.1 · **Date:** November 2, 2026 · **Status:** Updated architecture proposal for team review  
+> **Version:** 1.2 · **Date:** November 4, 2026 · **Status:** Reconciled architecture proposal for team review; not implemented
 > **Project:** Devlights bootcamp · Shared codebase with independently operated deployments.  
-> **Product scope:** [`mvp.md`](../product-specs/mvp.md) v0.2  
+> **Product scope:** [`mvp.md`](../product-specs/mvp.md) v0.3
 > **Functional references (UC-01):** [`uc-01/actors.md`](../product-specs/uc-01/actors.md) and [`uc-01/flows.md`](../product-specs/uc-01/flows.md)  
-> **Supersedes:** Architecture v1.0 (October 28, 2026) wherever its public-booking, payment-provider, or integration assumptions conflict with the approved UC-01 direction.
+> **Decision basis:** Historical [2026-11-04 handoff](../../agendoxa_audit_handoff.md) and later product-owner agreements, reconciled in [UC-03](../product-specs/uc-03/business-rules.md) and the [38-entity ERD](./erd.md). Current rules supersede incompatible earlier portions; still **not collectively approved or implemented**.
 
 ## 1. Purpose and Documentation Boundaries
 
@@ -14,11 +14,12 @@ This document defines **how Agendoxa's components are organized and integrated**
 - **`docs/design-docs/target-architecture.md`** defines architectural choices, technical boundaries, and implementation constraints.
 - **`docs/product-specs/uc-01/actors.md`** defines actors, permissions, channels, and the use-case index.
 - **`docs/product-specs/uc-01/flows.md`** defines UC-01 flows, exceptions, and supporting diagrams.
+- **[UC-03 rules](../product-specs/uc-03/business-rules.md)** own business decisions; [invariants](../product-specs/uc-03/invariants.md) own guarantees; [DOM-01](./erd.md) owns conceptual relationships and remaining technical choices.
 - Final endpoint contracts, persisted state machines, database schemas, DTOs, screen designs, and prompts are **deferred** to the appropriate implementation/design tasks.
 
 If the documents disagree, **flag and resolve the conflict explicitly** rather than silently treating an outdated example as a requirement.
 
-**Adopted approach:** A **NestJS modular monolith**, organized around business capabilities, with **pragmatic hexagonal architecture** for modules containing significant business rules or external integrations. The Next.js application uses a **feature-first** structure; the codebase lives in a **pnpm + Turborepo monorepo**.
+**Proposed approach:** A **NestJS modular monolith**, organized around business capabilities, with **pragmatic hexagonal architecture** for modules containing significant business rules or external integrations. The Next.js application uses a **feature-first** structure; the codebase lives in a **pnpm + Turborepo monorepo**.
 
 ## 2. Architectural Goals and Non-Goals
 
@@ -122,21 +123,21 @@ The following are **logical responsibilities**, not a requirement to create a Ne
 | Capability / possible module | Owns | Must not do |
 |---|---|---|
 | `tenants` | Business configuration, timezone, feature settings, validated tenant context. | Assume every installation contains multiple tenants. |
-| `identity` | Personnel authentication, tenant memberships, Admin/Staff roles and delegated operational privileges. | Treat a tenant ID or subdomain as proof of authorization. |
-| `customers` | Tenant-scoped customer/requester records, attendee context, no-show incidents, individual restrictions. | Give the AI unrestricted access to customer profiles. |
+| `identity` | Personnel authentication, one tenant role per membership, role-only capabilities, protected Admin and configurable Staff/custom roles. | Treat a tenant ID/subdomain as authorization or add direct member permissions. |
+| `customers` | Tenant-scoped requester records, attendee context, other operational incidents and manual restrictions; no-show count reads current Booking outcomes. | Duplicate no-shows as CustomerIncident or give the AI unrestricted profile access. |
 | `catalog` | Services, prices/durations, preconfigured combinations, resources and compatibility. | Build separate booking engines for barbershops and sports clubs. |
 | `availability` | Resource working hours, blocks, exceptions, compatible time windows. | Treat an availability read as an exclusive lock. |
 | `bookings` | Booking lifecycle, requester ownership, holds, reschedules, cancellation and occupancy coordination. | Depend on WhatsApp, Next.js, or an LLM to enforce business rules. |
-| `waitlist` | Voluntary interest, eligibility, ordered offers, five-minute exclusive priority. | Promise a slot before it is transactionally secured. |
-| `payments` / `billing` | Booking charges, amounts due, received payments, deposit evidence, human review and adjustments. | Mark a transfer as paid because an image looks valid. |
+| `waitlist` | Voluntary interest, initial five-minute priority, progressive/broadcast invitations and atomic claims. | Give later invitees false exclusivity, freeze capacity with nonexclusive notices or request payment before HOLD acquisition. |
+| `payments` / `billing` | Commercial charges, verified payments, manual allocations, evidence review, separate refunds and financial correction history. | Credit an image, mutate original paid amounts, use negative Payments for refunds or exceed funds/debt. |
 | `cash-register` | One tenant-shared register, opening/closing sessions, attributed cash movements, discrepancies. | Sell inventory/POS items or rewrite a closed session. |
-| `notifications` | Opt-in preferences, consented reminders, delivery intentions and outcomes. | Send messages regardless of revocation or current booking status. |
+| `notifications` | One logical notice and individual NotificationAttempt outcomes, independent reminder/waitlist consent and delivery correlation. | Duplicate notices on retry, send revoked/stale notices or audit every delivery as a consent event. |
 | `messaging` | Evolution adapter, normalized messages, conversations, human/AI routing and inbox state. | Grant business privileges to the agent or decide commercial policy. |
 | `agent` | LangGraph orchestration, conversation context, tool schemas and error escalation. | Write directly to booking/payment persistence or become a second booking core. |
 
 **Boundaries to preserve:** The booking creates/maintains obligations; payments record verified funds; the cash register records relevant physical-cash movements and accountable sessions. A recorded payment is **not** the same as service completion. `waitlist` must coordinate atomically with `availability`/`bookings` when offering exclusive time slots. Shared workflow coordination belongs in application use cases, not duplicated across modules.
 
-**Specialized Admin/Staff permissions:** Staff may operate bookings, register payments, verify transfers, log attendance and apply **individual customer restrictions**. Staff needs **separate explicit grants** to open/close cash or edit operational schedules. Only Admin controls general prices/policies, personnel grants, receiving aliases, global AI settings, out-of-policy exceptions and audited adjustments after cash close. The exact permission representation is deferred.
+**Role-only authorization:** A global `User` has one tenant-local `Role` per membership. Capabilities come only through `RolePermission` and the system `Permission` catalog; Staff is editable and custom roles are allowed. The backend rechecks effective permissions and active tenant membership, not only JWT/UI claims. Admin has protected full authority; role administration, commercial-policy exceptions, agreed-price changes, refunds and post-close adjustments are non-delegable. Protect the last active Admin and historical actor attribution. Exact capability keys remain detailed design; [UC-03 IAM](../product-specs/uc-03/business-rules.md#3-personnel-roles-and-privileges-iam) is canonical.
 
 ### 6.2 Example Internal Structure for a Rule-Heavy Module
 
@@ -263,7 +264,7 @@ Both installations use the **same code and tenant-aware data model**. A dedicate
 
 ### 8.2 Tenant Boundary and Authentication
 
-- Operational entities and relationships are tenant-owned. A global personnel `User` may belong to multiple businesses through `TenantMembership`, with distinct roles for each.
+- Operational entities and relationships are tenant-owned. Personnel `User` and the system `Permission` catalog are global; memberships and roles are tenant-local. An active membership selects exactly one role owned by that tenant.
 - Resolve tenant context from **verified personnel membership or validated channel connection**. A supplied `tenant_id` or subdomain selects context but does not grant access.
 - Enforce tenant scope for every read/write, including attachments, conversations, bank evidence, cash sessions, queue jobs, audit logs and customer restrictions.
 - Use constrained foreign keys/indices where appropriate (for example, composite tenant-aware references) to prevent cross-business associations.
@@ -287,41 +288,51 @@ Both installations use the **same code and tenant-aware data model**. A dedicate
 
 - Interpret business-local dates with the tenant's configured timezone; persist unambiguous instants in PostgreSQL.
 - For exclusive resources, represent time intervals consistently (e.g., `[start, end)` with `tstzrange`) and enforce incompatible overlaps at the **database/transaction boundary**, not only in API checks.
-- Blocking claims must account for **initial `HOLD`, human-review-pending deposits, confirmed bookings and active five-minute exclusive waitlist offers**. Exact persistence design and final state names are deferred; **do not assume the original `HOLD`/`CONFIRMED`-only exclusion is sufficient**.
+- `SlotClaim` is the single occupancy authority, with one Booking or ExclusiveOffer owner (XOR). Include initial HOLD, active initial-deposit review, the guarded rejected-evidence correction window, confirmed bookings, offers and private terminal remainders. [DOM-01](./erd.md#24-module-4--bookings-exclusive-occupancy-and-waitlist) specifies the conceptual claim lifecycle; no competing Booking lock.
 - A read-only availability query does **not** reserve a time. A customer selecting a concrete slot starts a **ten-minute HOLD** in the WhatsApp flow, whether or not a deposit applies.
-- Without deposit, explicit confirmation within the HOLD confirms. With deposit, a timely receipt starts human review **without automatic timeout**; approval after actual bank accreditation confirms, rejection releases.
-- An expired HOLD or a rejected receipt frees occupancy only through a consistent state transition. A delayed job must not free an already confirmed/approved claim.
-- Rescheduling must acquire valid new occupancy and update/release the previous interval **atomically**; on a conflict, preserve the original booking.
+- Timely evidence starts review without inactivity timeout. Without verified partial funds, initial rejection uses guarded 15-minute/second-distinct-rejection cancellation before start. Any verified partial deposit retains occupied/unconfirmed capacity without automatic missing-remainder/rejection release. Atomically recheck funds/review/start; explicit authorized cancellation releases immediately and financial review/refund continues separately. No late financial event rebooks a released slot.
+- HOLD expiry, initial priority expiry and no-funds correction expiry are distinct guarded/idempotent operations. None releases confirmed, pending-review, verified-partial, newer-HOLD or started private occupancy; initial priority expiry does not invalidate otherwise valid late invitations.
+- A permitted reschedule of a confirmed booking whose verified deposit does not cover the destination acquires the new slot and releases the old one atomically, keeping the booking confirmed and requesting any difference afterwards. A failed move preserves the original. Prior policy approval creates no destination claim while pending; full-prepayment restrictions and Admin exceptions still apply.
+- Early COMPLETED/NO_SHOW keeps remaining capacity private. An authorized explicit CRM walk-in operation may replace only its chosen portion atomically, preserving original history and restricted residual intervals. Outcome correction never displaces that walk-in. This is not a public release/waitlist event; the ERD's inferred fragment representation remains subject to technical review.
+- Effective regular calendars inherit the general schedule when no resource schedule exists; authorized extraordinary openings are usable by both channels but never bypass explicit blocks or active claims. Removing a block is a separate authorized action, not an effect of opening or rescheduling.
 
 **State labels** `HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`, and `EXPIRED` are **conceptual labels from UC-01**, not finalized DB enums or exhaustive state transitions.
 
-### 9.2 Waitlist Exclusive Priority
+Booking lead time defaults to 0, never past start; future cap defaults off and counts future occupying bookings including third parties when enabled. Recheck selection/cap/occupancy atomically; any-resource assignment uses tenant preference-order or rotation mode. BLOCKED CRM exception uses existing booking permission with warning/actor, not an unblock or other commercial exception. Completion is manual from start, no-show from start + 15 minutes; corrections both ways need permission, mandatory reason/history and destination timing guard, never automatic financial changes or walk-in eviction.
+
+### 9.2 Waitlist Priority and Competing Invitations
 
 - First offer available alternatives unless the customer explicitly requires one fixed day/time. Joining a waitlist requires consent; the entry **does not block** a resource.
-- When a slot is genuinely released, choose the next eligible waiter in arrival order and establish a **single exclusive five-minute opportunity** for that resource/interval.
-- Acceptance within five minutes begins a **new ten-minute booking HOLD**; failure to accept expires the offer and allows consideration of the next waiting customer or general availability.
-- Coordinate offers and ordinary bookings transactionally so the same interval cannot be promised exclusively to two parties. If a WhatsApp notification fails, do not block indefinitely; detailed retry/failure behavior remains an open design item.
-- Queue entry expiry, limits, long chains, and undelivered messages are not invented here; defer precise decisions to domain design.
+- For 1–4 eligible people only first gets five-minute exclusivity; invite another every five minutes while earlier recipients may still claim. With 5+, notify simultaneously. Only initial priority owns an offer claim; later/broadcast invitations have none. Preserve priority deadline separately from claim eligibility.
+- A preferred resource is compatible/same-tenant; otherwise any compatible one. Atomic arbitration across all channels closes any initial priority claim and creates one distinct ten-minute booking HOLD for the winning invitation, without mutating claim ownership. Only winner receives transfer instructions; late/concurrent losers get alternatives, never displace a newer claim.
+- Initial priority expires regardless of connection; later invitations do not freeze public availability. Confirmed failure gets one valid retry then advance without deleting the entry; unknown outcome follows §10.3. Entry expires when no future requested-range slot remains, or closes on fulfilled booking/withdrawal, not unanswered notice alone.
+- A queue holds at most 10 people in the MVP. Round behavior is canonical in [UC-03 BR-WL-15](../product-specs/uc-03/business-rules.md#12-waitlist-and-exclusive-offers-wl); its persistence and concurrency stay ERD T-01/T-05, without new entities or the rejected three-offer cap. Never promise later recipients exclusive priority.
 
 ### 9.3 Manual Deposits and Financial Records
 
-- Payments in this MVP are **cash and business-received bank/wallet transfers**. Admin manages aliases/accounts (possibly several with one default), with no automatic account rotation.
-- Deposit rules may be fixed or percentage-based, with business defaults and specific service/resource overrides. Before the customer pays, show applicable price, deposit, alias, and cancellation policy.
-- A receipt uploaded within ten minutes changes the booking to **pending human payment review**. Staff/Admin check actual credit in the bank/wallet; only an accountable approval records an accredited deposit and confirms the booking.
+- Verified commercial payments use three modes: all professional (default), business deposit/professional remainder, all business. Professional Resource may select an account without a CRM user. Missing account falls back to business, never another professional; absent fallback requires personnel. Business pool uses default or sequential active-account rotation at instruction issue. Preserve booking mode, stage, receiver/account and issued instruction; retries/config changes never rewrite them. Concurrent binding remains T-02/T-05, not bank integration.
+- Resolve each policy field by Resource > Service > Tenant, distinguishing inherit/set/disable. FULL_PREPAYMENT dominates ordinary deposit rules unless the permitted Admin CRM exception applies. Preserve agreed commercial conditions when future configuration changes.
+- `PaymentReview` evaluates evidence; `Payment` records verified commercial funds. Directly verified CRM cash/transfers may have no review. One review may yield at most one Payment; repeated approval cannot duplicate money. Initial evidence and supplemental reschedule collection follow different lifecycle rules.
 - **No image/OCR/AI-only accreditation.** A transfer arriving after the slot is released or an unmatched amount is a human financial incident, never a silent reconfirmation.
-- Allow partial and combined-method payments. Model charges/sums due separately from money recorded as received and from service completion; prevent duplicate financial movements from retries.
-- For rescheduling, keep already verified funds and calculate any additional deposit or remaining balance. New required amounts must be verified before committing the changed booking; overpayments and exceptional refunds are handled manually with audit.
-- Do not hold an open DB transaction during bank-app review. **Risk accepted:** a receipt under human review blocks the slot without automatic expiration, potentially enabling prolonged blocking; surface and attribute pending items without unilaterally adding an expiry policy.
+- Manual PaymentAllocation supports partial/mixed payments across charges/bookings within one tenant, bounded by both net available funds and debt. Preserve commercial origin even with zero allocations. Excess stays unallocated; never report negative debt or auto-allocate it.
+- `Refund` is a separate Admin-managed operation linked to Payment. Executed returns reduce retained funds without mutating original receipts; pending returns and allocations must compete safely for the same funds. A cash return requires an open-session outflow; a manual bank return has no physical CashMovement. AuditEvent is not the financial ledger.
+- A permitted reschedule of a confirmed booking with a supplemental deposit difference retains verified funds and stays confirmed after moving even if the supplemental difference remains unpaid. Do not reuse initial-deposit rejection timers for this collection; nonpayment is manual follow-up, not automatic cancellation or return to the old slot.
+- Do not hold an open DB transaction during bank-app review. **Risk accepted:** genuinely pending review has no inactivity timeout; explicit rejections follow the correction workflow. No financial incident silently reactivates an expired booking.
+
+Professional changes preserve client credit/actual receiver history; collect only remaining debt and manage internal compensation manually, without blocking an otherwise valid move or automatic commissions/distribution. Recording corrections need permission/reason/immutable linked financial history, recompute debt without fictitious refund/movement or auto-cancellation, and preserve the Admin boundary for closed physical cash. Ledger mechanics remain T-03. Operational business cancellation uses cancellation permission/reason/customer notice; customer policy exceptions remain Admin-only, and financial review cannot freeze an authorized cancelled slot.
 
 ### 9.4 Shared Cash Register and Attendance
 
 - **One logical cash register per tenant**, used by multiple employees; every movement includes an accountable actor.
-- Admin or separately authorized Staff may open/close sessions. Opening is manual or automatic per tenant policy; automatic opening carries forward the **previous declared physical cash balance**, with subsequent withdrawals/adjustments explicitly recorded.
+- Cash collection requires an open session. If automatic opening is configured, the first collection opens it; otherwise an authorized role opens it beforehand. Opening cash is explicit/auditable, declared for the first session and reconciled with the previous counted close thereafter. Never fabricate a balance. Serialize collection against close.
 - **Closing is always manual**: record responsible user, physical count, expected amount, discrepancies and time. Transfers are separately displayed, **not** counted as physical cash.
 - Pending booking balances do not prevent closing. Closed sessions remain immutable; after close, **only Admin** adds a separately audited adjustment.
-- Staff/Admin register completion or `NO_SHOW` explicitly; time passing does not imply attendance or payment. A personal no-show is not the same as a third-party attendee incident.
-- Two personal no-shows trigger an **internal label**, not an automatic penalty. Staff/Admin may apply individual restrictions with reasons; Admin owns the general commercial policy.
+- Expected physical cash is opening cash plus signed CashMovement amounts. A Payment-linked movement is the same money, not another income. Verified transfers need no physical session and late verification never modifies a closed session; reporting cutoffs remain detailed design.
+- Authorized personnel record/correct Booking outcomes. Every NO_SHOW counts against Booking.customer_id, regardless of attendee; CustomerIncident records only other booking-related incidents. BookingEvent preserves corrections; never sum incidents into the no-show count.
+- Two current no-show bookings trigger an **internal indicator**, not an automatic penalty. Manual restrictions require role permission, actor and reason; an outcome correction recalculates the indicator without displacing a reused walk-in.
 - The register covers service and rental payments, **not** a bar POS, inventory, product sales, tax invoicing or full accounting.
+
+The same CashSession survives midnight until manual close; collections continue with actual timestamps and visible opening time. No automatic daily close or extra professional cash registers is implied.
 
 ## 10. LangGraph, WhatsApp, Human Handoff, and Durable Jobs
 
@@ -340,7 +351,7 @@ The LLM is **an orchestrator and conversation interface**, not an independent bu
 
 - The messaging module receives Evolution API webhooks, validates their origin and tenant connection, deduplicates event IDs, and stores important incoming messages durably.
 - Group consecutive incoming messages after **five seconds with no additional incoming messages**, without relying solely on in-memory timers. Each processed message/intent must remain attributable.
-- Support **individual text messages and receipt images**. No WhatsApp groups, voice-note workflows, or mass-marketing campaigns in the MVP.
+- Support individual text/images and PDF transfer evidence first; text-only reporting only on explicit inability to attach. No file interpretation proves credit. Groups, voice notes and marketing remain out of scope.
 - Maintain **persistent, authoritative per-conversation routing state**: AI eligible, human-taken-over, or globally disabled as appropriate. A human takeover suppresses bot replies to the same conversation.
 - **Admin controls global AI** (temporary disable or indefinite until reenabled). **Staff/Admin control individual handoff** from the CRM shared inbox.
 - On manual handback or **60 minutes without a human reply**, AI may resume **only if globally enabled**; each new human reply resets the inactivity interval. AI reactivation cannot clear pending payment review.
@@ -352,9 +363,13 @@ The LLM is **an orchestrator and conversation interface**, not an independent bu
 - Use `pg-boss` for ten-minute HOLD expiry, five-minute exclusive-offer expiry, waitlist progression, reminders, AI/human return timing where scheduled, and controlled retries.
 - Jobs must be **idempotent and state-aware**. A stale expiry or retry cannot cancel a confirmed booking, release an approved slot, double-register a payment, or send a false confirmation.
 - Persist intent and a deduplication key for critical tasks; reconcile when a DB commit succeeds but a follow-up enqueue fails. A formal outbox is optional if its added complexity becomes justified.
-- Send **one same-day reminder per confirmed booking by default**, at configurable lead time, only with recorded, revocable consent. An opted-in waitlist offer uses a separate consent basis.
-- Respect current status, preferences, connection availability and tenant context before every message. Track attempts/delivery/failure; a delivery failure does not roll back a booking.
+- Persist logical Notification/intention before send and recover after restart, with actual NotificationAttempts and optional Message correlation. Confirmed failure gets one valid retry; sent/delivered/read get none. Interrupted unknown result requires status recovery where supported, otherwise CRM attention without automatic resend. Queue durability is not end-to-end exactly-once delivery; validate actual adapter correlation/deduplication support.
+- Schedule the configured lead-time reminder only when its due instant is after confirmation; otherwise record omission without an attempt. Confirmation is a different notice. Reprogramming invalidates the old reminder; cancellation suppresses it. Calendar rules use tenant timezone and persisted instants use UTC, including day crossings.
+- Customer retains independent reminder/waitlist choices, including refusal, from one four-option question. Entry stores specific interest/provenance; current preference gates delivery. No repeated per-operation question; chat changes and scoped grant/revocation AuditEvents are atomic, no consent entity/per-message consent audit.
+- Before every attempt, check current consent, slot/offer validity, expiry, connection, recipient and tenant. Persist attempts and correlate delivery outcomes; a delivery failure does not roll back the booking.
 - Never assume that 600–800 monthly reminders or a specified number of WhatsApp connections is a provider-approved limit or guaranteed capacity; measure the pilot.
+
+Do not extend priority or send stale offers due to outages/restarts. The only automatic deletion in the MVP executes a customer's confirmed request after its 30-day window; no job deletes data for age ([UC-03 §18](../product-specs/uc-03/business-rules.md#18-personal-data-and-retention-dat), TD-01). CRM confirmed bookings have transactional confirmation with phone/available channel, not dependent on reminder consent.
 
 ## 11. Internal API and Integration Boundaries
 
@@ -399,11 +414,11 @@ Start with a NestJS API and a logical job worker **in the same application/proce
 
 1. A user/agent from tenant A cannot read, modify or associate tenant B's booking, customer, payment, conversation or cash information, even by tampering with IDs.
 2. Two concurrent requests cannot create overlapping **active blocking claims**, including HOLDs, payment review and exclusive waitlist offers.
-3. A ten-minute expiry never releases a booking already confirmed or moved to human payment review; five-minute offer expiry never bypasses a newer HOLD.
+3. HOLD/offer/correction-window workers recheck ownership, review, deadlines and start time; they never release confirmed, actively reviewed, newer or private started-slot capacity.
 4. A receipt cannot mark a deposit paid without recorded human verification; duplicate messages/actions do not duplicate payments or confirmations.
 5. The CRM and WhatsApp paths call the same booking core, while the landing never submits a booking.
 6. A requester cannot cancel/reschedule another WhatsApp number's bookings, even when the attendee name matches.
-7. Only authorized Staff/Admin can perform privileged operations; post-close cash correction requires Admin and leaves an immutable close history.
+7. Role-only permissions are enforced in the backend; protected Admin operations cannot be delegated; cash collection/close/refund races preserve funds and immutable closures.
 8. A human takeover prevents competing AI messages; the 60-minute return respects global AI disablement.
 9. The CRM and booking core work with Evolution/AI unavailable, and an independent installation can start without relying on another operator's services.
 
@@ -433,7 +448,7 @@ These can be checked partly with lint/import rules and partly through pull-reque
 
 ### 14.1 Architecture Decision Records (When Needed)
 
-For substantial changes, use short ADRs in `docs/adr/` with **context → decision → alternatives → consequences**. Examples: Changing the messaging adapter, splitting the worker, enabling RLS, altering tenant boundaries or adding a payment gateway. A trivial endpoint or internal rename does not need an ADR.
+Record significant technical decisions in the existing [design catalog](./index.md), under `docs/design-docs/`, with **context → decision → alternatives → consequences** and an explicit review status. Do not create a parallel ADR collection or invent historical approvals. Examples include changing a messaging adapter, splitting the worker or enabling RLS; a trivial endpoint or rename needs no separate decision document. Execution progress belongs in [ExecPlans](../PLANS.md), not a second source of business rules.
 
 ## 15. Stage 0: Architecture Foundation Exit Criteria
 
@@ -454,9 +469,9 @@ The repository foundation is ready when:
 
 ---
 
-## Final Architectural Decision
+## Proposed Architecture Summary
 
-> **Adopted architecture:** A NestJS modular monolith with pragmatic hexagonal boundaries; a feature-first Next.js mobile-first CRM and informational landing; PostgreSQL/Drizzle as the transactional source of truth; pg-boss for durable work; Evolution API/Baileys plus bounded LangGraph tools for WhatsApp self-service; manual bank-transfer verification and a shared cash register; pnpm/Turborepo and Docker Compose for independent deployments.
+> **Architecture for team review, not an implementation claim:** A NestJS modular monolith with pragmatic hexagonal boundaries; a feature-first Next.js mobile-first CRM and informational landing; PostgreSQL/Drizzle as the transactional source of truth; pg-boss for durable work; Evolution API/Baileys plus bounded LangGraph tools for WhatsApp self-service; human-verified commercial payments and a shared physical cash register; pnpm/Turborepo and Docker Compose for independent deployments.
 >
 > **Central invariant:** No channel or agent duplicates the booking domain, grants itself extra authority, or bypasses transactional exclusive-occupancy controls.
 >

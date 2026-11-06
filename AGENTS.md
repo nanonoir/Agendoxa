@@ -16,7 +16,7 @@ Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. It is 
 | How should implementation plans be maintained? | [ExecPlan conventions](docs/PLANS.md) |
 | What unresolved technical debt is recorded? | [Debt tracker](docs/exec-plans/tech-debt-tracker.md) |
 
-Existing product and target-architecture documents are proposals/in review, with explicitly confirmed UC-01 decisions and deferred questions inside them. Do not treat a proposal, illustrative directory tree, or conceptual state label as approved or implemented behavior. The indexes identify the authoritative paths for these documents.
+Existing product and target-architecture documents remain proposals/in review. The 2026-11-04 handoff is historical provenance; later product-owner agreements in canonical UC-03 supersede incompatible portions (progressive/broadcast invitations, partial-deposit protection, reusable consent choices and professional/business collection modes). Current rules/unresolved questions are in UC-03, with complementary sources under their indexes. Product-owner agreement is not collective approval or implementation; illustrative trees/conceptual labels are not physical schema.
 
 ## Operational stack and roots
 
