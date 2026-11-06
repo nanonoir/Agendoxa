@@ -73,14 +73,14 @@
 | Scope | Values | In the ERD |
 |---|---|---|
 | Installation | `Tenant.slug`, `User.email`, `Permission.key` | Yes |
-| Installation, among enabled connections | `ChannelConnection.phone_number`, (`provider`, `provider_instance_ref`) | Yes, since PR #26 |
+| Installation, among ACTIVE and PAUSED connections | `ChannelConnection.phone_number`, (`provider`, `provider_instance_ref`) | Yes, since PR #26 |
 | Tenant | `Notification.dedupe_key` | Yes, since PR #26 |
 | Tenant | `Payment.idempotency_key`, `Refund.idempotency_key`, when present | Yes, since PR #26 |
 | Parent record, already inside a tenant | `Message.provider_message_id`, `Conversation.sender_id`, and the other constraints in the ERD | Yes |
 
 - **ERD changes:** The rows marked "since PR #26", the [root references](#ten-dm-02-same-tenant-references-are-enforced-by-the-database), the [identifier type](#ten-dm-04-identifiers-are-uuids-not-derived-from-the-installation) and the meaning of ["global"](#ten-dm-01-global-means-installation-wide) came from the [tenant-isolation review of PR #26](https://github.com/nanonoir/Agendoxa/pull/26#issuecomment-6664473184) and are applied there. The ERD remains their only source.
 - **Comparison limit:** `PaymentReview.evidence_fingerprint` is compared only inside its tenant. A receipt seen in one business says nothing about another.
-- **Example:** If two tenants could enable the same number, an incoming message would match two connections and the requester could act on the wrong business. With this rule the second connection is rejected ([CU-18 A4](../product-specs/uc-02/use-cases.md#cu-18), still a proposal) and the first keeps working.
+- **Example:** If two tenants could use the same number, an incoming message would match two connections and the requester could act on the wrong business. With this rule the second connection is rejected while the first is ACTIVE or PAUSED ([CU-18 A4](../product-specs/uc-02/use-cases.md#cu-18), still a proposal) and the first keeps working.
 - **Reference:** [BR-TEN-02](../product-specs/uc-03/business-rules.md#2-tenants-and-isolation-ten), [T-02 to T-05](./erd.md#technical-review-register).
 
 ## 4. Users and memberships
@@ -107,8 +107,8 @@
 | Entry point | Tenant comes from | Identity comes from |
 |---|---|---|
 | CRM ([CU-17](../product-specs/uc-02/use-cases.md#cu-17)) | Business selected among the user's active memberships, revalidated on each request | Authenticated `User` and its membership |
-| WhatsApp message | The `ChannelConnection` a verified webhook resolves to. An enabled connection prevails; a message that resolves only to one disabled connection is stored there with no AI reply or automatic notices ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)) | Validated sender, inside that tenant |
-| AI agent tools | Fixed by the enabled connection; the model does not choose it ([BR-AGT-02](../product-specs/uc-03/business-rules.md#13-ai-agent-agt-and-human-handoff-hnd)) | The conversation's requester |
+| WhatsApp message | The single ACTIVE or PAUSED `ChannelConnection` a verified webhook resolves to. On a PAUSED connection the message is stored with no AI reply or automatic notices ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)) | Validated sender, inside that tenant |
+| AI agent tools | Fixed by the ACTIVE connection; they never run on a PAUSED one. The model does not choose it ([BR-AGT-02](../product-specs/uc-03/business-rules.md#13-ai-agent-agt-and-human-handoff-hnd)) | The conversation's requester |
 | Background job | Job payload, checked against the current record ([TEN-DM-08](#ten-dm-08-jobs-carry-and-recheck-their-tenant)) | System |
 | Operational tooling | Not a business context: no default access ([ACT-06](../product-specs/uc-01/actors.md#11-human-actors)) | Operator |
 
@@ -117,14 +117,14 @@
 | Operation | Context | Reads | Returns |
 |---|---|---|---|
 | Sign-in ([CU-17](../product-specs/uc-02/use-cases.md#cu-17)) | None yet | `User` by `email` | The user and their active memberships |
-| Incoming webhook | None yet | `ChannelConnection` by (`provider`, `provider_instance_ref`) | The connection it resolves to and its tenant: an enabled one, otherwise exactly one disabled one |
+| Incoming webhook | None yet | `ChannelConnection` by (`provider`, `provider_instance_ref`) | The one ACTIVE or PAUSED connection it resolves to and its tenant, or none |
 | Public routing, if used | None | `Tenant` by `slug` | Public display data only; never authorization |
 | Permission catalog | Any | `Permission` | The global catalog |
 | Business onboarding ([CU-20](../product-specs/uc-02/use-cases.md#cu-20)) | Operational tooling, outside any business | Uniqueness of `Tenant.slug` and `User.email` | The new tenant, its first Admin and their membership; no access to other tenants' data |
 | Adding personnel | The Admin's validated tenant | `User` by `email` | Whether a membership can be created, without exposing the person's other memberships; the flow itself is open ([TEN-Q6](#10-open-questions)) |
 | Worker scheduling and recovery ([architecture §6.5](./target-architecture.md#65-cross-module-atomicity-and-delayed-effects), [§10.3](./target-architecture.md#103-durable-jobs-and-notifications)) | System | Due work in every tenant, such as pending notices and expiring HOLDs | Only `tenant_id` and record IDs; each item then runs in its own tenant context ([TEN-DM-08](#ten-dm-08-jobs-carry-and-recheck-their-tenant)) |
 
-- **Example:** A Staff member of tenant A who requests a booking of tenant B gets `not_found`, so its existence is not confirmed ([EJ-01](../product-specs/uc-03/invariants.md#1-tenant-isolation)). A message that matches no connection, or several disabled ones, resolves no tenant and is not processed. One that matches a single disabled connection is stored in that tenant's CRM inbox, with no AI reply.
+- **Example:** A Staff member of tenant A who requests a booking of tenant B gets `not_found`, so its existence is not confirmed ([EJ-01](../product-specs/uc-03/invariants.md#1-tenant-isolation)). A message that matches no ACTIVE or PAUSED connection, for example one whose connection is RETIRED, resolves no tenant and is not processed. One on a PAUSED connection is stored in that tenant's CRM inbox, with no AI reply.
 - **Reference:** [architecture §8.2](./target-architecture.md#82-tenant-boundary-and-authentication), [EJ-03](../product-specs/uc-03/invariants.md#1-tenant-isolation).
 
 ### TEN-DM-08: Jobs carry and recheck their tenant
@@ -178,7 +178,7 @@
 | `User` | Only people with a membership in the moved tenant. Matched by `email` at the destination, never merged silently. `credential_ref` does not travel: each person re-establishes access. Other memberships are not exported. |
 | `TenantMembership` | `user_id` is rewritten when the person already exists at the destination. The membership keeps its ID, so actor references stay valid. |
 | `Permission`, `RolePermission` | The destination has its own catalog. `permission_id` is resolved through `Permission.key`, which changes the `RolePermission` key. An unknown key stops the import. |
-| `ChannelConnection` | Same row, to keep [one continuous thread](./erd.md#27-module-6--whatsapp-conversations-and-messages). It arrives disabled, without `provider_instance_ref` or `credential_ref` values from the source, and is reconnected through [CU-18](../product-specs/uc-02/use-cases.md#cu-18). |
+| `ChannelConnection` | Same row, to keep [one continuous thread](./erd.md#27-module-6--whatsapp-conversations-and-messages). It arrives RETIRED, without `provider_instance_ref` or `credential_ref` values from the source, and is reconnected through [CU-18](../product-specs/uc-02/use-cases.md#cu-18). |
 | `StoredAsset` | Bytes are copied and `storage_key` is rewritten, so it must stay relative to the installation's storage. Rows with `deleted_at` have no bytes to copy. |
 
 **Data that needs care even when portable:**
@@ -215,14 +215,14 @@ The only cycle is the `Tenant` cursors, solved by setting them last. `Payment.co
 ### TEN-DM-11: A dedicated installation uses the same model
 
 - **What:** Applies [architecture §8.1](./target-architecture.md#81-deployment-modes) to this design.
-- **Rule:** A dedicated installation keeps `tenant_id`, memberships, tenant context and every constraint. It has no special code path. Uniqueness across an installation cannot be enforced between installations, so a WhatsApp number must be disabled at the source before it is enabled at the destination.
+- **Rule:** A dedicated installation keeps `tenant_id`, memberships, tenant context and every constraint. It has no special code path. Uniqueness across an installation cannot be enforced between installations, so a WhatsApp connection must be RETIRED at the source before the number is activated at the destination.
 - **Example, on paper, moving tenant Y from a shared to a dedicated installation:**
   1. Confirm authorization and the source's fate ([TEN-Q3](#10-open-questions)), and that both installations run a compatible version.
-  2. Stop tenant Y's activity at the source ([TEN-Q4](#10-open-questions)) and disable its WhatsApp connection. A disabled connection still stores incoming messages ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)), so the provider instance must also stop delivering to the source.
+  2. Stop tenant Y's activity at the source ([TEN-Q4](#10-open-questions)) and retire its WhatsApp connection, which frees the number and stops processing messages at the source ([BR-NOT-05](../product-specs/uc-03/business-rules.md#14-notifications-and-consent-not)). A pause is not enough, because it keeps the number.
   3. Copy tenant Y's records and asset bytes, following the [treatments and order](#ten-dm-10-each-record-has-a-known-treatment-in-a-future-move).
   4. Verify counts, references and that every record has tenant Y's `tenant_id`.
   5. Rebuild pending jobs, reconnect WhatsApp and have personnel re-establish access.
-  6. **If it fails:** discard the destination and resume at the source. Enabling the destination is the point of no return.
+  6. **If it fails:** discard the destination and resume at the source, reconnecting its number through [CU-18](../product-specs/uc-02/use-cases.md#cu-18). Activating the destination is the point of no return.
 - **Reference:** [MVP §6.2](../product-specs/mvp.md#62-tenant-isolation-and-future-portability), [CU-20 A2](../product-specs/uc-02/use-cases.md#cu-20).
 
 ## 9. Future verification
@@ -236,9 +236,10 @@ None of these checks exists yet. They are inputs for REP-02 and REP-03, using th
 | Same phone as a customer in two tenants | Independent records and history | EJ-03 |
 | Point a `Tenant` cursor at another tenant's record | Rejected by the database | TEN-DM-02 |
 | Write an `AuditEvent` naming another tenant's record | Rejected by the application | TEN-DM-03 |
-| Enable the same number in a second tenant | Rejected; the first keeps working | TEN-DM-05 |
-| Message whose only matching connection is disabled | Stored in that tenant's inbox; no AI reply or notices | TEN-DM-07, BR-NOT-05 |
-| Message matching no connection, or several disabled ones | Not processed | TEN-DM-07 |
+| Use a number that another tenant has ACTIVE | Rejected; the first keeps working | TEN-DM-05 |
+| Message on a PAUSED connection | Stored in that tenant's inbox; no AI reply or notices | TEN-DM-07, BR-NOT-05 |
+| Message on a RETIRED connection, or matching none | Not processed | TEN-DM-07, BR-NOT-05 |
+| Use a number that another tenant has PAUSED | Rejected until that connection is RETIRED | TEN-DM-05, CU-18 A4 |
 | Same `dedupe_key` in two tenants | Both accepted | TEN-DM-05 |
 | Person with two memberships switches business | Only the new role applies; no data from the other tenant | TEN-DM-06 |
 | Job with a mismatched `tenant_id` | No effect; reported | TEN-DM-08 |
