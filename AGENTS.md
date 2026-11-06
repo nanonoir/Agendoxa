@@ -1,6 +1,6 @@
 # Agent guide
 
-Agendoxa is a modular booking and customer-service platform. This repository currently contains the foundation only: a starter web page, a health API, and a shared contract. Product workflows are not implemented.
+Agendoxa is a modular booking and customer-service platform. This repository contains a starter web page, health API, shared contract and first PostgreSQL/Drizzle persistence increment. Product workflows are not implemented.
 
 ## Start here
 
@@ -28,9 +28,9 @@ Manifests, lockfile, and configuration are authoritative for dependencies and ve
 | `apps/web` (`@agendoxa/web`) | Next.js **16.4.3** App Router, React **19.3.0**, Tailwind 4; routes in `src/app`, assets in `public`; no component library |
 | `apps/api` (`@agendoxa/api`) | NestJS 12, ESM/NodeNext; Vitest 4 and Supertest; oxlint with type analysis; local Prettier configuration |
 | `packages/shared` (`@agendoxa/shared`) | Portable Zod 4 contracts and inferred types; `src/index.ts` builds to `dist` |
-| `packages/database` (`@agendoxa/database`) | Server-only placeholder; no persistence dependencies, schema, client, migrations, or scripts yet |
+| `packages/database` (`@agendoxa/database`) | Server-only Drizzle 0.45.4/node-postgres 8.23.1, 17-entity core schema, versioned SQL, migration/seed scripts and Vitest integration tests |
 
-PostgreSQL/Drizzle, pg-boss, Evolution/Baileys, LangGraph, Compose, CI workflows, and a `ui` package appear in proposals but are not present in the implementation.
+Compose provides PostgreSQL 18 for local development and a separate test profile. pg-boss, Evolution/Baileys, LangGraph, CI workflows and a `ui` package remain unimplemented. See [the bounded persistence design](docs/design-docs/rep-02-core-persistence.md); RLS, authorization and full reservation workflows are not delivered by the schema.
 
 ## Commands and environment
 
@@ -40,14 +40,18 @@ Run from the repository root:
 |---|---|
 | `pnpm install` | Install workspace dependencies |
 | `pnpm dev` | Build workspace dependencies and start web (3000) and API (3001 by default) |
-| `pnpm build` | Build shared, API, and web through Turbo |
-| `pnpm lint` | Web ESLint and API type-aware oxlint |
-| `pnpm typecheck` | Shared/API TypeScript checks; web also runs `next typegen` |
+| `pnpm build` | Build shared, database, API, and web through Turbo |
+| `pnpm lint` | Web ESLint and API/database type-aware oxlint |
+| `pnpm typecheck` | Shared/database/API TypeScript checks; web also runs `next typegen` |
 | `pnpm test` | API unit tests, not E2E |
+| `pnpm db:up` / `pnpm db:test:up` | Start local development/test PostgreSQL; requires root `.env` |
+| `pnpm db:migrate` / `pnpm db:seed` | Apply versioned SQL / load development fixtures |
+| `pnpm db:generate` / `pnpm db:check` | Generate schema migrations / check metadata consistency |
+| `pnpm test:db` | Isolated PostgreSQL integration tests; requires DATABASE_URL_TEST |
 
 Turbo tasks depend on `^build`. Direct `pnpm --filter` commands bypass that preparation: run `pnpm --filter @agendoxa/shared build` first when its output is missing or changed.
 
-The API loads the root `.env` when present and listens on `PORT` or 3001. Web variables belong in `apps/web/.env.local`, not the root `.env`. See [the environment example](.env.example); `DATABASE_URL` is not connected to any runtime persistence yet.
+The API loads root `.env`, requires DATABASE_URL and listens on PORT or 3001. Its database pool is lazy; /health is liveness, not database readiness. Web variables belong in `apps/web/.env.local`. See [the environment example](.env.example). The database package must also be built before direct filtered API commands.
 
 ## Local conventions and boundaries
 
@@ -68,6 +72,9 @@ Choose checks for the affected workspace; do not run full suites by default on f
 | Health HTTP contract | `pnpm --filter @agendoxa/api test:e2e test/app.e2e-spec.ts` |
 | Web | `pnpm --filter @agendoxa/web lint` and `pnpm --filter @agendoxa/web typecheck` |
 | Shared | `pnpm --filter @agendoxa/shared typecheck` and `pnpm --filter @agendoxa/shared build`; check affected consumers |
+| Database | `pnpm --filter @agendoxa/database lint`, `typecheck` and `build`; `pnpm db:check` |
+| Database integrity | `pnpm db:test:up` then `pnpm test:db`; creates/drops a uniquely named child database only |
+| NestJS/PostgreSQL | `pnpm --filter @agendoxa/api test:integration` with DATABASE_URL_TEST |
 | Documentation only | Verify paths, links, and commands; `git diff --check` (also inspect untracked files, which ordinary diffs omit) |
 
-For build/dependency changes, also run the relevant build, or `pnpm build` for monorepo-wide changes. API unit tests (`*.spec.ts`) and E2E (`*.e2e-spec.ts`) use separate Vitest configurations. Current E2E uses Supertest with an in-memory Nest app, not a browser or external server. Web/shared/database have no test scripts. Future authorization, isolation, and concurrency checks described in the proposal do not exist yet.
+For build/dependency changes, also run the relevant build, or `pnpm build` for monorepo-wide changes. API unit, E2E and PostgreSQL integration tests have separate configurations. E2E uses Supertest with an in-memory Nest app and overridden database provider. Web/shared have no test scripts. Database tests verify reference integrity and concurrency, not tenant authorization or complete use cases. SQL-only constraints/triggers are in custom migrations; do not replace them with drizzle-kit push.

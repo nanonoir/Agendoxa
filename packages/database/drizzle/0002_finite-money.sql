@@ -1,0 +1,3 @@
+ALTER TABLE "services" ADD CONSTRAINT "services_price_finite" CHECK ("services"."price" <> 'NaN'::numeric);--> statement-breakpoint
+ALTER TABLE "booking_policies" ADD CONSTRAINT "booking_policies_deposit_finite" CHECK ("booking_policies"."deposit_value" IS NULL OR "booking_policies"."deposit_value" <> 'NaN'::numeric);--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_amounts_finite" CHECK ("bookings"."agreed_price" <> 'NaN'::numeric AND ("bookings"."required_deposit" IS NULL OR "bookings"."required_deposit" <> 'NaN'::numeric));
