@@ -38,7 +38,7 @@ Use the bounded implementation proposal linked above. In particular, the candida
 - Development seed is insert-only/repeatable, requires NODE_ENV=development and creates no login credentials. Integration tests create and drop only their uniquely named child database on the separate test service.
 - Incremental red/green checks exposed missing schema, occupancy/history/concurrency safeguards, connection lifecycle, seed behavior and PostgreSQL numeric NaN handling before the corresponding implementation.
 - Independent read-only review identified an unhandled idle pool error. A failing regression reproduced it; the fix handles the event with a sanitized warning, and the full suite passes. The follow-up review found no remaining blocking defect within the documented scope; this does not replace human PR approval.
-- Opened [PR #29](https://github.com/nanonoir/Agendoxa/pull/29) toward develop and requested review from nanonoir. Project status is In review for this increment; #15 remains open and no merge was performed.
+- Opened [PR #29](https://github.com/nanonoir/Agendoxa/pull/29) toward develop and requested review from nanonoir. #15 remains open and no merge was performed. Moving the Project item to In review failed because the current token lacks the project write scope; its actual status remains In progress. The [issue progress comment](https://github.com/nanonoir/Agendoxa/issues/15#issuecomment-6697335055) records this limitation and corrects the initial status claim. A collaborator with Project write access must apply the transition.
 
 ## Validation
 
