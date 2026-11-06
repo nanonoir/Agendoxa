@@ -63,6 +63,7 @@ stateDiagram-v2
     EXPIRED --> [*]
     CANCELLED --> [*]
     COMPLETED --> [*]
+    NO_SHOW --> [*]
 ```
 
 ### 2.1 Allowed Transitions
@@ -82,7 +83,7 @@ stateDiagram-v2
 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and manually allocated to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
 | Initial evidence rejection / correction | New evidence or valid manual resolution | Authorized role | Yes | Guarded timeout only | BR-SEN-10 applies only without verified partial deposit; pending review suspends timeout, started slots require manual handling. Partial verified funds invoke BR-SEN-11, never automatic release. | Updated F-018; follow-up P-27 |
 | Pending review / partial-deposit waiting → `CANCELLED` | Explicit confirmation; accepted consequence if late | Applicable permission/policy | Yes | No financial timeout | Release immediately upon authorized cancellation; review/refund continues separately. | BR-CAN-04, BR-SEN-11 |
-| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With partial deposit already verified, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late reschedule with a lost deposit: personnel resolve it (BR-CAN-14). | Product-owner decision F-006, F-010; BR-CAN-14 |
+| `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With a verified deposit that does not cover the destination, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late reschedule with a lost deposit: personnel resolve it (BR-CAN-14). | Product-owner decision F-006, F-010; BR-CAN-14 |
 | `CONFIRMED` → `CANCELLED` | Explicit confirmation; accepted consequence if late | Same rule, or operational business cause with reason | Also exceptions to the consequence | No | Release without waiting for finances; notify customer. | BR-CAN-03–06, BR-CAN-14 |
 | `CONFIRMED` → `COMPLETED` | No | Yes | Yes | **No** | Manual, current instant >= start. | Follow-up P-06 |
 | `CONFIRMED` → `NO_SHOW` | No | Yes | Yes | **No** | Manual, current instant >= start + 15 minutes. | Follow-up P-06 |
@@ -143,10 +144,10 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-DISP-02 | Ranges are `[start, end)`: a booking ending at 11:00 does not overlap one starting at 11:00. | DB + TX | BR-RES-02 |
 | INV-DISP-03 | Instants are stored unambiguously; business hours are interpreted in the tenant's timezone. | DB + UC | BR-TEN-04 |
 | INV-DISP-04 | WhatsApp and CRM may use authorized extraordinary openings, but no booking overrides a block or active claim. | UC | BR-DISP-03, BR-DISP-07 |
-| INV-DISP-08 | Extraordinary openings require an authorized availability role and retain attribution; blocks require explicit authorized modification or removal. | UC | BR-DISP-06, BR-IAM-05 |
 | INV-DISP-05 | A booking's resource is compatible with its service. | UC (+ DB where the relation allows it) | BR-CAT-03 |
 | INV-DISP-06 | An availability query **never** creates occupancy. | UC | BR-DISP-04 |
 | INV-DISP-07 | No database transaction stays open while waiting for a human, an LLM or WhatsApp delivery. | TX | ARQ §6.5, §9.3 |
+| INV-DISP-08 | Extraordinary openings require an authorized availability role and retain attribution; blocks require explicit authorized modification or removal. | UC | BR-DISP-06, BR-IAM-05 |
 | INV-DISP-09 | Atomically enforce current tenant booking lead time (default 0), no past-start booking, resource-selection mode and any enabled future-booking cap. Count third-party occupying bookings against requester, and serialize competing creations to avoid exceeding the cap. | TX | BR-DISP-05/09, BR-CLI-10 |
 
 **EJ-08 · Race between channels.** Given two simultaneous requests for Court 1 from 19:00 to 20:00 — one by WhatsApp, one by the CRM — when both passed the availability query, then exactly one claim is created and the other gets `conflict`.
@@ -233,7 +234,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-CAN-02 | A failed reschedule (unavailable target, unauthorized exception or conflict) leaves the original booking intact. | TX | BR-CAN-08 |
 | INV-CAN-03 | A successful reschedule occupies the new slot and releases the old one **in the same transaction**. | TX | BR-CAN-12 |
 | INV-CAN-04 | After a reschedule, verified payments stay linked to the booking. | TX | BR-CAN-09 |
-| INV-CAN-05 | For an eligible reschedule with verified partial deposit, move first and request the difference afterwards; it remains confirmed if unpaid. Prior authorization does not hold the target; `FULL_PREPAYMENT` still applies absent Admin exception. | TX + UC | BR-CAN-10 |
+| INV-CAN-05 | For an eligible reschedule of a `CONFIRMED` booking whose verified deposit does not cover the destination, move first and request the difference afterwards; it remains confirmed if unpaid. Prior authorization does not hold the target; `FULL_PREPAYMENT` still applies absent Admin exception. | TX + UC | BR-CAN-10 |
 | INV-CAN-06 | Cancelling or rescheduling voids the reminders scheduled for the old slot. | TX + JOB | BR-NOT-03 |
 | INV-CAN-07 | Customer commercial-policy exceptions require recorded Admin authorization/reason. Operational business cancellation is separately permitted to cancellation-capable personnel with reason and customer notification, not authority to grant customer exceptions. | UC | BR-CAN-03, BR-CAN-06 |
 | INV-CAN-08 | Authorized explicitly confirmed cancellation releases the claim and suppresses old reminders atomically, regardless of pending verification or partial deposit. Financial review/refund proceeds independently and cannot retain/recover the cancelled slot; all refunds remain manual/Admin-authorized. | TX | BR-CAN-04 |
@@ -247,9 +248,9 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 
 **EJ-25 · Reschedule without room.** Given a booking on Thursday 19:00, when the customer asks for Friday 19:00 and it is taken, then the Thursday booking is unchanged.
 
-**EJ-26 · Cheaper reschedule.** Given $8,000 verified and explicitly manually allocated to a booking's charge, when it is rescheduled to a service with a $15,000 total and those allocations remain valid, then $7,000 is due and nothing is refunded. If the funds were unallocated, $15,000 would remain due until explicit manual allocation.
+**EJ-26 · Reschedule to a more expensive service.** Given $8,000 verified and explicitly manually allocated to a booking's charge, when it is rescheduled to a service with a $15,000 total and those allocations remain valid, then $7,000 is due and nothing is refunded. If the funds were unallocated, $15,000 would remain due until explicit manual allocation.
 
-**EJ-27 · Extra deposit pending.** Given an eligible reschedule with a previously verified partial deposit and $2,000 additional deposit, when the move succeeds, the new slot is confirmed and the old slot released before requesting the difference; pending review or nonpayment does not reverse or cancel the move.
+**EJ-27 · Extra deposit pending.** Given an eligible reschedule of a confirmed booking with a previously verified deposit and $2,000 additional deposit, when the move succeeds, the new slot is confirmed and the old slot released before requesting the difference; pending review or nonpayment does not reverse or cancel the move.
 
 ## 7. Waitlist and Exclusive Offers
 
@@ -267,6 +268,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-WL-10 | Expire an entry when its requested range has no future slot, or close on fulfilled booking/customer withdrawal. Failed/unanswered notices alone do not remove it. No three-offer cap or extra per-person exclusivity is inferred. | JOB + UC | BR-WL-12 |
 | INV-WL-11 | A queue never exceeds 10 people in the MVP; enrollment checks the limit atomically. | TX | BR-WL-14 |
 | INV-WL-12 | A round's mode does not change once started. A person who let their HOLD expire is not invited in the next round for that slot, and nobody can claim after the slot starts or after leaving the queue. | UC + TX | BR-WL-15 |
+| INV-WL-13 | A `BLOCKED` customer is never enrolled or invited; an existing entry keeps its place and counts toward the limit, and is eligible again once the restriction is removed. | UC | BR-WL-16 |
 
 **EJ-28 · One offer at a time.** Given two customers waiting for Court 2 at 22:00, when the slot is released, then only the first one receives an offer.
 
@@ -351,7 +353,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-NOT-01 | Each confirmed booking slot has **at most one logical reminder** (deduplication key). This is an internal guarantee: WhatsApp delivery is not exactly once. | DB + JOB | BR-NOT-01; ARQ §10.3 |
-| INV-NOT-02 | Before each reminder attempt, re-check `CONFIRMED`, same slot, reminder consent, enabled channel and phone. Offer attempts instead require a valid unexpired offer and its independent opt-in. The staff rejection alert validates its recorded event and authorized tenant audience, not customer consent or `CONFIRMED` status. A failed applicable guard suppresses the send. | JOB | BR-NOT-03 |
+| INV-NOT-02 | Before each reminder attempt, re-check `CONFIRMED`, same slot, reminder consent, ACTIVE connection and phone. Offer attempts instead require a valid unexpired offer and its independent opt-in. The staff rejection alert validates its recorded event and authorized tenant audience, not customer consent or `CONFIRMED` status. A failed applicable guard suppresses the send. | JOB | BR-NOT-03 |
 | INV-NOT-03 | Every attempt and its result are recorded, and none of them changes the booking. | JOB | BR-NOT-04 |
 | INV-NOT-04 | A reminder is sent only with reminder consent, and a waitlist notice only with waitlist consent. | JOB | BR-NOT-02, BR-WL-02 |
 | INV-NOT-05 | Persist the notice/intention before send and recover work after crash. Actual attempts retain optional Message correlation; retries preserve logical identity. Confirmed failure allows one retry, sent/delivered/read none, unknown outcome requires status recovery or CRM attention without automatic resend. Always recheck validity; neither outages nor retries extend priority. | TX + JOB | BR-NOT-04, BR-NOT-10 |

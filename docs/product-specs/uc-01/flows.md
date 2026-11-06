@@ -294,7 +294,7 @@ flowchart TD
 **Main flow**
 1. Check notice window and configured rescheduling limit (**unlimited by default**); query candidate slot without releasing old one.
 2. Preserve verified payments; compute new price, outstanding balance and any additional required deposit.
-3. Ask for explicit confirmation. For an allowed change with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving payments and allocations.
+3. Ask for explicit confirmation. For an allowed change of a confirmed booking whose credited deposit does not cover the destination, atomically move the confirmed booking and release the old slot, preserving payments and allocations.
 4. Request and verify any additional deposit afterwards; record the change request, booking event and financial consequences. Consider [CU-06](#cu-06) for the old slot and notify the customer.
 
 **Alternatives:** Outside the notice window → warn of the consequence and proceed on acceptance without Admin, counting a late reschedule. If the deposit is lost under tenant policy, personnel resolve the case and the AI only communicates the policy and next steps. Over the limit or an exception to the consequence → Admin-only documented exception; while prior approval is pending, do not lock the target. Unavailable slot, declined confirmation or transaction conflict → original booking stays intact. Nonpayment or rejection of supplemental evidence after the move leaves the new booking confirmed; manage manually, never automatically cancel or restore the old slot. `FULL_PREPAYMENT` and Admin-only exceptions remain applicable. Excess funds are resolved manually without automatic refund.
@@ -501,7 +501,7 @@ flowchart TD
 | Receipt arrives just before HOLD expiry | Remains blocked for human payment verification | [CU-03](#cu-03) |
 | Fixed Friday 22:00 slot is unavailable | Direct waitlist option | [CU-01](#cu-01), [CU-05](#cu-05) |
 | Several waitlisted customers claim simultaneously | One atomic ten-minute HOLD winner; only winner gets transfer instructions, not confirmed booking | [CU-06](#cu-06) |
-| Change requires more deposit after a credited partial deposit | Move confirmed booking atomically first; verify difference later, without automatic cancellation | [CU-09](#cu-09) |
+| Change of a confirmed booking requires more deposit | Move confirmed booking atomically first; verify difference later, without automatic cancellation | [CU-09](#cu-09) |
 | Cash counted below expected | Manual close allowed with documented variance | [CU-13](#cu-13) |
 | Human stops responding for 60 minutes | Resume AI only if global mode remains enabled | [CU-14](#cu-14) |
 

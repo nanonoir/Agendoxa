@@ -150,7 +150,7 @@ erDiagram
 - **DM-08, updated:** For 1–4 eligible people, first priority creates a five-minute offer claim; then invite another every five minutes while previous recipients remain eligible. For 5+, notify simultaneously without exclusive claims. `ExclusiveOffer` is retained as a legacy name, not a promise that every invitation is exclusive. Winning a valid claim atomically closes any initial priority claim and creates one distinct ten-minute booking HOLD; only then issue transfer instructions. Each invitation links to at most one resulting booking. Late priority expiry never releases a newer HOLD.
 - Persist audience, initial priority deadline versus final claim validity, progressive schedule and shared release/round correlation using existing records, not parallel exclusive claims or a new entity. Exact representation/concurrency remains **T-01/T-05**. Only initial priority blocks ordinary availability; later invitations do not freeze it, and all channels share atomic occupancy checks. Round behavior and the fixed limit of 10 per queue are product rules (BR-WL-14–15); how to enforce them is **T-01**.
 - In the WhatsApp channel, a concrete slot selection starts a ten-minute `HOLD`. Without a deposit, explicit confirmation during the hold confirms the booking. With a deposit, timely receipt submission enters human payment review; the slot stays occupied with **no automatic payment-review timeout**. Evidence never establishes verified funds by itself.
-- A pending authorization in `BookingChangeRequest` **does not lock the destination**; recheck it on approval. With an already verified partial deposit and an allowed move, atomically move the confirmed booking and release the old slot, preserving allocations; request the difference afterward. The destination is `CONFIRMED`, not a HOLD or pending review, and nonpayment is managed manually without automatic cancellation (**DM-09**; [rescheduling](../product-specs/uc-03/business-rules.md#8-cancellation-and-rescheduling-can)).
+- A pending authorization in `BookingChangeRequest` **does not lock the destination**; recheck it on approval. When the verified deposit of a confirmed booking does not cover the destination and the move is allowed, atomically move the booking and release the old slot, preserving allocations; request the difference afterward. The destination is `CONFIRMED`, not a HOLD or pending review, and nonpayment is managed manually without automatic cancellation (**DM-09**; [rescheduling](../product-specs/uc-03/business-rules.md#8-cancellation-and-rescheduling-can)).
 - `BookingEvent` records booking lifecycle history; `AuditEvent` records sensitive administrative decisions. Some actions may generate both without making the entities interchangeable.
 - WaitlistEntry alone never occupies a resource. Optional preferred resource must be compatible/same-tenant; otherwise any compatible resource. Time preferences and current eligibility apply; arrival order controls progressive invitations, not the first successful atomic winner once competition opens. Delayed priority expiry cannot cancel a later HOLD.
 - **Hard invariant:** active claims for the same tenant/resource cannot overlap on `[start, end)`. Early `COMPLETED`/`NO_SHOW` does not expose remaining time to ordinary public queries, WhatsApp or waitlist. Authorized explicit CRM walk-in reuse atomically closes the old claim and creates the walk-in claim plus any private restricted residual fragments, preserving the original full interval and claim history. No restricted fragment is automatically offered; correcting a no-show does not displace the walk-in. This fragment representation is an **inferred technical proposal for review**, not a new product decision; no new entity is required (**REV-07**–**REV-11**, **T-01**).
@@ -300,7 +300,7 @@ erDiagram
 | `DM-06` | Policy precedence | Per-field override: resource > service > tenant |
 | `DM-07` | Occupancy | One active claim for ordinary bookings; early-terminal private residual fragments are an inferred technical representation |
 | `DM-08` | Waitlist | Initial exclusive priority only for 1–4; progressive competition or 5+ broadcast, unique HOLD winner and optional historical offer claim |
-| `DM-09` | Rescheduling | Prior approval takes no target lock; an eligible partially prepaid move stays confirmed while its difference is collected later |
+| `DM-09` | Rescheduling | Prior approval takes no target lock; an eligible move of a confirmed booking stays confirmed while any deposit difference is collected later |
 | `DM-10` | Payment allocations | Payments can be split across charges and temporarily left unallocated |
 | `DM-11` | Receiving accounts | Three collection modes, professional account/business fallback; sequential business-pool rotation, immutable issued instructions |
 | `DM-12` | Cash corrections | `CashAdjustment` after close; immutable closed session |
@@ -562,7 +562,7 @@ An empty field means inherit. An explicit disable is a value of its own, so inhe
 | service_id | Identifier | Cond. | FK → `Service`, when scope is SERVICE |
 | resource_id | Identifier | Cond. | FK → `Resource`, when scope is RESOURCE |
 | notice | Minutes | N | Tenant default 600 (10 hours) |
-| booking_lead | Minutes | N | Tenant default 0 |
+| booking_lead | Minutes | N | Tenant scope only (BR-DISP-09); default 0 |
 | reminder_lead | Minutes | N | |
 | deposit_mode | Enum | N | DISABLED, FIXED, PERCENTAGE |
 | deposit_value | Money or Int | Cond. | Amount or percentage, per `deposit_mode` |
@@ -672,7 +672,7 @@ Current resource and time come from the active `SlotClaim`; `Booking` holds no c
 | arrival_at | Instant | Y | Orders progressive invitations |
 | consent_provenance | Text | Y | How and when interest was expressed; current `Customer` preference still gates sending |
 
-**Constraint:** at most 10 people per queue, checked atomically on enrollment. How overlapping ranges form one queue is **[T-01]**.
+**Constraint:** at most 10 people per queue, checked atomically on enrollment. An entry whose requester is `BLOCKED` stays ACTIVE and counts, but is not eligible; that is derived from `CustomerRestriction` (BR-WL-16). How overlapping ranges form one queue is **[T-01]**.
 
 #### `ExclusiveOffer`
 

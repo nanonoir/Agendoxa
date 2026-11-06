@@ -199,7 +199,7 @@ flowchart TD
 | CU-20 → CU-17 → every CRM case | No tenant context or role exists without an onboarded business and an active membership. |
 | CU-15 → CU-01, CU-21 | Availability, prices, deposit rules and aliases come from configuration; the AI must not invent them. |
 | CU-18 → every WhatsApp case | The tenant of an incoming message comes from the validated channel connection. |
-| CU-11 → CU-03, CU-09 | Verification records actual credit; an eligible reschedule with an already credited partial deposit moves before supplemental verification. |
+| CU-11 → CU-03, CU-09 | Verification records actual credit; an eligible reschedule of a confirmed booking whose credited deposit does not cover the destination moves before supplemental verification. |
 | CU-07 → CU-08, CU-09 (WhatsApp) | The customer can act only on bookings the system shows as theirs. From the CRM, the agenda (CU-21) is the entry point. |
 | CU-10 → CU-12 | The internal indicator derives from the requester's current no-show bookings. |
 | CU-13 → CU-11 | Only cash collection requires an open cash session. |
@@ -446,7 +446,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A1 — Alternative accepted:** At step 1, continue in CU-02/CU-03; no entry is created.
 - **A2 — Opt-in declined:** At step 3, nothing is recorded.
 - **A3 — Duplicate interest:** At step 3, the existing entry is kept with its original arrival order.
-- **A4 — Blocked customer:** At step 2, the waitlist is not offered *(proposal)*.
+- **A4 — Blocked customer:** At step 2, the waitlist is not offered and nothing is recorded; the AI replies as it does when they cannot book, without revealing the label (BR-WL-16).
 - **A5 — Queue full:** At step 3, a queue already holds the MVP limit of 10 people (BR-WL-14); nothing is recorded. The AI says it is full and offers other times, with no reserve list.
 
 #### Outcome / Postconditions
@@ -470,7 +470,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **Participants:** AI agent; notification job ([CU-16](#cu-16)).
 - **Channel:** WhatsApp.
 - **Trigger:** A compatible slot is actually released ([§4.2](#42-triggering-events)).
-- **Preconditions:** The slot is still free; an eligible opted-in entry exists with valid consent; the channel is enabled.
+- **Preconditions:** The slot is still free; an eligible opted-in entry exists with valid consent; the connection is ACTIVE.
 
 #### Main Flow
 1. Determine eligible people for the released slot and selected mode: 1–4 progressive, 5+ simultaneous.
@@ -583,7 +583,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 2. The candidate slot is checked without releasing the current one.
 3. Verified payments are kept; the new price, balance and any additional deposit are computed.
 4. The customer explicitly confirms the new conditions. If policy requires prior human approval, do not occupy the target while awaiting it.
-5. For an allowed move with a previously credited partial deposit, atomically move the confirmed booking and release the old slot, preserving verified payments and allocations; record the change request, booking event and financial consequences.
+5. For an allowed move whose credited deposit does not cover the destination, atomically move the confirmed booking and release the old slot, preserving verified payments and allocations; record the change request, booking event and financial consequences.
 6. Request and verify any additional deposit afterwards ([CU-11](#cu-11)); reschedule reminders, notify the customer and consider [CU-06](#cu-06) for the old slot. `FULL_PREPAYMENT` remains applicable unless Admin authorizes an exception.
 
 #### Alternatives and Exceptions
@@ -828,7 +828,7 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 - **Preconditions:** An active booking or offer; timing in the tenant's timezone; valid consent of the right type ([CU-19](#cu-19) or [CU-05](#cu-05)).
 
 #### Main Flow
-1. Before sending, the job re-checks that the booking is still confirmed for the same slot (or the offer still active), consent is unrevoked, the channel enabled and a phone present.
+1. Before sending, the job re-checks that the booking is still confirmed for the same slot (or the offer still active), consent is unrevoked, the connection is ACTIVE and a phone is present.
 2. The job sends the reminder or the offer notice.
 3. A `Notification` represents the logical notice; each `NotificationAttempt` records one attempt and result, optionally linked to a message. Retries do not create another logical notice; provider acceptance does not prove delivery.
 
