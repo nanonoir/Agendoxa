@@ -21,7 +21,7 @@ Deliver a reviewable first increment of [REP-02 / #15](https://github.com/nanono
 - [x] Add SQL-only exclusion/history safeguards and verify them against PostgreSQL.
 - [x] Add repeatable migrate/seed commands and a two-tenant development seed.
 - [x] Test and implement NestJS provider creation/shutdown while preserving /health.
-- [ ] Verify clean-clone initialization and documentation paths/encoding.
+- [x] Verify clean-clone initialization and documentation paths/encoding.
 - [x] Run focused database/API checks and affected builds.
 - [ ] Review the diff and present the partial increment for team review with Refs #15.
 
@@ -48,15 +48,21 @@ Results on 2026-11-06, Windows, Node 24.15.0, pnpm 12.16.1 and PostgreSQL 18:
 | Baseline shared build, API unit/health tests and API build | Passed before implementation |
 | `pnpm --filter @agendoxa/database lint` / `typecheck` / `build` | Passed |
 | `pnpm db:check` | Passed; migration metadata consistent |
+| `pnpm db:generate --name verify-no-changes` | Passed; no schema changes or new migration |
 | `pnpm test:db` | 57 passed against real PostgreSQL; includes empty-database migrations, repeat application/seed, 11 cross-tenant FK scenarios, scope checks, overlap/concurrency, private fragments/rollback and immutable history |
 | `pnpm --filter @agendoxa/api lint` / `typecheck` | Passed |
 | `pnpm --filter @agendoxa/api test` | 2 passed: existing health controller and provider lifecycle |
 | `pnpm --filter @agendoxa/api test:e2e` | 1 passed; HTTP health with overridden database provider |
 | `pnpm --filter @agendoxa/api test:integration` | 1 passed; actual PostgreSQL query and NestJS pool shutdown |
 | `pnpm build` | All 4 workspace builds passed, including web |
+| Clean clone of implementation commit ac090eb | Frozen-lockfile install passed; copied .env.example; migrated an empty development database twice and seeded twice; 17 tables, exactly demo-barber/demo-club, 3 applied migrations and no login credentials; all 4 builds passed without inherited dist/cache files |
+| `pnpm db:up` / separate test Compose service | PostgreSQL 18 services healthy on loopback 5432/5433; development volume initialized empty |
+| Documentation and diff | Strict UTF-8 decode passed for all 44 changed files, no detected mojibake, 44 local Markdown links resolve; git diff --cached --check passed |
+
+In the clean clone, an auxiliary `pnpm exec turbo run build --filter=@agendoxa/api` invocation could not resolve the package-manager binary in the local Windows environment. The documented `pnpm build` command succeeded for all four packages. No unrelated toolchain change was introduced. An additional temporary compiled-API HTTP smoke process was blocked by automatic execution policy before launch, with no more specific reason supplied; it is not counted as validation. The separate health E2E and actual PostgreSQL/NestJS integration checks above did run successfully.
 
 The test service is `agendoxa-postgres-test-1` on loopback 5433. Existing unrelated containers are not test targets. Tenant-authorized reads, full booking/payment workflows, deployment and production infrastructure were not validated because they are outside this increment.
 
 ## Final implementation outcome
 
-The bounded persistence implementation is ready for final reproducibility checks and a partial PR to develop with Refs #15. The parent remains open: the team must review the schema cut, partial T-01/T-05 treatment and RLS deferral, then distribute the remaining persistence increments. REP-03 still depends on CON-01/CON-02. Keep this plan active until that review is resolved; do not report REP-02 as completed.
+The bounded persistence implementation and reproducibility checks are delivered on feat/REP-02-postgres-drizzle for a partial PR to develop with Refs #15. Local development PostgreSQL is migrated and seeded; the test service remains available for the next focused checks. The parent remains open: the team must review the schema cut, partial T-01/T-05 treatment and RLS deferral, then distribute the remaining persistence increments. REP-03 still depends on CON-01/CON-02. Keep this plan active until that review is resolved; do not report REP-02 as completed.
