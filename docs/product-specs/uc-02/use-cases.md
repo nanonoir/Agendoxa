@@ -903,8 +903,9 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 #### Alternatives and Exceptions
 - **A1 — QR expired:** A new one is generated.
 - **A2 — Disconnection:** The status shows it; customer self-service is unavailable while the CRM and core keep working.
-- **A3 — Channel disabled during an incident:** No proactive messages are sent and the AI stops replying. Incoming messages are still stored in the CRM inbox, which shows that the channel is disabled; personnel reply from the business phone ([BR-NOT-05](../uc-03/business-rules.md#14-notifications-and-consent-not)).
-- **A4 — Number or provider instance already enabled for another tenant:** Rejected *(proposal)*, because an incoming message must resolve to one tenant. An owner with two businesses needs two numbers; disabling a connection frees its number.
+- **A3 — Channel paused during an incident:** No proactive messages are sent and the AI stops replying. The connection keeps its number. Incoming messages are still stored in the CRM inbox, which shows that the channel is paused; personnel reply from the business phone ([BR-NOT-05](../uc-03/business-rules.md#14-notifications-and-consent-not)).
+- **A4 — Number or provider instance in use by another tenant:** Rejected *(proposal)* if the other connection is active or paused, because an incoming message must resolve to one tenant. An owner with two businesses needs two numbers.
+- **A5 — Connection retired:** The number and instance are freed for another tenant, and later messages to that connection are not processed. History is retained.
 
 #### Outcome / Postconditions
 - **Success:** One validated connection per tenant, with visible status.
@@ -1047,16 +1048,16 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 
 #### Main Flow
 1. The AI asks for explicit confirmation and explains that verified payments and their receipts are kept.
-2. On confirmation, the data is blocked: no more notices and no operational use. The grace period of 30 days starts and is audited.
+2. On confirmation, the data is blocked: no more notices and no operational use, except for personnel resolving that customer's bookings and pending money. The customer's active waitlist entries close. The grace period of 30 days starts and is audited.
 3. The CRM alerts personnel in advance if the customer has future bookings or pending money, so they resolve them before day 30.
-4. On day 30, the job deletes conversations, rejected receipts and receipts with no payment, and deletes or anonymizes name, phone and preferences, except what must stay linked to a payment.
+4. On day 30, the job deletes conversations, rejected receipts and receipts with no payment, plus phone and preferences. It also deletes the name, unless the customer has verified payments.
 5. The customer is told what was deleted, what is kept and why.
 
 #### Alternatives and Exceptions
-- **A1 — Withdrawal:** Within the 30 days, the customer withdraws by chat and recovers their profile; nothing is deleted.
+- **A1 — Withdrawal:** Within the 30 days, the customer withdraws by chat and recovers their profile; nothing is deleted. Closed waitlist entries are not restored (BR-DAT-09).
 - **A2 — Another number:** At the trigger, the request is refused and referred to the business.
-- **A3 — Bookings or money unresolved on day 30:** Deletion runs anyway; payments are kept and an active future booking stays without name or phone (BR-DAT-08).
-- **A4 — Open claim:** Receipts tied to an open claim are kept (BR-DAT-03).
+- **A3 — Bookings or money unresolved on day 30:** Deletion runs anyway; payments are kept and an active future booking stays without phone, and without name unless the customer has verified payments (BR-DAT-08).
+- **A4 — Pending payment review:** A receipt under a pending `PaymentReview` is kept until it is decided (BR-DAT-03).
 - **A5 — Customer returns later:** They start with no restriction or history; accepted for the MVP (BR-DAT-07, TD-02).
 
 #### Outcome / Postconditions

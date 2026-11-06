@@ -411,8 +411,9 @@ See the [decision register](./business-rules.md#16-pending-decisions) for remain
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-DAT-01 | After a confirmed deletion request, no notice is sent and the data has no operational use until the request is withdrawn or executed. | UC + JOB | BR-DAT-01 |
+| INV-DAT-01 | After a confirmed deletion request, no notice is sent and the data has no operational use, except for personnel resolving that customer's bookings and pending money, until the request is withdrawn or executed. | UC + JOB | BR-DAT-01, BR-DAT-08 |
 | INV-DAT-02 | Automatic deletion runs only for a confirmed request whose 30 days elapsed without withdrawal, and is idempotent. A withdrawal within the window always prevents it; unresolved bookings or money do not delay it. | JOB + TX | BR-DAT-02, BR-DAT-08 |
-| INV-DAT-03 | A deletion never removes payments, refunds, cash records or receipts of verified payments, and nothing is deleted just for its age. | UC + JOB | BR-DAT-03, BR-DAT-04, BR-DAT-06 |
+| INV-DAT-03 | A deletion never removes payments, refunds, cash records, receipts of verified payments or receipts under a pending review, and nothing is deleted just for its age. | UC + JOB | BR-DAT-03, BR-DAT-04, BR-DAT-06 |
+| INV-DAT-04 | A confirmed deletion request closes the customer's active waitlist entries, which stop counting toward the queue limit. | TX | BR-DAT-09, BR-WL-14 |
 
 **EJ-54 · Deletion withdrawn.** Given a confirmed deletion request on day 0, when the customer withdraws it on day 20, then the profile is recovered and nothing is deleted. Without withdrawal, deletion runs on day 30 and the verified payment and its receipt remain.
