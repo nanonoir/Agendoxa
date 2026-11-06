@@ -23,7 +23,7 @@ Deliver a reviewable first increment of [REP-02 / #15](https://github.com/nanono
 - [x] Test and implement NestJS provider creation/shutdown while preserving /health.
 - [x] Verify clean-clone initialization and documentation paths/encoding.
 - [x] Run focused database/API checks and affected builds.
-- [ ] Review the diff and present the partial increment for team review with Refs #15.
+- [x] Review the diff and present the partial increment for team review with Refs #15.
 
 ## Decisions
 
@@ -38,6 +38,7 @@ Use the bounded implementation proposal linked above. In particular, the candida
 - Development seed is insert-only/repeatable, requires NODE_ENV=development and creates no login credentials. Integration tests create and drop only their uniquely named child database on the separate test service.
 - Incremental red/green checks exposed missing schema, occupancy/history/concurrency safeguards, connection lifecycle, seed behavior and PostgreSQL numeric NaN handling before the corresponding implementation.
 - Independent read-only review identified an unhandled idle pool error. A failing regression reproduced it; the fix handles the event with a sanitized warning, and the full suite passes. The follow-up review found no remaining blocking defect within the documented scope; this does not replace human PR approval.
+- Opened [PR #29](https://github.com/nanonoir/Agendoxa/pull/29) toward develop and requested review from nanonoir. Project status is In review for this increment; #15 remains open and no merge was performed.
 
 ## Validation
 
@@ -65,4 +66,6 @@ The test service is `agendoxa-postgres-test-1` on loopback 5433. Existing unrela
 
 ## Final implementation outcome
 
-The bounded persistence implementation and reproducibility checks are delivered on feat/REP-02-postgres-drizzle for a partial PR to develop with Refs #15. Local development PostgreSQL is migrated and seeded; the test service remains available for the next focused checks. The parent remains open: the team must review the schema cut, partial T-01/T-05 treatment and RLS deferral, then distribute the remaining persistence increments. REP-03 still depends on CON-01/CON-02. Keep this plan active until that review is resolved; do not report REP-02 as completed.
+The bounded persistence implementation and reproducibility checks are delivered on feat/REP-02-postgres-drizzle in [PR #29](https://github.com/nanonoir/Agendoxa/pull/29), using Refs #15. Local development PostgreSQL is migrated and seeded; the test service remains available for the next focused checks. The parent remains open: the team must review the schema cut, partial T-01/T-05 treatment and RLS deferral, then distribute the remaining persistence increments. REP-03 still depends on CON-01/CON-02. Keep this plan active until that review is resolved; do not report REP-02 as completed.
+
+For the next session: read #29 reviews and #15 scope discussion before changing this branch. Address review observations and repeat only affected checks. Do not add deferred tables/workflows or merge without the required human approval. Once the scope is agreed, record which issue owns each remaining persistence increment so that the next assignee can continue from this schema.
