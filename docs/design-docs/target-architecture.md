@@ -246,6 +246,8 @@ apps/web/src/
 
 ## 8. Multi-Tenancy, Security, and Portability
 
+The detailed proposal for these principles is in [DOM-02 tenancy](./tenancy.md).
+
 ### 8.1 Deployment Modes
 
 ```text

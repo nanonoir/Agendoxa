@@ -6,6 +6,7 @@ This catalog distinguishes proposed technical direction from the [observable arc
 |---|---|---|
 | [Architecture proposal](./target-architecture.md) | Component boundaries, transactional safeguards, tenant isolation, integrations and operational/testing direction | v1.2; reconciled proposal, team review pending, not implemented |
 | [DOM-01 ERD](./erd.md) | 38 candidate entities, relationships, logical attributes and keys, occupancy/financial invariants, compatibility checks and remaining technical choices | In Review; product-owner reconciliation 2026-11-04, team ratification and implementation pending; included in this versioned documentation change |
+| [DOM-02 tenancy](./tenancy.md) | Data scopes, same-tenant integrity, users and memberships, tenant context, isolation mechanisms and conditions for a future tenant move | In Review; proposal, team ratification and implementation pending; the ERD changes it needed are applied in DOM-01 |
 
 The [2026-11-04 handoff](../../agendoxa_audit_handoff.md) is historical provenance; later product-owner agreements now in [UC-03](../product-specs/uc-03/business-rules.md) supersede incompatible portions. ERD registers separate agreed behavior from pending physical/provider validation. Neither this reconciliation nor independent review is collective approval, an approved schema or implementation.
 
