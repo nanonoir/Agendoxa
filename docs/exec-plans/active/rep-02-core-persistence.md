@@ -36,6 +36,13 @@ Deliver a reviewable first increment of [REP-02 / #15](https://github.com/nanono
 
 Use the bounded implementation proposal linked above. In particular, the candidate set is 17 logical entities, with omitted cross-cut references listed explicitly; T-01/T-05 are addressed only for included mechanisms. No payment, messaging, queue, public booking or CRM use case is added.
 
+### Maintainer review on e6f32cb
+
+- [x] Reproduce loss of the last Admin and active claims on released bookings with real PostgreSQL tests.
+- [x] Add deferred guards in migration 0004 and verify races with two connections.
+- [x] Define the first read isolation tests for [REP-03 #16](https://github.com/nanonoir/Agendoxa/issues/16) and link [personnel #30](https://github.com/nanonoir/Agendoxa/issues/30) and [booking/catalog #31](https://github.com/nanonoir/Agendoxa/issues/31).
+- [x] Verify the migration against existing records and prepare the validated follow-up for PR #29.
+
 ## Progress
 
 - Repository located; clean branch created from origin/develop after fetching.
@@ -85,7 +92,20 @@ Added 15 integration cases covering rejected inserts/updates, valid inactive cus
 | Populated development database upgrade | Applied migration 0003 twice through the CLI, advancing from 3 to 4 migrations; retained 2 tenants, 4 roles and 0 bookings; all 3 new CHECKs validated |
 | Independent read-only follow-up review | No blocking defect found; schema, SQL, snapshot chain and test coverage agree. Not human approval |
 
-The published 0000–0002 SQL and snapshots remain unchanged. No dependency, build configuration or web change was made in this follow-up; checks target database and its API consumer. Service/resource compatibility, last-Admin protection, system-role identity preservation and full PRIVATE_REMAINDER state validation remain explicit application obligations rather than database guarantees.
+This section records the scope of e6f32cb. The maintainer review adds the transactional safeguards and follow-up links described above.
+
+### Maintainer review validation on 2026-11-07
+
+Fifteen regressions reproduced before migration 0004. The read-only review identified a sequence that removed the last ADMIN membership and changed the role ID before the deferred check. A sixteenth regression reproduced that sequence, and the migration now preserves the ADMIN role ID along with tenant and system key. The existing overlap test now starts the competing insert against an already inserted claim in an open transaction, which makes the exclusion violation reproducible. Concurrent acquisition of test clients also releases a client if acquiring the second one fails.
+
+| Check | Result |
+|---|---|
+| `pnpm test:db` | 90 passed against PostgreSQL. Includes 18 new cases and races under READ COMMITTED and REPEATABLE READ |
+| Database and API lint, typecheck and build | Passed |
+| `pnpm db:check` and `pnpm db:generate --name verify-transactional-guards` | Passed with no further migration generated |
+| API unit, health E2E and PostgreSQL integration | 2 + 1 + 1 passed. The unit and integration runs timed out alongside concurrent checks and passed when run separately with the existing timeout |
+| Legacy database upgrade | On an isolated database with 0000–0003, a cancelled booking with an active claim caused 0004 to roll back. After closing that claim, applying the chain twice retained the membership, booking and closed history with five migrations recorded |
+| Independent review | The Admin role ID issue and test client cleanup were addressed. The future onboarding must create the dedicated ADMIN role and first membership atomically |
 
 ## Final implementation outcome
 

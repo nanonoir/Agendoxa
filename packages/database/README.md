@@ -33,7 +33,7 @@ Para mecanismos SQL: `pnpm --filter @agendoxa/database exec drizzle-kit generate
 
 Las referencias operativas incluyen tenant_id; User y Permission son globales por instalación. Los importes se devuelven como strings. Los casos de uso deberán mantener updated_at y resolver permisos, estados y políticas.
 
-`0003_review-invariants.sql` mantiene activos los roles ADMIN/STAFF, exige autor vacío para reservas de WhatsApp y valida attendee_phone opcional en E.164. La compatibilidad servicio–recurso y la protección del último Admin requieren validaciones transaccionales de aplicación; sus responsables y criterios están explícitos en el [diseño del incremento](../../docs/design-docs/rep-02-core-persistence.md#row-checks-and-application-obligations).
+`0003_review-invariants.sql` mantiene activos los roles ADMIN/STAFF, exige autor vacío para reservas de WhatsApp y valida attendee_phone opcional en E.164. `0004_review-transactional-guards.sql` protege la última membresía ADMIN activa y exige cerrar las ocupaciones de reservas canceladas o vencidas antes de confirmar la transacción. Si la base ya contiene una reserva en esos estados con un claim activo, la migración se revierte y señala el conflicto para corregirlo antes de reintentar. El alta de negocios, la compatibilidad servicio–recurso y las transiciones completas tienen sus propios [criterios de aplicación](../../docs/design-docs/rep-02-core-persistence.md#application-acceptance-criteria).
 
 Antes de comandos filtrados de API: `pnpm --filter @agendoxa/database build`. DatabaseModule exporta DATABASE_CONNECTION, tipado como DatabaseConnection, con un pool por aplicación, conexión diferida y cierre con NestJS. DATABASE_URL es obligatorio. GET /health sigue siendo una comprobación de vida sin consultar PostgreSQL.
 
@@ -47,6 +47,6 @@ pnpm --filter @agendoxa/api test:integration
 
 postgres-test usa tmpfs y POSTGRES_TEST_PORT (5433 por defecto). DATABASE_URL_TEST debe nombrar una base `_test`. Los tests crean una base hija única y eliminan solo esa base; el rol necesita CREATEDB, disponible en el servicio local. No reinician la base de desarrollo. Los tests unitarios/HTTP siguen independientes de PostgreSQL.
 
-Se verifican migraciones/seed repetidos, FK por negocio, unicidad por alcance, importes/rangos, concurrencia, fragmentos privados y rollback, historial inmutable, y conexión/cierre real de NestJS.
+Se verifican migraciones y seed repetidos, FK por negocio, unicidad por alcance, importes y rangos, fragmentos privados, rollback, historial inmutable y conexión y cierre de NestJS. Las pruebas de concurrencia cubren solapamientos, la pérdida de membresías ADMIN y la carrera entre cancelar una reserva y adquirir una ocupación.
 
-RLS no está activo. Las FK protegen referencias, no lecturas. Los primeros repositorios deberán exigir contexto autorizado y probar lecturas cruzadas. Los workflows completos de pagos, permisos, reservas, espera y jobs corresponden a otros incrementos.
+Las FK protegen referencias por negocio. [REP-03 #16](https://github.com/nanonoir/Agendoxa/issues/16) verificará el aislamiento de lecturas con contexto de tenant validado y dos negocios. La adopción de RLS sigue en revisión bajo TEN-Q5. Los workflows completos de pagos, permisos, reservas, espera y jobs corresponden a otros incrementos.

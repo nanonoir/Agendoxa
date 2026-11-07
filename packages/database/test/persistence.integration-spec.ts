@@ -35,6 +35,8 @@ type TenantFixture = {
 };
 let first: TenantFixture;
 let second: TenantFixture;
+const sharedUserId = randomUUID();
+const isolationLevels = ['READ COMMITTED', 'REPEATABLE READ'] as const;
 
 async function tenantFixture(
   slug: string,
@@ -90,6 +92,43 @@ async function inTransaction(run: (client: PoolClient) => Promise<void>) {
   }
 }
 
+async function inConcurrentTransactions(
+  isolation: (typeof isolationLevels)[number],
+  run: (left: PoolClient, right: PoolClient) => Promise<void>,
+) {
+  const clients: PoolClient[] = [];
+  try {
+    clients.push(await pool.connect());
+    clients.push(await pool.connect());
+    await Promise.all(
+      clients.map(async (client) => {
+        await client.query(`BEGIN ISOLATION LEVEL ${isolation}`);
+        await client.query("SET LOCAL statement_timeout = '5s'");
+      }),
+    );
+    await run(clients[0], clients[1]);
+  } finally {
+    await Promise.allSettled(clients.map((client) => client.query('ROLLBACK')));
+    clients.forEach((client) => client.release());
+  }
+}
+
+async function addAdmin(
+  client: Pick<PoolClient, 'query'>,
+  fixture: TenantFixture,
+) {
+  const userId = randomUUID();
+  await client.query(
+    "INSERT INTO users (id, email, full_name) VALUES ($1, $2, 'Replacement admin')",
+    [userId, `admin-${userId}@example.test`],
+  );
+  const membership = await client.query<{ id: string }>(
+    'INSERT INTO tenant_memberships (tenant_id, user_id, role_id) VALUES ($1, $2, $3) RETURNING id',
+    [fixture.tenant, userId, fixture.role],
+  );
+  return membership.rows[0].id;
+}
+
 async function booking(
   client: Pick<PoolClient, 'query'>,
   f = first,
@@ -129,13 +168,12 @@ describe('versioned core persistence', () => {
       'Versioned migrations must exist',
     ).toBe(true);
     await migrate(drizzle(pool), { migrationsFolder });
-    const user = randomUUID();
     await pool.query(
       "INSERT INTO users (id, email, full_name) VALUES ($1, 'shared@example.test', 'Shared person')",
-      [user],
+      [sharedUserId],
     );
-    first = await tenantFixture('first-test-business', user);
-    second = await tenantFixture('second-test-business', user);
+    first = await tenantFixture('first-test-business', sharedUserId);
+    second = await tenantFixture('second-test-business', sharedUserId);
   });
 
   afterAll(async () => {
@@ -364,6 +402,144 @@ describe('versioned core persistence', () => {
       expect(result.rows[0].is_active).toBe(false);
     });
   });
+
+  it.each(['deactivation', 'deletion', 'role change'])(
+    'rejects %s of the last active Admin membership',
+    async (operation) => {
+      await inTransaction(async (client) => {
+        if (operation === 'deactivation') {
+          await client.query(
+            "UPDATE tenant_memberships SET status = 'DEACTIVATED', deactivated_at = now() WHERE id = $1",
+            [first.member],
+          );
+        } else if (operation === 'deletion') {
+          await client.query('DELETE FROM tenant_memberships WHERE id = $1', [
+            first.member,
+          ]);
+        } else {
+          const role = await client.query<{ id: string }>(
+            "INSERT INTO roles (tenant_id, name, system_key) VALUES ($1, 'Staff', 'STAFF') RETURNING id",
+            [first.tenant],
+          );
+          await client.query(
+            'UPDATE tenant_memberships SET role_id = $1 WHERE id = $2',
+            [role.rows[0].id, first.member],
+          );
+        }
+        await expect(
+          client.query('SET CONSTRAINTS ALL IMMEDIATE'),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'tenant_last_active_admin',
+        });
+      });
+    },
+  );
+
+  it('prevents removing Admin identity from the system role', async () => {
+    await inTransaction(async (client) => {
+      await expect(
+        client.query('UPDATE roles SET system_key = null WHERE id = $1', [
+          first.role,
+        ]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'admin_role_identity',
+      });
+    });
+  });
+
+  it('prevents renaming the Admin role ID after removing its last membership', async () => {
+    await inTransaction(async (client) => {
+      await client.query('DELETE FROM tenant_memberships WHERE id = $1', [
+        first.member,
+      ]);
+      await expect(
+        client.query('UPDATE roles SET id = $1 WHERE id = $2', [
+          randomUUID(),
+          first.role,
+        ]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'admin_role_identity',
+      });
+    });
+  });
+
+  it('preserves the system Admin role before its first membership', async () => {
+    await inTransaction(async (client) => {
+      const tenant = await client.query<{ id: string }>(
+        "INSERT INTO tenants (name, slug, timezone, currency) VALUES ('Onboarding', $1, 'America/Argentina/Buenos_Aires', 'ARS') RETURNING id",
+        [randomUUID()],
+      );
+      const role = await client.query<{ id: string }>(
+        "INSERT INTO roles (tenant_id, name, system_key, is_protected) VALUES ($1, 'Admin', 'ADMIN', true) RETURNING id",
+        [tenant.rows[0].id],
+      );
+      await expect(
+        client.query('DELETE FROM roles WHERE id = $1', [role.rows[0].id]),
+      ).rejects.toMatchObject({
+        code: '23514',
+        constraint: 'admin_role_identity',
+      });
+    });
+  });
+
+  it('allows a replacement Admin in the same transaction as the outgoing membership', async () => {
+    await inTransaction(async (client) => {
+      await client.query(
+        "UPDATE tenant_memberships SET status = 'DEACTIVATED', deactivated_at = now() WHERE id = $1",
+        [first.member],
+      );
+      const replacement = await addAdmin(client, first);
+      await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+      const active = await client.query<{ id: string }>(
+        "SELECT id FROM tenant_memberships WHERE tenant_id = $1 AND role_id = $2 AND status = 'ACTIVE'",
+        [first.tenant, first.role],
+      );
+      expect(active.rows).toEqual([{ id: replacement }]);
+    });
+  });
+
+  it.each(isolationLevels)(
+    'preserves an Admin when the last two memberships are removed concurrently at %s',
+    async (isolation) => {
+      const fixture = await tenantFixture(
+        `admin-race-${randomUUID()}`,
+        sharedUserId,
+      );
+      const otherAdmin = await addAdmin(pool, fixture);
+
+      await inConcurrentTransactions(isolation, async (left, right) => {
+        await left.query(
+          "UPDATE tenant_memberships SET status = 'DEACTIVATED', deactivated_at = now() WHERE id = $1",
+          [fixture.member],
+        );
+        await right.query('DELETE FROM tenant_memberships WHERE id = $1', [
+          otherAdmin,
+        ]);
+        const results = await Promise.allSettled([
+          left.query('COMMIT'),
+          right.query('COMMIT'),
+        ]);
+        expect(
+          results.filter((result) => result.status === 'fulfilled'),
+        ).toHaveLength(1);
+        const rejected = results.find((result) => result.status === 'rejected');
+        expect(rejected?.reason).toMatchObject(
+          isolation === 'READ COMMITTED'
+            ? { code: '23514', constraint: 'tenant_last_active_admin' }
+            : { code: '40001' },
+        );
+      });
+
+      const active = await pool.query(
+        "SELECT id FROM tenant_memberships WHERE tenant_id = $1 AND role_id = $2 AND status = 'ACTIVE'",
+        [fixture.tenant, fixture.role],
+      );
+      expect(active.rowCount).toBe(1);
+    },
+  );
 
   it.each([
     ['WhatsApp member author', 'WHATSAPP', null, 'bookings_whatsapp_author'],
@@ -795,6 +971,7 @@ describe('versioned core persistence', () => {
         "SELECT count(*)::int AS count FROM slot_claims WHERE status = 'ACTIVE'",
       );
       expect(count.rows[0].count).toBe(3);
+      await client.query('SET CONSTRAINTS ALL IMMEDIATE');
       await expect(
         claim(
           client,
@@ -860,18 +1037,155 @@ describe('versioned core persistence', () => {
     },
   );
 
+  it.each(['CANCELLED', 'EXPIRED'])(
+    'rejects a transition to %s with an active claim',
+    async (status) => {
+      await inTransaction(async (client) => {
+        const id = await booking(client);
+        await claim(client, id);
+        await client.query('UPDATE bookings SET status = $1 WHERE id = $2', [
+          status,
+          id,
+        ]);
+        await expect(
+          client.query('SET CONSTRAINTS ALL IMMEDIATE'),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'released_booking_no_active_claims',
+        });
+      });
+    },
+  );
+
+  it.each(['CANCELLED', 'EXPIRED'])(
+    'rejects adding active occupancy to a %s booking',
+    async (status) => {
+      await inTransaction(async (client) => {
+        await claim(client, await booking(client, first, status));
+        await expect(
+          client.query('SET CONSTRAINTS ALL IMMEDIATE'),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'released_booking_no_active_claims',
+        });
+      });
+    },
+  );
+
+  it('allows cancelling and closing the claim atomically with its history intact', async () => {
+    await inTransaction(async (client) => {
+      const id = await booking(client);
+      const claimId = await claim(client, id);
+      await client.query(
+        "UPDATE bookings SET status = 'CANCELLED' WHERE id = $1",
+        [id],
+      );
+      await client.query(
+        "UPDATE slot_claims SET status = 'CLOSED', closed_at = now() WHERE id = $1",
+        [claimId],
+      );
+      await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+      const result = await client.query(
+        'SELECT booking.status AS booking_status, claim.status AS claim_status FROM bookings booking JOIN slot_claims claim ON (claim.tenant_id, claim.booking_id) = (booking.tenant_id, booking.id) WHERE booking.id = $1',
+        [id],
+      );
+      expect(result.rows).toEqual([
+        { booking_status: 'CANCELLED', claim_status: 'CLOSED' },
+      ]);
+    });
+  });
+
+  it.each(isolationLevels)(
+    'rejects a claim racing with a committed cancellation at %s',
+    async (isolation) => {
+      const id = await booking(pool);
+      const day = isolation === 'READ COMMITTED' ? '2033-01-01' : '2033-01-02';
+      await inConcurrentTransactions(
+        isolation,
+        async (cancelling, claiming) => {
+          await cancelling.query(
+            "UPDATE bookings SET status = 'CANCELLED' WHERE id = $1",
+            [id],
+          );
+          await claim(claiming, id, `${day}T10:00Z`, `${day}T11:00Z`);
+          await cancelling.query('COMMIT');
+          await expect(claiming.query('COMMIT')).rejects.toMatchObject(
+            isolation === 'READ COMMITTED'
+              ? {
+                  code: '23514',
+                  constraint: 'released_booking_no_active_claims',
+                }
+              : { code: '40001' },
+          );
+        },
+      );
+      const result = await pool.query(
+        "SELECT status FROM bookings WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM slot_claims WHERE booking_id = $1 AND status = 'ACTIVE')",
+        [id],
+      );
+      expect(result.rows).toEqual([{ status: 'CANCELLED' }]);
+    },
+  );
+
+  it.each(isolationLevels)(
+    'rejects cancellation without closing concurrently committed occupancy at %s',
+    async (isolation) => {
+      const id = await booking(pool);
+      const day = isolation === 'READ COMMITTED' ? '2034-01-01' : '2034-01-02';
+      await inConcurrentTransactions(
+        isolation,
+        async (claiming, cancelling) => {
+          await cancelling.query('SELECT status FROM bookings WHERE id = $1', [
+            id,
+          ]);
+          await claim(claiming, id, `${day}T10:00Z`, `${day}T11:00Z`);
+          await claiming.query('COMMIT');
+          const cancel = async () => {
+            await cancelling.query(
+              "UPDATE bookings SET status = 'CANCELLED' WHERE id = $1",
+              [id],
+            );
+            await cancelling.query('COMMIT');
+          };
+          await expect(cancel()).rejects.toMatchObject(
+            isolation === 'READ COMMITTED'
+              ? {
+                  code: '23514',
+                  constraint: 'released_booking_no_active_claims',
+                }
+              : { code: '40001' },
+          );
+        },
+      );
+      const result = await pool.query(
+        "SELECT status FROM bookings WHERE id = $1 AND EXISTS (SELECT 1 FROM slot_claims WHERE booking_id = $1 AND status = 'ACTIVE')",
+        [id],
+      );
+      expect(result.rows).toEqual([{ status: 'CONFIRMED' }]);
+    },
+  );
+
   it('gives exactly one winner to two concurrent conflicting claims', async () => {
     const a = await booking(pool);
     const b = await booking(pool);
-    const results = await Promise.allSettled([
-      claim(pool, a, '2031-01-01T10:00Z', '2031-01-01T11:00Z'),
-      claim(pool, b, '2031-01-01T10:00Z', '2031-01-01T11:00Z'),
-    ]);
-    expect(
-      results.filter((result) => result.status === 'fulfilled'),
-    ).toHaveLength(1);
-    const failure = results.find((result) => result.status === 'rejected');
-    expect(failure?.reason).toMatchObject({ code: '23P01' });
+    await inConcurrentTransactions('READ COMMITTED', async (left, right) => {
+      await claim(left, a, '2031-01-01T10:00Z', '2031-01-01T11:00Z');
+      const competing = claim(
+        right,
+        b,
+        '2031-01-01T10:00Z',
+        '2031-01-01T11:00Z',
+      );
+      await Promise.all([
+        expect(competing).rejects.toMatchObject({ code: '23P01' }),
+        left.query('COMMIT'),
+      ]);
+    });
+    const result = await pool.query(
+      'SELECT booking_id FROM slot_claims WHERE booking_id IN ($1, $2)',
+      [a, b],
+    );
+    expect(result.rows).toEqual([{ booking_id: a }]);
   });
 
   it('restores the original occupancy when a replacement transaction conflicts', async () => {

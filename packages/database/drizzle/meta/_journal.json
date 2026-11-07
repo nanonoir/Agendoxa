@@ -29,6 +29,13 @@
       "when": 1794008659703,
       "tag": "0003_review-invariants",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794056910184,
+      "tag": "0004_review-transactional-guards",
+      "breakpoints": true
     }
   ]
 }
