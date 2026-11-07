@@ -1,1 +1,2 @@
-// Esquema y cliente de Drizzle: se agregan en REP-02. Paquete solo para el servidor.
+export { createDatabase, type DatabaseConnection } from './client.js';
+export * from './schema/index.js';
