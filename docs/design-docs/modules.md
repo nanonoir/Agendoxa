@@ -185,3 +185,163 @@ Each [UC-02 use case](../product-specs/uc-02/use-cases.md) has one module that o
 | CU-23 Request data deletion | `customers` | `messaging`, `waitlist`, `notifications`, `payments`, `assets` |
 
 An operation that changes another module's state always does it through that module's use case, inside one transaction when the invariants require it ([§6.2](#62-transactions)).
+
+## 5. Dependencies
+
+### 5.1 Dependency diagram
+
+An arrow means "depends on": imports the public API of, calls, implements a port of, or consumes an event of.
+
+```mermaid
+flowchart TB
+    agent --> messaging
+    agent --> waitlist
+    agent --> payments
+    agent --> bookings
+    agent --> catalog
+    agent --> customers
+    waitlist -->|"claims and HOLDs; consumes SlotReleased"| bookings
+    waitlist --> notifications
+    waitlist --> catalog
+    waitlist --> customers
+    payments -->|"confirms; implements finance port"| bookings
+    payments --> cashRegister[cash-register]
+    payments --> catalog
+    payments --> customers
+    payments --> assets
+    bookings -->|"schedules notices; implements notice guard"| notifications
+    bookings --> availability
+    bookings --> catalog
+    bookings --> customers
+    notifications -->|"sends; consumes delivery status"| messaging
+    notifications --> customers
+    messaging --> customers
+    messaging --> assets
+    availability --> catalog
+```
+
+Omitted for readability: every module depends on `tenants`; every module above level 1 also depends on `identity` (permission checks) and `audit` (recording). `agent` implements the conversation responder port of `messaging`.
+
+### MOD-DM-07: Dependencies only point to lower levels
+
+- **What:** Makes "no circular dependencies" checkable without reading the code.
+- **Rule:** A module may depend only on modules of a **lower** level and on platform code. Same-level dependencies are forbidden; for example `waitlist` and `payments` never call each other. A needed upward or same-level interaction uses [§5.3](#53-needs-against-the-direction) or changes this table in the same PR.
+
+| Level | Modules | May depend on |
+|---|---|---|
+| 0 | `tenants` | Platform code only |
+| 1 | `identity`, `audit`, `assets` | `tenants` |
+| 2 | `customers`, `catalog`, `cash-register` | Levels 0–1 |
+| 3 | `availability`, `messaging` | Levels 0–2 (`availability` → `catalog`; `messaging` → `customers`, `assets`) |
+| 4 | `notifications` | Levels 0–3 (`customers`, `messaging`) |
+| 5 | `bookings` | Levels 0–4 (`customers`, `catalog`, `availability`, `notifications`) |
+| 6 | `waitlist`, `payments` | Levels 0–5 (see the diagram for each) |
+| 7 | `agent` | Levels 0–6 |
+
+- **Example:** `notifications` must check that a reminder's booking is still `CONFIRMED` before sending (INV-NOT-02). It cannot import `bookings`, which is higher. It defines a guard port that `bookings` implements ([§5.3](#53-needs-against-the-direction)).
+- **Reference:** [architecture §6.3](./target-architecture.md#63-dependency-direction-and-composition), [§13.1](./target-architecture.md#131-reviewable-dependency-rules).
+
+### 5.2 Why this order
+
+- `bookings` is the core: the agent, the CRM, the waitlist and payments all drive it, so it sits above what it consumes (customers, catalog, schedules, notices) and below what drives it.
+- `notifications` sits below `bookings` so that a booking transaction can schedule or suppress its reminders atomically (INV-CAN-08), instead of relying only on an asynchronous event.
+- `messaging` sits below `notifications` because notices are sent through it, and below `agent` because the agent is one possible responder to a conversation, replaceable by a human (BR-CH-06).
+- `cash-register` sits below `payments`: a cash payment and its movement are written together, started by `payments` (INV-CAJA-08). The register never needs payment rules.
+
+### 5.3 Needs against the direction
+
+When a lower module needs something from a higher one, the lower module owns the contract and the higher one implements or consumes it.
+
+| Need | Contract owned by | Implemented or consumed by | Mechanism |
+|---|---|---|---|
+| Create charges, read verified and allocated deposit, read review status | `bookings`: finance port | `payments` | Port; called inside the booking transaction |
+| Recheck that a notice is still valid before each attempt | `notifications`: notice guard, one per notice kind | `bookings` (booking notices), `waitlist` (invitations) | Port registered at composition |
+| Answer an AI-eligible conversation turn | `messaging`: conversation responder | `agent` | Port; `messaging` keeps working without it |
+| A released slot may start a waitlist round | `bookings`: `SlotReleased` | `waitlist` | Durable event ([§6.3](#63-events-and-durable-intents)) |
+| Delivery outcomes update attempts | `messaging`: outbound status event | `notifications` | Event |
+| Customer deletion confirmed or executed | `customers`: deletion events | `messaging`, `waitlist`, `notifications`, `payments` | Durable events; each owner handles its own data |
+| No-show and late-change counts on the customer view | `bookings`: queries | CRM read composition | Query; never stored in `customers` |
+| Settings stored on another module's row | Row owner's API | Field owner | [MOD-DM-06](#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners) |
+
+A port exists here because it breaks a real cycle at an important boundary ([architecture §6.2](./target-architecture.md#62-example-internal-structure-for-a-rule-heavy-module)), not as a default wrapper.
+
+### 5.4 Prohibited dependencies
+
+- Importing anything of another module outside its `index.ts`: repositories, adapters, Drizzle tables, domain internals.
+- Reading or writing another module's tables through `@agendoxa/database`, including read-only joins. If a read becomes too slow, the owner publishes a query or read model as a [shared change](#9-technical-autonomy-and-shared-changes).
+- Upward or same-level dependencies, and `forwardRef()` used to hide a cycle.
+- `agent` or `messaging` changing bookings, payments or customers except through public use cases; `agent` choosing the tenant or the requester (BR-AGT-02).
+- Business rules in platform code, `packages/shared`, inbound adapters or `apps/web`.
+- `apps/web` importing `apps/api` or `@agendoxa/database`.
+- Calling a provider, the LLM or WhatsApp, or waiting for a person, inside a database transaction (INV-DISP-07).
+- A message broker or separate service to replace an in-process call ([architecture §6.3](./target-architecture.md#63-dependency-direction-and-composition)).
+
+## 6. Communication between modules
+
+### 6.1 Synchronous calls are the default
+
+A module calls another through the facade exported by its `index.ts`, injected by NestJS. Inputs carry the validated tenant and actor context ([§6.5](#65-tenant-and-actor-context)); outputs are contract types, never database rows or another module's domain objects. Expected failures are typed results in the error categories of [architecture §11](./target-architecture.md#11-internal-api-and-integration-boundaries) (`validation`, `forbidden`, `not_found`, `conflict`, `external_dependency`), so callers decide without parsing messages.
+
+### 6.2 Transactions
+
+### MOD-DM-08: The initiating use case owns the transaction
+
+- **What:** Several invariants span modules and must hold in one transaction.
+- **Rule:**
+  - The use case that starts the operation opens one transaction, through a transaction runner in platform code built on the existing `DatabaseModule` connection.
+  - Every public API method that writes receives the caller's transaction explicitly and never commits, rolls back or opens its own. Explicit passing is preferred over an implicit ambient transaction because it stays visible in signatures and tests.
+  - Nothing inside the transaction waits for a provider, the LLM, WhatsApp delivery or a person (INV-DISP-07).
+  - A rejected commit, such as a serialization failure, fails the whole operation; only the initiator may retry it, and only when the operation is idempotent ([REP-02 transactional guards](./rep-02-core-persistence.md#transactional-guards)).
+- **Operations that need one transaction across modules:**
+
+| Operation | Initiator | Writes in the same transaction | Invariants |
+|---|---|---|---|
+| Create a booking | `bookings` | Claim, booking, charge (`payments`), booking event, audit, HOLD-expiry intent, reminder when confirmed (`notifications`) | INV-DISP-01, INV-SEN-06, INV-RES-04 |
+| Cancel a booking | `bookings` | Status, claim closed, reminders suppressed (`notifications`), `SlotReleased` intent, audit | INV-CAN-08 |
+| Apply a reschedule | `bookings` | New claim, old claim closed, reminders replaced, change request applied, event | INV-CAN-02–03, INV-CAN-06 |
+| Allocation reaches the deposit threshold | `payments` | Allocation, booking confirmed (`bookings`), reminder (`notifications`) | INV-PAY-07, EJ-20 |
+| Record a cash payment | `payments` | Payment, cash movement, automatic session opening (`cash-register`) | INV-CAJA-08 |
+| Claim an invitation | `waitlist` | Priority claim closed and HOLD created (`bookings`), invitation claimed | INV-WL-08 |
+| Change notice preferences | `customers` | Preferences, scoped audit events, entry provenance (`waitlist` reads it) | INV-AUD-03, INV-NOT-07 |
+| Correct an outcome | `bookings` | Status, booking event with reason, audit | INV-RES-02, INV-RES-04 |
+
+### 6.3 Events and durable intents
+
+### MOD-DM-09: Events are notifications; required follow-ups are durable
+
+- **What:** How a lower module triggers a higher one, and how delayed effects survive restarts ([architecture §6.5](./target-architecture.md#65-cross-module-atomicity-and-delayed-effects)).
+- **Rule:**
+  - An event exists only when a lower module must trigger a higher one ([§5.3](#53-needs-against-the-direction)). Modules at a lower level never call upward.
+  - A follow-up that must happen is recorded in the same transaction as its cause: either a job enqueued transactionally or a durable intent reconciled later. Which one depends on the scheduler, and CON-03 decides it.
+  - Payloads carry `tenant_id`, the record IDs and a deduplication key; they are never the source of truth. The consumer reloads the record under that tenant and rechecks current state before acting ([TEN-DM-08](./tenancy.md#ten-dm-08-jobs-carry-and-recheck-their-tenant)). Handlers are idempotent.
+  - Names below are provisional; CON-03 defines payloads.
+
+| Event | Producer | Consumers | Purpose |
+|---|---|---|---|
+| `SlotReleased` | `bookings`, on cancellation, HOLD expiry, correction-window cancellation and the old slot of a reschedule | `waitlist` | Start a release round for real free capacity, never for private remainders (BR-WL-05, BR-WL-15) |
+| Outbound message status changed | `messaging` | `notifications` | Record attempt outcomes; unknown outcomes are not resent (BR-NOT-10) |
+| Customer deletion confirmed | `customers` | `waitlist`, `notifications`, `messaging` | Close entries and pending invitations, stop notices and AI use (BR-DAT-01, BR-DAT-09) |
+| Customer deletion executed | `customers` | `messaging`, `payments`, `notifications` | Each owner deletes or anonymizes its own data and asks `assets` to remove files it no longer needs to keep (BR-DAT-03, T-04) |
+
+- **Example:** A cancellation commits with its `SlotReleased` intent. The process crashes before the waitlist reacts. On recovery the intent is still there; `waitlist` reloads the booking, sees the claim closed and the slot still free, and starts the round. If someone booked the slot meanwhile, it does nothing.
+
+### 6.4 Queries and read compositions
+
+The owner answers questions about its data through query functions in its public API. A CRM screen that combines several modules, such as the customer view with its no-show count or the agenda with review status, is composed by the highest module involved or by the HTTP adapter of that screen, never by a SQL join across owners. A booking-level read that needs payment facts goes through the finance port.
+
+### 6.5 Tenant and actor context
+
+Inbound adapters resolve the tenant and actor once, from the single source each entry point has ([TEN-DM-07](./tenancy.md#ten-dm-07-every-entry-point-has-one-source-of-tenant-context)): the CRM membership, the validated WhatsApp connection, or a job payload rechecked against the record. The context is passed explicitly to use cases and from them to other modules. No public API accepts a tenant chosen by a client or by the LLM, and every persistence adapter scopes reads and writes by `tenant_id`. A record of another tenant is reported as `not_found` (EJ-01).
+
+### 6.6 Jobs
+
+Each job belongs to the module that owns the state it changes. It lives in that module's `adapters/in/jobs` and calls the module's own use cases, which recheck state ([architecture §10.3](./target-architecture.md#103-durable-jobs-and-notifications)).
+
+| Job | Owner |
+|---|---|
+| HOLD expiry; initial-evidence correction-window expiry | `bookings` |
+| Initial priority expiry, progressive invitation steps, entry expiry | `waitlist` |
+| Notice dispatch, one retry after a confirmed failure, status recovery | `notifications` |
+| Five-second message grouping; 60-minute AI return | `messaging` |
+| Deletion execution on day 30 | `customers`, then each consumer of the deletion event |
+| Reconciliation of durable intents | The module that produced each intent |
