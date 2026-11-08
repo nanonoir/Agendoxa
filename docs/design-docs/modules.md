@@ -421,3 +421,158 @@ A module moves to more depth when a real rule appears, not in advance.
   4. In one transaction ([MOD-DM-08](#mod-dm-08-the-initiating-use-case-owns-the-transaction)): it rechecks lead time and the future-booking cap, inserts the claim (the database rejects an overlap), creates the booking in `HOLD` with `hold_expires_at`, creates the charge through the finance port, records the booking event and the HOLD-expiry intent.
   5. After commit, the facade returns the HOLD and its deadline; `agent` phrases the reply. A `conflict` result makes `agent` offer other slots instead.
 - **What stays outside `bookings`:** whether money was verified (`payments`), when to send the reminder (`notifications`, scheduled from inside the transaction), who wins a release round (`waitlist`), and what the customer is told (`agent`).
+
+## 8. Integration points for CON-02 and CON-03
+
+These are the questions this document leaves to the contract tickets, with the boundary each answer must respect. The contracts themselves are not defined here.
+
+### 8.1 For CON-02: API contracts
+
+Issue [#11](https://github.com/nanonoir/Agendoxa/issues/11).
+
+| Topic | CON-02 defines | Constraint from this document |
+|---|---|---|
+| CRM endpoints | Routes, methods, inputs and outputs per operation | Each endpoint belongs to the owner module of its operation ([§4](#4-operations-by-module)) and calls one use case. An endpoint never writes to two modules except through that use case |
+| Public endpoints | The read-only landing data | Only `tenants` business information and `catalog` services. No booking, cancellation or rescheduling endpoint (BR-CH-02, [architecture §11](./target-architecture.md#11-internal-api-and-integration-boundaries)) |
+| Authentication and tenant selection | Session or token, and how the CRM selects a business | Resolved by `identity`; a selected tenant only selects, it never authorizes (BR-TEN-02) |
+| Errors | HTTP mapping of the error categories | `not_found` for another tenant's record (EJ-01); `conflict` for occupancy races (EJ-08) |
+| Shared schemas | Which request and response schemas live in `packages/shared` | Only HTTP contracts used by `apps/web` and `apps/api`; never entities, database rows or domain objects. Inbound adapters validate with them and map to use-case inputs |
+| Representations | Formats on the wire | Money as decimal strings, as the database already returns them; instants in UTC; recurring times as local times with the tenant timezone; UUID identifiers |
+| Booking status | How status and conditions appear | The seven statuses only. Pending operational close, review state and partial-deposit waiting are separate derived fields, not new statuses ([§11](#11-reconciliation-with-sources)) |
+| Idempotency | Which operations accept a key and how | At least payments and refunds (ERD `idempotency_key`, T-03) and booking creation retries |
+| Internal consumers | Which use cases the agent reuses | Agent tools call module facades, not HTTP ([§8.2](#82-for-con-03-integration-contracts)) |
+
+### 8.2 For CON-03: integration contracts
+
+Issue [#12](https://github.com/nanonoir/Agendoxa/issues/12).
+
+| Integration | Port owned by | CON-03 defines | Constraint from this document |
+|---|---|---|---|
+| WhatsApp provider (Evolution API) | `messaging` | Send, webhook verification and normalization, connection status, provider identifiers and deduplication, status recovery | Only `messaging` talks to the provider. The tenant comes from the connection (INV-MSG-02). Provider capabilities are unvalidated (T-04) |
+| Conversation runtime (LangGraph) | `agent` | Runtime adapter, tool input and output schemas, failures and escalation | Tools are inbound adapters of `agent` over the allowlist below. Tenant and requester come from the conversation (BR-AGT-02) |
+| Job scheduler (pg-boss) | Platform code | Schedule and cancel by deduplication key, transactional enqueue or durable intent with reconciliation, retries | Payload is `tenant_id` plus record IDs; handlers recheck state ([MOD-DM-09](#mod-dm-09-events-are-notifications-required-follow-ups-are-durable)); jobs per module in [§6.6](#66-jobs) |
+| Notice dispatch | `notifications` uses the `messaging` facade | How a notice becomes a message and how outcomes return | Internal call plus the status event of [§6.3](#63-events-and-durable-intents); no provider details in `notifications` |
+| Private file storage | `assets` | Store, read through authorized access, delete; MIME and size validation | No public links (DM-14); deletion is decided by the record owners |
+| Payments | — | **No provider port** | The MVP has manual transfers verified by a person and cash (BR-SEN-07, BR-SEN-08, MVP §5.3). [§11](#11-reconciliation-with-sources) lists the conflict with the Issue |
+
+**Operations available to the agent**, all through public facades and always with the conversation's requester:
+
+| Allowed | Module |
+|---|---|
+| Business information, services and prices | `tenants`, `catalog` |
+| Find free slots; create a HOLD; confirm without deposit; cancel; reschedule; consult the requester's future bookings | `bookings` |
+| Join the waitlist; claim an invitation | `waitlist` |
+| Read payment status; attach evidence to a pending review | `payments` |
+| Record notice preferences; request or withdraw data deletion | `customers` |
+| Escalate to a human with a summary | `messaging` |
+
+Never exposed to the agent: verifying or allocating money, recording outcomes, cash operations, restrictions, exceptions, configuration and roles (BR-AGT-04, BR-IAM-07).
+
+**Simulated implementations for parallel work:** a fake WhatsApp provider that records sends and replays webhooks, a scripted conversation runtime, a scheduler that runs jobs on demand in tests, and in-memory storage. CON-03 decides their exact form.
+
+## 9. Technical autonomy and shared changes
+
+### 9.1 What a module decides on its own
+
+Within the rules of §5–§7, the module's responsible person decides, with the normal review of [CONTRIBUTING](../../CONTRIBUTING.md#pull-requests-y-revisión): its internal folders and depth, its domain model, how use cases are written, the queries of its persistence adapter, its tests and any refactor that leaves `index.ts` unchanged. A new index on its own tables is local too, but the migration still joins the single history, so announce it.
+
+### 9.2 Shared changes
+
+These follow [Coordinación y conflictos](../../CONTRIBUTING.md#coordinación-y-conflictos): tell the affected people and make the impact visible in the PR's "Impacto compartido" section. Telling them does not mean waiting for prior approval.
+
+| Change | Involve | Extra rule |
+|---|---|---|
+| A module's `index.ts`: facades, contract types, events | Responsible people of the consuming modules | Prefer additive changes; remove only after consumers move |
+| A port that another module implements | The implementing module | The port's owner proposes; both update in one PR when possible |
+| Event or job payloads | Consumers | Additive fields; consumers must tolerate replays |
+| Migrations in `packages/database` | The table owner and owners of tables that reference it | Never edit an applied migration ([database README](../../packages/database/README.md#migraciones-y-conexión)) |
+| Shared rows ([MOD-DM-06](#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) | Row owner and field owner | — |
+| `packages/shared` contracts | `apps/web` and `apps/api` consumers | Follow CON-02's evolution rules once they exist |
+| Permission catalog keys | `identity` and the modules that check them | — |
+| A new dependency, a new module, or moving an entity to another owner | Everyone affected | Update this document in the same PR; it is an architecture decision ([architecture §14.1](./target-architecture.md#141-architecture-decision-records-when-needed)) |
+| An exception to a layer or dependency rule | Reviewer and affected owners | Record the reason and the agreement in the PR ([architecture §14](./target-architecture.md#14-team-implementation-conventions), item 7) |
+
+### 9.3 Module responsibility
+
+- Each module has a responsible person, recorded in its Issue or in GitHub Projects when work on it starts. That person is the preferred reviewer for changes inside the module, never an exclusive approver: CONTRIBUTING still asks for one approval from anyone else on the team.
+- A PR that touches more than one module names every affected module and its responsible person.
+- Changing another module's internals is coordinated with its responsible person; prefer asking for a change to its public API.
+- Modules can be built in parallel once the public API of the lower module they need is agreed. Until it exists, the higher module codes against that contract with a test double.
+
+### 9.4 Where coordination will be needed
+
+| Boundary | Why | Related |
+|---|---|---|
+| `bookings` ↔ `payments` | Deposit lifecycle, confirmation on allocation, partial deposits, instructions and rotation | T-02, T-03, BR-SEN-09–11 |
+| `bookings` ↔ `waitlist` | Priority claims, rounds, the unique winning HOLD | T-01, BR-WL-06–15 |
+| `bookings` ↔ `notifications` | Scheduling and suppressing reminders inside booking transactions | INV-CAN-06, INV-CAN-08 |
+| `bookings` ↔ `catalog` | Compatibility checks while catalog links change | [#31](https://github.com/nanonoir/Agendoxa/issues/31), INV-DISP-05 |
+| `messaging` ↔ `agent` | Control mode, takeover and the responder port | BR-HND, INV-MSG-04 |
+| `customers` → every consumer | Deletion and anonymization fan-out | T-04, BR-DAT |
+| `tenants` ↔ `identity` and the rest | Onboarding and the settings stored on `Tenant` | [#30](https://github.com/nanonoir/Agendoxa/issues/30), [MOD-DM-06](#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners) |
+
+## 10. Decisions and open questions
+
+| ID | Decision | Status |
+|---|---|---|
+| [MOD-DM-01](#mod-dm-01-twelve-business-modules-and-two-platform-modules) | Twelve business modules and two platform modules | Proposed |
+| [MOD-DM-02](#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables) | One owner per entity; only the owner's persistence adapter touches its tables | Proposed |
+| [MOD-DM-03](#mod-dm-03-booking-policies-belong-to-catalog) | `BookingPolicy` belongs to `catalog` | Proposed |
+| [MOD-DM-04](#mod-dm-04-bookings-owns-all-occupancy) | `bookings` owns every `SlotClaim` | Proposed |
+| [MOD-DM-05](#mod-dm-05-availability-supplies-windows-bookings-finds-free-slots) | `availability` supplies windows; `bookings` finds free slots | Proposed |
+| [MOD-DM-06](#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners) | Row owner and named field owners for shared rows | Proposed |
+| [MOD-DM-07](#mod-dm-07-dependencies-only-point-to-lower-levels) | Dependencies only point to lower levels | Proposed |
+| [MOD-DM-08](#mod-dm-08-the-initiating-use-case-owns-the-transaction) | The initiating use case owns the transaction; writes receive it explicitly | Proposed |
+| [MOD-DM-09](#mod-dm-09-events-are-notifications-required-follow-ups-are-durable) | Events only upward triggers; required follow-ups are durable | Proposed |
+| [MOD-DM-10](#mod-dm-10-a-modules-public-surface-is-its-indexts) | `index.ts` is the only public surface | Proposed |
+| [MOD-DM-11](#mod-dm-11-bookings-is-the-conceptual-reference-module) | `bookings` is the conceptual reference module | Proposed |
+
+These questions are flagged, not resolved here.
+
+| ID | Question | Why it matters | Owner | Blocks |
+|---|---|---|---|---|
+| `MOD-Q-01` | Should the settings and references of [MOD-DM-06](#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners) move to tables of their field owners? | It would remove shared rows, but it changes the ERD and REP-02's schema | Team, with T-01 and T-02 | Nothing now |
+| `MOD-Q-02` | How does CU-20 onboarding create the tenant, its roles, first membership, calendar and policy atomically? Proposal: a provisioning port owned by `tenants` and implemented by `identity`, `availability` and `catalog` | `tenants` is level 0 and cannot call them directly | [#30](https://github.com/nanonoir/Agendoxa/issues/30) | Onboarding |
+| `MOD-Q-03` | Which lint rule enforces [MOD-DM-10](#mod-dm-10-a-modules-public-surface-is-its-indexts) and [MOD-DM-07](#mod-dm-07-dependencies-only-point-to-lower-levels)? | Review alone does not scale once several people work in parallel | Team, when the second module exists | Nothing now |
+| `MOD-Q-04` | Transactional job enqueue or durable intent plus reconciliation? | Decides how [MOD-DM-09](#mod-dm-09-events-are-notifications-required-follow-ups-are-durable) is built | CON-03 | The first job |
+
+[TEN-Q1](./tenancy.md#10-open-questions) and [TEN-Q6](./tenancy.md#10-open-questions) belong to `identity` and stay in DOM-02.
+
+## 11. Reconciliation with sources
+
+Differences found while assigning the sources to modules, and how this document handles them.
+
+| Topic | Sources say | This document |
+|---|---|---|
+| Module list | The ticket lists ten; the architecture proposal lists twelve capabilities, with a `payments` / `billing` alias | Twelve business modules plus `audit` and `assets`; the name `payments` ([§2](#changes-to-the-tickets-initial-list)) |
+| ERD modules | Nine data groupings, including Policies, Assets, Incidents and Audit | Capability modules own the 38 entities ([§3](#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables)); the ERD grouping remains valid as data documentation |
+| Booking statuses | UC-03 §0 and architecture §9.1 call the seven labels conceptual and "not finalized DB enums"; [REP-02](./rep-02-core-persistence.md) implemented `booking_status` with the same seven values | The seven are the only booking statuses, and only `bookings` changes them. Actually pending review, rejected evidence awaiting correction, partial-deposit waiting and pending operational close are derived conditions computed by `bookings` with payment facts, not statuses ([INV §2](../product-specs/uc-03/invariants.md#2-booking-lifecycle), BR-RES-13). Updating the wording of architecture §9.1 is left to its own review |
+| `ExclusiveOffer` | Legacy name; only first small-cohort priority holds a claim (DM-08) | `waitlist` owns the invitation; any claim is a `bookings` claim ([MOD-DM-04](#mod-dm-04-bookings-owns-all-occupancy)) |
+| Reminder suppression | INV-CAN-08 requires suppression atomically with cancellation; the proposal schedules notices through jobs | `notifications` sits below `bookings`, so the booking transaction schedules and suppresses; the send-time recheck (INV-NOT-02) still guards every attempt |
+| Paths in the Issues | `docs/domain/*.md`, `architecture.md`, `docs/architecture/` | The documents are in `docs/product-specs/` and `docs/design-docs/`. This file follows the [design catalog](./index.md), as DOM-01 and DOM-02 did |
+| CON-02 Issue | Public API to create, consult, cancel and reschedule bookings | Excluded by BR-CH-02 and architecture §11; UC-03 §17 already records it. [§8.1](#81-for-con-02-api-contracts) keeps public endpoints read-only |
+| CON-03 Issue | Mercado Pago payment contracts | Excluded by BR-SEN-08 and MVP §5.3. [§8.2](#82-for-con-03-integration-contracts) defines no payment provider port; changing that needs a product decision |
+| Module naming | CONTRIBUTING's examples use `BookingModule` | The examples are illustrative; module folders, files and classes follow the names in §2, such as `BookingsModule` |
+
+## 12. Traceability
+
+**[CON-01 (#10)](https://github.com/nanonoir/Agendoxa/issues/10)**
+
+| Criterion | Where |
+|---|---|
+| MVP modules identified | §2 |
+| Responsibilities and boundaries documented | §2, §5.4 |
+| Data and operation ownership per module | §3, §4 |
+| Allowed and prohibited dependencies | §5 |
+| Communication between modules | §6 |
+| Hexagonal separation with a conceptual reference module | §7, MOD-DM-11 |
+| Integration points and contracts identified | §8 |
+| Technical autonomy and shared-change conventions | §9 |
+| Reviewed and approved by the team | **Pending** |
+
+| Deliverable in the Issue | Where |
+|---|---|
+| Module catalog with responsibilities, boundaries and dependencies | This file, §2–§5. The Issue names `docs/architecture/modules.md`; this file follows the design catalog, as DOM-01 and DOM-02 did |
+| Mermaid dependency diagram | §5.1 |
+| Internal structure conventions for NestJS modules | §7 |
+| Contracts and integration points for CON-02 and CON-03 | §8 |
