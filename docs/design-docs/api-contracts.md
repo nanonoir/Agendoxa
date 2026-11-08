@@ -356,3 +356,231 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 - **Indicators are derived** (**Defined:** [ERD §6.4](./erd.md#64-module-2--customers), BR-CLI-06–07, BR-CLI-12): `noShowCount` counts the customer's current `NO_SHOW` bookings as requester; `lateCancellationCount` and `lateRescheduleCount` come from booking events; `problematic` is `true` from two no-shows and restricts nothing.
 - **Notice preferences are read-only here.** The customer changes them over WhatsApp (CU-19); recording consent given in person from the CRM is still a proposal in UC-02, so no endpoint changes them.
 - **Deletion:** a customer with `deletionStatus: REQUESTED` stays visible so personnel can resolve their bookings and money before `deletionDueAt` (BR-DAT-08). After execution, the name and phone may be `null` (BR-DAT-03).
+
+## 8. Representative examples
+
+The same examples are under `components.examples` in the [OpenAPI file](./api-contracts.openapi.yaml). Each block below names the schema it satisfies; both sets were validated against the schemas ([§15](#15-traceability)). Identifiers are illustrative; times are in UTC for a tenant in `America/Argentina/Buenos_Aires`.
+
+**Create a walk-in for a new customer** — `POST /api/v1/tenants/2d4c6e8a-1b3d-4f5a-9c7e-0a2b4c6d8e01/bookings`, with `Idempotency-Key: 9f6c1d2e-walkin-0001` and `X-CSRF-Token`:
+
+<!-- example: CreateCrmBookingRequest -->
+```json
+{
+  "customer": { "newCustomer": { "fullName": "Juan Pérez", "phone": null } },
+  "serviceId": "8b1d3f5a-7c9e-4b2d-8f1a-3c5e7a9b1d3f",
+  "resourceId": "1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f",
+  "startAt": "2026-11-10T13:00:00Z"
+}
+```
+
+`201 Created`, with `Location` pointing to the booking:
+
+<!-- example: BookingDetail -->
+```json
+{
+  "booking": {
+    "id": "c4e6a8b0-2d4f-4a6c-8e0b-2d4f6a8c0e2a",
+    "status": "CONFIRMED",
+    "origin": "CRM",
+    "customer": { "id": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d", "fullName": "Juan Pérez" },
+    "attendeeName": null,
+    "service": { "id": "8b1d3f5a-7c9e-4b2d-8f1a-3c5e7a9b1d3f", "name": "Corte" },
+    "resource": { "id": "1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f", "name": "Martín" },
+    "startAt": "2026-11-10T13:00:00Z",
+    "endAt": "2026-11-10T13:30:00Z",
+    "agreedPrice": "8000.00",
+    "requiredDeposit": null,
+    "depositState": "NOT_REQUIRED",
+    "pendingOperationalClose": false,
+    "holdExpiresAt": null
+  },
+  "attendeePhone": null,
+  "noticeMinutes": 600,
+  "depositRefundPolicy": null,
+  "blockedException": false,
+  "depositException": false,
+  "createdByMembershipId": "0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f",
+  "cancelReason": null,
+  "createdAt": "2026-11-10T12:58:41Z",
+  "updatedAt": "2026-11-10T12:58:41Z"
+}
+```
+
+**The same slot taken by a concurrent HOLD** — `409 Conflict`:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:conflict",
+  "title": "The slot is no longer available",
+  "status": 409,
+  "code": "conflict",
+  "reason": "slot_unavailable",
+  "requestId": "req_01JC8Q5D0K7"
+}
+```
+
+**Cancel inside the notice window without acceptance** — `POST …/bookings/{bookingId}/cancel` with `{ "cause": "CUSTOMER_REQUEST" }` returns `422`:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:rule-violation",
+  "title": "The change is inside the notice window",
+  "status": 422,
+  "code": "rule_violation",
+  "reason": "late_change_requires_acceptance",
+  "detail": "Confirm that the customer accepted the consequence, or ask an Admin for an exception.",
+  "requestId": "req_01JC8Q6H3R5",
+  "lateChange": {
+    "noticeMinutes": 600,
+    "startAt": "2026-11-10T21:00:00Z",
+    "depositRefundPolicy": "NO_MONEY_BACK"
+  }
+}
+```
+
+After the customer accepts, the CRM sends it again with a new idempotency key:
+
+<!-- example: CancelBookingRequest -->
+```json
+{ "cause": "CUSTOMER_REQUEST", "acceptLateConsequence": true }
+```
+
+**A Staff member requests the deposit exception** — `403 Forbidden`:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:forbidden",
+  "title": "The operation is not allowed for this role",
+  "status": 403,
+  "code": "forbidden",
+  "reason": "admin_only",
+  "detail": "Only an Admin can confirm a booking without its required deposit.",
+  "requestId": "req_01JC8Q3M2X9"
+}
+```
+
+**A booking of another tenant, reached by changing the ID** — `404 Not Found`, the same answer as for a booking that does not exist (EJ-01):
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:not-found",
+  "title": "Not found",
+  "status": 404,
+  "code": "not_found",
+  "requestId": "req_01JC8Q4B6T1"
+}
+```
+
+**Invalid phone in a new customer** — `400 Bad Request`:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:validation",
+  "title": "The request does not match the contract",
+  "status": 400,
+  "code": "validation",
+  "requestId": "req_01JC8Q2W7N4",
+  "errors": [
+    {
+      "path": "/customer/newCustomer/phone",
+      "message": "Must be an E.164 phone number, such as +5493794111222"
+    }
+  ]
+}
+```
+
+**Effective policy of a court whose deposit is disabled on the resource** — `GET …/booking-policies/effective?serviceId=…&resourceId=…`:
+
+<!-- example: EffectiveBookingPolicy -->
+```json
+{
+  "serviceId": "3a1b5c7d-9e2f-4a6b-8c0d-1e3f5a7b9c2d",
+  "resourceId": "5c7e9a1b-3d5f-4b7a-9c1e-3f5a7b9d1e3f",
+  "noticeMinutes": 600,
+  "bookingLeadMinutes": 0,
+  "reminderLeadMinutes": 180,
+  "deposit": { "mode": "DISABLED", "value": null },
+  "depositRefundPolicy": "NO_MONEY_BACK",
+  "rescheduleLimit": null,
+  "futureBookingLimit": null,
+  "sources": {
+    "noticeMinutes": "DEFAULT",
+    "bookingLeadMinutes": "DEFAULT",
+    "reminderLeadMinutes": "TENANT",
+    "deposit": "RESOURCE",
+    "depositRefundPolicy": "TENANT",
+    "rescheduleLimit": "DEFAULT",
+    "futureBookingLimit": "DEFAULT"
+  }
+}
+```
+
+**Customer with two no-shows and no restriction** — the indicator shows, nothing is restricted (EJ-33):
+
+<!-- example: CustomerDetail -->
+```json
+{
+  "id": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d",
+  "fullName": "Lucía Fernández",
+  "phone": "+5493794111222",
+  "reminderPreference": "ACCEPTED",
+  "waitlistPreference": "REFUSED",
+  "deletionStatus": "NONE",
+  "deletionDueAt": null,
+  "currentRestriction": null,
+  "indicators": {
+    "noShowCount": 2,
+    "lateCancellationCount": 1,
+    "lateRescheduleCount": 0,
+    "problematic": true
+  },
+  "createdAt": "2026-10-02T15:20:00Z"
+}
+```
+
+**Public profile for the landing** — `GET /api/v1/public/businesses/barberia-centro`, without a session:
+
+<!-- example: PublicBusinessProfile -->
+```json
+{
+  "name": "Barbería Centro",
+  "slug": "barberia-centro",
+  "timezone": "America/Argentina/Buenos_Aires",
+  "branding": null,
+  "whatsappUrl": "https://wa.me/5493794000000",
+  "regularHours": [
+    { "weekday": "TUESDAY", "startTime": "09:00", "endTime": "13:00" },
+    { "weekday": "TUESDAY", "startTime": "16:00", "endTime": "20:00" }
+  ]
+}
+```
+
+## 9. Shared schemas in `packages/shared`
+
+### API-DM-14: `packages/shared` holds the HTTP contracts, as Zod schemas, and nothing else
+
+- **Defined:** `packages/shared` holds portable contracts and validation, never business logic, data access or secrets ([architecture §5](./target-architecture.md#5-monorepo-organization), [AGENTS.md](../../AGENTS.md#local-conventions-and-boundaries)). The existing `healthResponseSchema` and `HealthResponse` set the naming style.
+- **Rule (Proposed):**
+  - Each OpenAPI component becomes a Zod 4 schema named `<camelCaseName>Schema`, with its type `type <Name> = z.infer<typeof <name>Schema>`, for example `createCrmBookingRequestSchema` and `CreateCrmBookingRequest`.
+  - Request objects are strict, so unknown fields fail as in the OpenAPI `additionalProperties: false`.
+  - Inbound adapters in `apps/api` validate with these schemas and map the result to use-case inputs. Domain code never imports them ([modules §7.2](./modules.md#72-layer-rules), rule 3).
+  - `apps/web` uses the same schemas to type its API client and to validate forms. That validation is only usability: the backend decides availability, prices, deposits and permissions.
+  - Not in `packages/shared`: database rows, domain entities, permission-checking logic, error-to-HTTP mapping, or anything only one application uses.
+
+| File (proposed) | Schemas | Used by |
+|---|---|---|
+| `src/contracts/common.ts` | `Uuid`, `Instant`, `LocalDate`, `LocalTime`, `Money`, `Minutes`, `PhoneE164`, `Weekday`, `Reason`, `Page`, `TimeRange`, `NamedRef` | All of the below |
+| `src/contracts/problem.ts` | `Problem`, `LateChangeNotice` | Web error handling; API error filter |
+| `src/contracts/session.ts` | `SignInRequest`, `SessionView`, `MembershipSummary`, `TenantContextView` | Web sign-in and business selector |
+| `src/contracts/tenants.ts` | `TenantProfile`, `UpdateTenantProfileRequest`, `PublicBusinessProfile`, `WeeklyHours` | CRM settings; landing |
+| `src/contracts/catalog.ts` | `Service`, `Resource`, their create and update requests, `PublicService`, `DepositRule`, `TenantPolicyFields`, `OverridePolicyFields`, `BookingPolicy`, `EffectiveBookingPolicy`, `PolicySource` | CRM configuration; landing |
+| `src/contracts/availability.ts` | `Calendar`, `WeeklyRules`, `AvailabilityException`, `CreateAvailabilityExceptionRequest`, `ResourceWindows` | CRM hours and blocks |
+| `src/contracts/bookings.ts` | `BookingStatus`, `DepositState`, `BookingSummary`, `BookingDetail`, `BookingEvent`, `FreeSlot`, `AgendaView`, `CustomerInput`, `AdminException`, the command requests, `RescheduleResult` | CRM agenda and booking actions |
+| `src/contracts/customers.ts` | `CustomerSummary`, `CustomerDetail`, `CustomerIndicators`, `CreateCustomerRequest`, `UpdateCustomerRequest`, `Restriction`, `RestrictionKind`, the restriction requests, `Incident`, `CreateIncidentRequest` | CRM customers |
+
+Adding these schemas is a [shared change](./modules.md#92-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
