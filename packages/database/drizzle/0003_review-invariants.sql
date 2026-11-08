@@ -1,0 +1,3 @@
+ALTER TABLE "roles" ADD CONSTRAINT "roles_system_active" CHECK ("roles"."system_key" IS NULL OR "roles"."is_active");--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_whatsapp_author" CHECK ("bookings"."origin" <> 'WHATSAPP' OR "bookings"."created_by_membership_id" IS NULL);--> statement-breakpoint
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_attendee_phone_e164" CHECK ("bookings"."attendee_phone" IS NULL OR "bookings"."attendee_phone" ~ '^[+][1-9][0-9]{1,14}$');

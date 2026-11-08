@@ -2,7 +2,7 @@
 
 **Reservas inteligentes. Gestión más simple.** Agendoxa es una propuesta de plataforma multi-tenant para reservas y atención al cliente, desarrollada en equipo en el contexto del bootcamp Devlights.
 
-> **Estado actual:** el repositorio contiene una página web inicial de Next.js, una API de salud y un contrato compartido. Todavía no implementa reservas, CRM, persistencia ni integraciones de WhatsApp, IA o pagos.
+> **Estado actual:** página web inicial, API de salud, contrato compartido y primer incremento de persistencia PostgreSQL/Drizzle con 17 entidades, migraciones y pruebas. Todavía no implementa casos de uso de reservas, CRM, autenticación ni integraciones de WhatsApp, IA o pagos.
 
 ## Propuesta y alcance
 
@@ -12,7 +12,7 @@ El alcance y las decisiones están en revisión. La reconciliación del 4 de nov
 
 ## Arquitectura
 
-Hoy la web y la API son aplicaciones separadas que consumen `@agendoxa/shared`; `packages/database` es un placeholder sin conexión. La web muestra una página inicial y no consulta la API. Ver [arquitectura actual](ARCHITECTURE.md).
+La web y la API consumen `@agendoxa/shared`. NestJS también consume `@agendoxa/database`, con un pool administrado por su ciclo de vida. La web muestra una página inicial y no consulta la API. Ver [arquitectura actual](ARCHITECTURE.md) y [alcance de persistencia](docs/design-docs/rep-02-core-persistence.md).
 
 **Dirección objetivo propuesta, no implementada:**
 
@@ -33,19 +33,22 @@ El diseño y sus límites están en la [propuesta de arquitectura](docs/design-d
 
 | Actual | Previsto en la propuesta, no implementado |
 |---|---|
-| Node.js 24, pnpm workspaces, Turborepo, TypeScript | PostgreSQL y Drizzle, trabajos con pg-boss |
+| Node.js 24, pnpm workspaces, Turborepo, TypeScript | Trabajos con pg-boss |
 | Next.js, React y Tailwind CSS | Evolution API/Baileys y LangGraph para WhatsApp e IA |
-| NestJS, Zod, Vitest y Supertest | Docker Compose y CI/CD |
+| NestJS, Zod, Vitest y Supertest; PostgreSQL 18, Drizzle y Compose local | CI/CD |
 
 ## Arranque local
 
-**Requisitos:** Git, Node.js 24 (ver [`.nvmrc`](.nvmrc)) y pnpm 12.16.1 (`npm i -g pnpm@12.16.1`).
+**Requisitos:** Git, Node.js 24 (ver [`.nvmrc`](.nvmrc)), pnpm 12.16.1 (`npm i -g pnpm@12.16.1`) y Docker con Compose.
 
 ```bash
-git clone https://github.com/nanonoir/Agendoxa.git
+git clone --branch develop https://github.com/nanonoir/Agendoxa.git
 cd Agendoxa
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
+pnpm db:up
+pnpm db:migrate
+pnpm db:seed
 pnpm dev
 ```
 
@@ -56,7 +59,7 @@ En PowerShell, se puede usar `Copy-Item .env.example .env` en lugar de `cp`. Tur
 | Web | http://localhost:3000 |
 | API | http://localhost:3001; `GET /health` devuelve `{"status":"ok"}` |
 
-La API carga el `.env` de la raíz si existe y usa `PORT` o el puerto 3001. La web no carga ese archivo: sus variables van en `apps/web/.env.local`. `DATABASE_URL` aparece en [`.env.example`](.env.example), pero aún no se consume. No subas credenciales al repositorio.
+La API carga el `.env` de la raíz si existe, requiere DATABASE_URL y usa PORT o el puerto 3001. La web usa `apps/web/.env.local`. PostgreSQL se publica en loopback, puerto 5432 por defecto; cambiá POSTGRES_PORT y DATABASE_URL juntos si está ocupado. Las credenciales del ejemplo son solo para desarrollo local. El seed no crea contraseñas ni un login funcional. No subas credenciales reales al repositorio.
 
 ### Comandos
 
@@ -65,10 +68,14 @@ Desde la raíz del repositorio:
 | Comando | Resultado |
 |---|---|
 | `pnpm dev` | Inicia web y API en desarrollo, después de compilar sus dependencias |
-| `pnpm build` | Compila shared, API y web |
-| `pnpm lint` | Ejecuta ESLint en web y oxlint en API |
-| `pnpm typecheck` | Comprueba tipos en shared, API y web |
+| `pnpm build` | Compila shared, database, API y web |
+| `pnpm lint` | Ejecuta ESLint en web y oxlint en API/database |
+| `pnpm typecheck` | Comprueba tipos en shared, database, API y web |
 | `pnpm test` | Ejecuta las pruebas unitarias de la API; no incluye E2E |
+| `pnpm db:up` / `pnpm db:test:up` | Inicia PostgreSQL de desarrollo o el servicio separado de integración |
+| `pnpm db:migrate` / `pnpm db:seed` | Aplica migraciones o carga los dos negocios de ejemplo |
+| `pnpm db:generate` / `pnpm db:check` | Genera migraciones o verifica su metadata |
+| `pnpm test:db` | Ejecuta las pruebas de integridad/concurrencia sobre PostgreSQL real |
 
 Para validaciones específicas y preparación al ejecutar comandos con `--filter`, consultá [AGENTS.md](AGENTS.md).
 
@@ -80,7 +87,8 @@ apps/
   api/               # API NestJS con GET /health
 packages/
   shared/            # Contrato de salud compartido
-  database/          # Placeholder sin persistencia
+  database/          # Esquema, cliente, migraciones y pruebas de persistencia
+infra/               # Compose local de PostgreSQL y servicio de integración
 docs/
   product-specs/     # Alcance, UC-01/02/03 y sus estados
   design-docs/       # Propuestas técnicas
