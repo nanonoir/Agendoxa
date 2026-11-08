@@ -666,3 +666,99 @@ These CRM operations are needed by the MVP and identified here so that their con
 - **What:** The Issue asks for an initial OpenAPI specification; nothing defines where it lives.
 - **Rule (Proposed):** The specification is [`docs/design-docs/api-contracts.openapi.yaml`](./api-contracts.openapi.yaml), next to this document and registered with it in the [design catalog](./index.md). While no endpoint exists, it is the reviewed contract. Once the `packages/shared` schemas exist, they become the source: the OpenAPI is generated from them, through Zod's JSON Schema conversion or a NestJS OpenAPI integration chosen at implementation, and served by `apps/api`. From then on, this file is regenerated, or replaced by a link to the generated one. A drift check belongs to CI when it exists (DOC-02). No dependency is added for this now.
 - **Alternatives:** `apps/api/openapi.yaml` now, which would look like an implemented contract; or `docs/architecture/`, which the repository does not use ([§14](#14-reconciliation-with-sources)).
+
+## 13. Decisions and open questions
+
+Every decision is **Proposed for team review**.
+
+| ID | Decision |
+|---|---|
+| [API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information) | No public booking; two read-only public endpoints for the landing |
+| [API-DM-02](#api-dm-02-full-contracts-for-context-and-five-areas-the-rest-of-the-crm-is-identified) | Full contracts for context and five areas; other CRM operations identified |
+| [API-DM-03](#api-dm-03-one-versioned-base-path-reads-on-resources-transitions-as-commands) | `/api/v1`, resource reads and command endpoints; no endpoint writes `status` |
+| [API-DM-04](#api-dm-04-data-representations) | UUIDs, UTC instants, local dates and times, decimal-string money, minutes, E.164 |
+| [API-DM-05](#api-dm-05-pagination-filtering-and-sorting-only-where-lists-grow) | Cursor pagination for bookings and customers; capped ranges; explicit filters |
+| [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie) | Opaque server-side session cookie with a CSRF token |
+| [API-DM-07](#api-dm-07-the-tenant-is-a-path-segment-revalidated-on-every-request) | Tenant in the path, revalidated per request; `404` outside the caller's memberships |
+| [API-DM-08](#api-dm-08-permissions-are-checked-per-operation-admin-only-operations-stay-admin-only) | One permission per operation; Admin-only exceptions return `403 admin_only` |
+| [API-DM-09](#api-dm-09-one-problem-format-with-stable-codes-and-reasons) | RFC 9457 problems with stable `code` and `reason`; adds `rule_violation` |
+| [API-DM-10](#api-dm-10-state-changing-posts-require-an-idempotency-key) | `Idempotency-Key` on state-changing POSTs, kept 24 hours |
+| [API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins) | Commands rechecked against current state; configuration last-write-wins |
+| [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Endpoints belong to the owner module of the operation |
+| [API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields) | Seven statuses; derived conditions as separate fields |
+| [API-DM-14](#api-dm-14-packagesshared-holds-the-http-contracts-as-zod-schemas-and-nothing-else) | `packages/shared` holds HTTP contracts as Zod schemas |
+| [API-DM-15](#api-dm-15-the-agent-reuses-module-use-cases-in-process-not-the-http-api) | The agent uses facades in-process, with customer-facing results |
+| [API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1) | Additive evolution within `v1`, deprecation before removal |
+| [API-DM-17](#api-dm-17-the-openapi-file-lives-in-the-design-catalog-until-code-exists) | OpenAPI in the design catalog until generated from code |
+
+These questions are flagged, not resolved here.
+
+| ID | Question | Why it matters | Owner | Blocks |
+|---|---|---|---|---|
+| `API-Q-01` | Where is the business location stored? The landing shows it (MVP §7.2), but `Tenant` has no address field | The public profile omits it until the ERD has it | Product, with DOM-01 | Location on the landing |
+| `API-Q-02` | What are the real permission keys? §4 uses placeholders | Each protected endpoint names one | `identity` design | The first protected endpoint |
+| `API-Q-03` | Can personnel change an existing customer's phone, and how? | The phone is the WhatsApp identity; the ERD asks for safe identity handling | Product | Phone edits only |
+| `API-Q-04` | What happens to future bookings when a compatibility link is removed? | Needs the locking protocol between catalog and booking writes | [#31](https://github.com/nanonoir/Agendoxa/issues/31) | Nothing in this contract; existing bookings are kept |
+| `API-Q-05` | What is the default reminder lead time? | No value is agreed; with `null` no reminder is scheduled | Product | Reminders |
+| `API-Q-06` | Where are idempotency records stored? | They are not an ERD entity | Implementation, with REP-03 or [#31](https://github.com/nanonoir/Agendoxa/issues/31) | The first POST endpoint |
+| `API-Q-07` | What does `availability_rules.weekday` 0–6 mean? Proposal: 0 is Sunday, as in PostgreSQL | The API uses names, so the mapping must be fixed once | REP-02 owner | The first availability endpoint |
+| `API-Q-08` | How are passwords set and recovered, how long do sessions last, and how are personnel invited ([TEN-Q6](./tenancy.md#10-open-questions))? Does any installation put the web and the API on different sites? | API-DM-06 covers the session only; a cross-site deployment needs the Next.js server as a proxy | `identity` and authentication design | Sign-in implementation |
+| `API-Q-09` | Should the architecture proposal add `rule_violation` to its error categories? | API-DM-09 uses it | Team, in the architecture review | Nothing |
+
+## 14. Reconciliation with sources
+
+| Topic | Sources say | This document |
+|---|---|---|
+| Public API | The [Issue](https://github.com/nanonoir/Agendoxa/issues/11) asks to create, consult, cancel and reschedule bookings without an account | Excluded by BR-CH-01–02, MVP §5.3 and X-01; UC-03 §17 and CON-01 already record it. Two read-only endpoints remain ([API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information)). The Issue is not edited |
+| Deliverable path | `docs/architecture/api-contracts.md` | The repository has no `docs/architecture/`. This file and its OpenAPI follow the [design catalog](./index.md), as CON-01, DOM-01 and DOM-02 did |
+| References in the Issue | `docs/domain/*.md`, `architecture.md`, `docs/architecture/modules.md` | The documents are in `docs/product-specs/` and `docs/design-docs/` |
+| Authentication method | CU-17 leaves it to a CON task | [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie), chosen with the team; open parts in API-Q-08 |
+| Booking statuses | UC-02 §1 and UC-03 §0 call them conceptual labels, not persisted enums; REP-02 implemented `booking_status` | The seven values, plus derived fields for conditions that are not statuses ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)), as in [modules §11](./modules.md#11-reconciliation-with-sources) |
+| Error categories | Architecture §11 lists six | Adds `rule_violation` and `internal` (API-Q-09) |
+| Landing location | MVP §5.1 and §7.2 show location | Not in the ERD (API-Q-01) |
+| Weekly hours | The schema stores `weekday` 0–6 without a convention | Names in the API (API-Q-07) |
+| Agreed-price change | CU-11 A5 is a payment case | `agreed_price` is a `Booking` field, so its endpoint belongs to `bookings` ([§11.2](#112-next-contract-increment)) |
+
+**CON-01 constraints for CON-02** ([modules §8.1](./modules.md#81-for-con-02-api-contracts)):
+
+| Constraint | Where it holds |
+|---|---|
+| Each endpoint belongs to its owner module and calls one use case | [§7](#7-endpoints-by-owner-module), API-DM-12 |
+| Public endpoints only for `tenants` information and `catalog` services; no booking | API-DM-01 |
+| `identity` resolves authentication; a selected tenant only selects | API-DM-06, API-DM-07 |
+| `not_found` for another tenant's record; `conflict` for occupancy races | API-DM-07, API-DM-09, API-DM-11 |
+| `packages/shared` only for HTTP contracts, never entities or rows | API-DM-03, API-DM-14 |
+| Money as decimal strings, UTC instants, local times with the tenant timezone, UUIDs | API-DM-04 |
+| Seven statuses; derived conditions as separate fields | API-DM-13 |
+| Idempotency for payments, refunds and booking creation retries | API-DM-10 |
+| Agent tools call facades, not HTTP | API-DM-15 |
+
+## 15. Traceability
+
+**[CON-02 (#11)](https://github.com/nanonoir/Agendoxa/issues/11)**
+
+| Criterion | Where |
+|---|---|
+| MVP operations identified | §2 (API-DM-02), §7, §10, §11.2 |
+| Endpoints and HTTP methods defined | §7 and the OpenAPI file |
+| Inputs, outputs and validation documented | §7, §9 and the OpenAPI schemas |
+| Consistent error format | §5 |
+| Authentication, authorization and multi-tenant context | §4 |
+| Dates, times, timezones and amounts | §3 (API-DM-04) |
+| Sensitive operations with idempotency requirements | §6 |
+| Compatible with use cases and the domain model | §2, §7, §14 |
+| Contract evolution conventions | §12 |
+| Reviewed and approved by the team | **Pending** |
+
+| Deliverable in the Issue | Where |
+|---|---|
+| Specification and API conventions | This file. The Issue names `docs/architecture/api-contracts.md`; see §14 |
+| Initial OpenAPI specification | [api-contracts.openapi.yaml](./api-contracts.openapi.yaml) (API-DM-17) |
+| Schemas and types for `packages/shared` | §9 |
+| Representative requests, responses and errors | §8 and `components.examples` in the OpenAPI file |
+
+**Verification done for this proposal** (2026-11-08; checks on documents, not on running code):
+
+- The OpenAPI file passes Redocly CLI 2 `lint` with the recommended rules and invalid examples as errors. The only warning is the missing `info.license`, left on purpose because licensing is a project decision.
+- Every example in §8 validates against its OpenAPI schema with Ajv (JSON Schema 2020-12) and is identical to the example of the same name in the file. Every example the file attaches to an operation validates too. A copy with a wrong enum value and a numeric amount fails both tools, so the checks are effective.
+- Relative links and anchors of this document and the catalog resolve, and `git diff --check` reports nothing.
