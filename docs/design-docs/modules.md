@@ -345,3 +345,79 @@ Each job belongs to the module that owns the state it changes. It lives in that 
 | Five-second message grouping; 60-minute AI return | `messaging` |
 | Deletion execution on day 30 | `customers`, then each consumer of the deletion event |
 | Reconciliation of durable intents | The module that produced each intent |
+
+## 7. Internal structure and hexagonal separation
+
+### 7.1 Folder and file conventions
+
+```text
+apps/api/src/
+├── modules/
+│   └── <module>/                       # Name from §2, kebab-case
+│       ├── index.ts                    # Public API: the only file other modules import
+│       ├── <module>.module.ts          # NestJS composition
+│       ├── domain/                     # Pure rules and concepts
+│       ├── application/
+│       │   ├── use-cases/
+│       │   └── ports/                  # Interfaces this module needs
+│       └── adapters/
+│           ├── in/                     # http/, jobs/, events/
+│           └── out/                    # persistence/, plus one folder per provider
+├── platform/                           # Context, transactions, events, errors, clock
+└── database/                           # Existing DatabaseModule
+```
+
+- **Create a folder only when a file needs it.** A module without jobs has no `adapters/in/jobs/`; the tree lists the possible places, not a checklist ([architecture §6.2](./target-architecture.md#62-example-internal-structure-for-a-rule-heavy-module)).
+- **Names follow [CONTRIBUTING](../../CONTRIBUTING.md#nombres-de-archivos-carpetas-y-módulos):** kebab-case files with a responsibility suffix. The module folder and file use the module name from §2, so `bookings/bookings.module.ts` declares `BookingsModule`. Suggested suffixes: `.use-case.ts`, `.repository.ts` for a persistence port and `drizzle-<name>.repository.ts` for its adapter, `.controller.ts`, `.job.ts`, `.policy.ts` for a pure rule.
+- **Imports:** relative imports end in `.js` (NodeNext). A module imports another only as `../<module>/index.js`.
+- **Tests:** unit tests next to the file (`.spec.ts`); PostgreSQL integration tests in the existing integration configuration; HTTP behavior in E2E. Levels and costs follow [architecture §13](./target-architecture.md#13-testing-and-architecture-controls) and the focused validation in [AGENTS.md](../../AGENTS.md#focused-validation).
+
+### MOD-DM-10: A module's public surface is its `index.ts`
+
+- **What:** Makes [MOD-DM-02](#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables) and [§5.4](#54-prohibited-dependencies) reviewable file by file.
+- **Rule:** `index.ts` exports the NestJS module, the facades other modules may inject, contract types (plain TypeScript), event names and payload types, and the ports others implement. It never exports repositories, adapters, Drizzle tables, entity classes or domain internals. Changing it is a [shared change](#9-technical-autonomy-and-shared-changes).
+- **Enforcement:** Review now. When the second business module exists, add an import restriction to the lint configuration so that a path into another module's folder, other than its `index.ts`, fails `pnpm lint`. The tool and rule are chosen then ([MOD-Q-03](#10-decisions-and-open-questions)); no dependency is added for it today.
+
+### 7.2 Layer rules
+
+The rules per layer are those of [architecture §6.3](./target-architecture.md#63-dependency-direction-and-composition): the domain imports nothing from NestJS, Drizzle, HTTP, LangGraph or providers; application code depends on the domain and on ports, never on concrete adapters; inbound adapters translate and call use cases; outbound adapters implement ports; the NestJS module only wires them. This document adds three rules about modules:
+
+1. **A use case is the unit other modules call.** Facades in `index.ts` delegate to use cases or queries; they add no rules.
+2. **A port is owned by the module that needs it.** Persistence ports belong to the module whose tables they hide. Ports that break a cycle belong to the lower module ([§5.3](#53-needs-against-the-direction)). A call to a lower module's facade needs no port.
+3. **Domain code never sees another module's types.** The application layer maps what it receives from other modules into its own domain concepts.
+
+### 7.3 Expected depth per module
+
+| Depth | Modules | What it means |
+|---|---|---|
+| Full | `bookings`, `waitlist`, `payments`, `notifications`, `messaging` | Domain rules with tests, use cases, persistence port and adapter; provider adapters where they apply |
+| Medium | `customers`, `identity`, `cash-register`, `agent` | Use cases and persistence; domain policies only where a rule exists, such as restriction effects, last-Admin protection or expected cash. `agent` has tools as inbound adapters and the conversation runtime as an outbound adapter, and no persistence of its own |
+| Light | `tenants`, `catalog`, `availability`, `audit`, `assets` | Use cases over a persistence adapter. `catalog` keeps policy resolution and `availability` keeps window calculation as pure, tested functions, because those are their rules |
+
+A module moves to more depth when a real rule appears, not in advance.
+
+### MOD-DM-11: `bookings` is the conceptual reference module
+
+- **What:** The ticket asks for one module that shows the hexagonal separation. `bookings` has the most rules, both channels and the hardest concurrency, so it exercises every layer. It is a design reference, not code to create now.
+
+| Layer | Contents (conceptual names) | Rules it carries |
+|---|---|---|
+| `domain/` | `booking-lifecycle.policy.ts`: allowed transitions by actor and condition | INV §2.1–2.3, INV-RES-01–02 |
+| | `time-range.ts`: half-open `[start, end)` intervals and overlap | BR-RES-02, INV-DISP-02 |
+| | `outcome-timing.policy.ts`: completion from start, no-show from start + 15 minutes | BR-RES-10–12, INV-RES-08 |
+| | `deposit-requirement.policy.ts`: required amount from the effective policy and `FULL_PREPAYMENT` | BR-SEN-03–05, INV-SEN-07 |
+| | `late-change.policy.ts`: whether a change is outside the notice window | BR-CAN-01, BR-CAN-14 |
+| | Derived conditions: pending operational close, partial-deposit waiting, correction window open | BR-RES-13, BR-SEN-10–11 |
+| `application/use-cases/` | Find free slots; create WhatsApp HOLD; confirm HOLD; create CRM booking; cancel; request and apply reschedule; record and correct outcome; reuse a remainder for a walk-in; expire HOLD; expire correction window; confirm after deposit (called by `payments`); acquire and convert priority claims (called by `waitlist`) | — |
+| `application/ports/` | Booking and occupancy repository (persistence, transactional); finance port (implemented by `payments`); clock (platform) | — |
+| `adapters/in/` | `http/`: CRM controllers specified in CON-02. `jobs/`: HOLD and correction-window expiry. No agent adapter: tools in `agent` call the facade | — |
+| `adapters/out/persistence/` | Drizzle implementation over `bookings`, `slot_claims`, `booking_events` and, later, `booking_change_requests`. Translates the GiST exclusion violation into a `conflict` result | INV-DISP-01, EJ-08 |
+| `index.ts` | `BookingsModule`, the bookings facade, query functions, contract types, `SlotReleased`, the finance port and the notice guard implementation | — |
+
+- **Example flow, create a WhatsApp HOLD (BR-RES-03):**
+  1. `agent` calls the facade with the context fixed by the conversation: tenant, requester and the chosen slot.
+  2. The use case asks `customers` for the requester's current restriction; `BLOCKED` ends here (BR-CLI-09).
+  3. It asks `catalog` for compatibility, duration and the effective policy, and `availability` for the resource's windows.
+  4. In one transaction ([MOD-DM-08](#mod-dm-08-the-initiating-use-case-owns-the-transaction)): it rechecks lead time and the future-booking cap, inserts the claim (the database rejects an overlap), creates the booking in `HOLD` with `hold_expires_at`, creates the charge through the finance port, records the booking event and the HOLD-expiry intent.
+  5. After commit, the facade returns the HOLD and its deadline; `agent` phrases the reply. A `conflict` result makes `agent` offer other slots instead.
+- **What stays outside `bookings`:** whether money was verified (`payments`), when to send the reminder (`notifications`, scheduled from inside the transaction), who wins a release round (`waitlist`), and what the customer is told (`agent`).
