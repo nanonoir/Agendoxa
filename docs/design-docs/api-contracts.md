@@ -584,3 +584,85 @@ After the customer accepts, the CRM sends it again with a new idempotency key:
 | `src/contracts/customers.ts` | `CustomerSummary`, `CustomerDetail`, `CustomerIndicators`, `CreateCustomerRequest`, `UpdateCustomerRequest`, `Restriction`, `RestrictionKind`, the restriction requests, `Incident`, `CreateIncidentRequest` | CRM customers |
 
 Adding these schemas is a [shared change](./modules.md#92-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
+
+## 10. Internal consumers: the agent
+
+### API-DM-15: The agent reuses module use cases in-process, not the HTTP API
+
+- **Defined:** Agent tools call the same use cases as the CRM, with tenant and requester fixed by the validated WhatsApp connection; the model chooses neither (BR-AGT-02, BR-CH-05). The agent cannot verify transfers, infer no-shows, change cash records or obtain personnel privileges (BR-AGT-04). It may attach evidence to a pending `PaymentReview`, but a receipt never proves payment (BR-COB-07, INV-PAY-04). CON-01 lists the operations allowed to it ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)).
+- **Rule (Proposed):**
+  - The agent has no HTTP credential, service account or endpoint of its own. It calls module facades inside the API process ([modules MOD-DM-10](./modules.md#mod-dm-10-a-modules-public-surface-is-its-indexts)), so authorization is the conversation's requester and never a personnel role.
+  - What the customer sees is not the CRM view. A tool result never includes `currentRestriction`, `indicators`, `blockedException`, internal reasons or other labels (BR-AGT-03, INV-CLI-06). A `BLOCKED` customer is refused as when they cannot book, without the reason.
+  - Tool input and output schemas belong to CON-03. They should reuse the `code` and `reason` values of [§5](#5-errors), so the agent and the CRM interpret refusals the same way.
+
+| Operation for the requester | Facade | Equivalent CRM endpoint | Difference |
+|---|---|---|---|
+| Business information, services and prices | `tenants`, `catalog` | Public endpoints | Same data |
+| Find free slots | `bookings` | `GET /free-slots` | Same search and lead time |
+| Create a HOLD; confirm it without a deposit | `bookings` | None | WhatsApp only (BR-RES-03–04) |
+| Consult own future bookings | `bookings` | `GET /bookings` | Only bookings managed by the sender number (CU-07, INV-CAN-01) |
+| Cancel or reschedule own booking | `bookings` | `/cancel`, `/reschedule` | Always `CUSTOMER_REQUEST`; `acceptLateConsequence` only after the customer's explicit confirmation; never an Admin exception |
+| Join the waitlist; claim an invitation | `waitlist` | None | — |
+| Read payment status; attach evidence to a pending review | `payments` | Next increment | Attaching creates or extends a review; it never verifies money |
+| Record notice preferences; request or withdraw deletion | `customers` | None | Customer channel only (CU-19, CU-23) |
+| Escalate to a human with a summary | `messaging` | None | — |
+
+**Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, cash operations and conversation control. These exist only as authenticated CRM endpoints.
+
+## 11. Left to CON-03 and to the next contract increment
+
+### 11.1 For CON-03 (external integrations)
+
+CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these contracts; this document only fixes where they meet the API.
+
+| Integration | CON-03 defines | Constraint from this document |
+|---|---|---|
+| WhatsApp webhook (Evolution API) | Inbound route, origin verification, payload normalization, deduplication and the responses the provider expects | An inbound adapter of `messaging`. It takes no session or CSRF token, and its tenant comes from the connection, never from a parameter (INV-MSG-02) |
+| Agent tools (LangGraph) | Tool schemas, results and failure handling | The operations in [§10](#10-internal-consumers-the-agent), with the `code` and `reason` values of §5 |
+| Durable jobs (pg-boss) | Job names, payloads, scheduling and retries | Jobs from [modules §6.6](./modules.md#66-jobs); no job is exposed over HTTP |
+| Private file storage | Storage, authorized reads and deletion | Viewing a receipt from the CRM will be an authenticated endpoint of `payments` in the next increment; no public file links (DM-14) |
+| Payment gateway | Nothing | No provider in the MVP. The Issue's Mercado Pago contracts contradict BR-SEN-08 and MVP §5.3 ([modules §11](./modules.md#11-reconciliation-with-sources)) |
+
+### 11.2 Next contract increment
+
+These CRM operations are needed by the MVP and identified here so that their contracts follow the same conventions. Paths are relative to `/api/v1/tenants/{tenantId}` and are **Proposed**; schemas come in the next increment.
+
+| Owner | Method and path | Use case | Note |
+|---|---|---|---|
+| `payments` | `GET /payment-reviews?status=PENDING` | CU-11 A1, CU-21 A1 | Review queue |
+| `payments` | `POST /bookings/{bookingId}/payment-reviews` | CU-03 CRM 2b | Pending receipt recorded from the CRM |
+| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | CU-11 A1, CU-03 A3 | Human verification; rejection drives BR-SEN-10 in `bookings` |
+| `payments` | `POST /payments`; `POST /payments/{paymentId}/allocations`; `POST /payment-allocations/{allocationId}/reversal` | CU-11 | Cash requires an open session; explicit manual allocation |
+| `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only |
+| `payments` | `GET`, `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | CU-15 | Collection mode and rotation (BR-COB-19) |
+| `payments` | `GET /payment-reviews/{reviewId}/evidence` | CU-11 | Authorized receipt download through `assets` |
+| `bookings` | `POST /bookings/{bookingId}/agreed-price` | CU-11 A5, BR-COB-13 | Admin-only; customer acceptance when it increases |
+| `bookings` | `PUT /settings/resource-assignment` | CU-15 | Preference order or rotation (BR-DISP-05) |
+| `cash-register` | `GET /cash-sessions/current`; `POST /cash-sessions`; `POST /cash-sessions/{sessionId}/close` | CU-13 | One open session per tenant |
+| `cash-register` | `POST /cash-sessions/{sessionId}/movements`; `POST /cash-sessions/{sessionId}/adjustments`; `PUT /settings/cash` | CU-13, CU-11 A4 | Adjustments after close are Admin-only |
+| `messaging` | `GET /conversations`; `GET /conversations/{conversationId}/messages` | CU-14 | Shared inbox |
+| `messaging` | `POST /conversations/{conversationId}/takeover`, `/handback`; `PUT /settings/ai` | CU-14, CU-15 | Global AI is Admin-only (BR-HND-04) |
+| `messaging` | `GET /channel-connection`; `POST /channel-connection`, `/pause`, `/retire` | CU-18 | Connection lifecycle (BR-NOT-05) |
+| `identity` | `GET /permissions`; `GET`, `POST`, `PATCH /roles`; `PUT /roles/{roleId}/permissions` | CU-15 | Admin-only role management |
+| `identity` | `GET`, `POST`, `PATCH /memberships` | CU-15 | Depends on [TEN-Q6](./tenancy.md#10-open-questions) |
+| `notifications` | `GET /notifications?status=UNKNOWN` | BR-NOT-10 | Notices that need CRM attention |
+| `audit` | `GET /audit-events` | BR-AUD-02 | Personnel only |
+| `bookings` | `GET /overview` | CU-15 step 3 | Daily overview composed from several modules |
+
+## 12. Contract evolution
+
+### API-DM-16: Contracts evolve additively within `v1`
+
+- **Rule (Proposed):**
+  - **Allowed without a new version:** new endpoints; new optional request fields; new response fields; new `reason` values; new values in a response enum.
+  - **Clients must tolerate them:** ignore unknown response fields, and handle an unknown enum or `reason` value with a generic path. That is why the CRM must not switch on `depositState` without a default branch.
+  - **Breaking, avoided:** removing or renaming a field, changing its type or meaning, making an optional request field required, tightening validation, removing an enum value, or changing a status code.
+  - **When a breaking change is needed:** mark the old element `deprecated` in the OpenAPI with its replacement, accept both in the API, move `apps/web`, and remove the old element in a later PR. Because the web and the API may be deployed separately ([architecture §12.1](./target-architecture.md#121-local-development-and-independent-deployment)), the API ships first. A new `/api/v2` is only for a change too broad for that path.
+  - Every contract change is a [shared change](./modules.md#92-shared-changes): it updates the OpenAPI, the `packages/shared` schemas and both consumers in the same PR when possible, and names the affected module owners.
+  - `info.version` stays `0.x` while this is a proposal and becomes `1.0.0` when the team approves it and the first endpoints are implemented. After that, additive changes raise the minor version and documented deprecations the patch version.
+
+### API-DM-17: The OpenAPI file lives in the design catalog until code exists
+
+- **What:** The Issue asks for an initial OpenAPI specification; nothing defines where it lives.
+- **Rule (Proposed):** The specification is [`docs/design-docs/api-contracts.openapi.yaml`](./api-contracts.openapi.yaml), next to this document and registered with it in the [design catalog](./index.md). While no endpoint exists, it is the reviewed contract. Once the `packages/shared` schemas exist, they become the source: the OpenAPI is generated from them, through Zod's JSON Schema conversion or a NestJS OpenAPI integration chosen at implementation, and served by `apps/api`. From then on, this file is regenerated, or replaced by a link to the generated one. A drift check belongs to CI when it exists (DOC-02). No dependency is added for this now.
+- **Alternatives:** `apps/api/openapi.yaml` now, which would look like an implemented contract; or `docs/architecture/`, which the repository does not use ([§14](#14-reconciliation-with-sources)).
