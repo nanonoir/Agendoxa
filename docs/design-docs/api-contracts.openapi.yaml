@@ -1,0 +1,3072 @@
+openapi: 3.1.0
+info:
+  title: Agendoxa API — initial MVP contracts (CON-02)
+  version: 0.1.0-proposal
+  summary: Proposal for team review; no endpoint is implemented.
+  description: |
+    Design contract for the authenticated CRM and the read-only public landing.
+    It accompanies [api-contracts.md](./api-contracts.md), which explains every
+    convention and decision (`API-DM-XX`). Operations are grouped by owner module
+    from [modules.md](./modules.md) through tags.
+
+    WhatsApp self-service and agent tools are not HTTP and are not described here.
+    Payments, cash register, conversations, roles, channel connection and audit
+    operations are identified in the document but specified in a later increment.
+servers:
+  - url: /api/v1
+    description: Relative to the API origin of each installation.
+tags:
+  - name: public
+    description: Read-only landing information (owners tenants and catalog). No booking.
+  - name: identity
+    description: Session and tenant context.
+  - name: tenants
+    description: Business profile.
+  - name: catalog
+    description: Services, resources, compatibility and booking policies.
+  - name: availability
+    description: Calendars, weekly hours, blocks, openings and open windows.
+  - name: bookings
+    description: Free slots, agenda and booking lifecycle commands.
+  - name: customers
+    description: Customers, restrictions and incidents.
+security:
+  - sessionCookie: []
+paths:
+  /public/businesses/{slug}:
+    get:
+      tags: [public]
+      operationId: getPublicBusiness
+      summary: Public business profile for the landing
+      description: The slug selects the business for display only; it never authorizes anything.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Public profile.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/PublicCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicBusinessProfile'
+              examples:
+                barbershop:
+                  $ref: '#/components/examples/PublicBusinessProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /public/businesses/{slug}/services:
+    get:
+      tags: [public]
+      operationId: listPublicServices
+      summary: Active services for the landing
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Active services, ordered by name.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/PublicCacheControl'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicServiceList'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /session:
+    post:
+      tags: [identity]
+      operationId: signIn
+      summary: Sign in to the CRM
+      description: Sets the session cookie. Invalid credentials never reveal whether the account exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Session established.
+          headers:
+            Set-Cookie:
+              description: '`agendoxa_session=<opaque>; HttpOnly; Secure; SameSite=Lax; Path=/api`'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionView'
+              examples:
+                twoBusinesses:
+                  $ref: '#/components/examples/SessionView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    get:
+      tags: [identity]
+      operationId: getSession
+      summary: Current user and active memberships
+      responses:
+        '200':
+          description: Current session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [identity]
+      operationId: signOut
+      summary: End the session
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '204':
+          description: Session ended and cookie cleared.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /tenants/{tenantId}/me:
+    get:
+      tags: [identity]
+      operationId: getTenantContext
+      summary: Membership, role and effective permissions in one business
+      description: For the UI to show allowed actions; the backend still checks every request.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Validated tenant context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantContextView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}:
+    get:
+      tags: [tenants]
+      operationId: getTenantProfile
+      summary: Business profile
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [tenants]
+      operationId: updateTenantProfile
+      summary: Update name or branding
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantProfileRequest'
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/services:
+    get:
+      tags: [catalog]
+      operationId: listServices
+      summary: List services
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IncludeInactive'
+      responses:
+        '200':
+          description: Services ordered by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [catalog]
+      operationId: createService
+      summary: Create a service
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/services/{serviceId}:
+    get:
+      tags: [catalog]
+      operationId: getService
+      summary: Get a service
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Service.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [catalog]
+      operationId: updateService
+      summary: Update or deactivate a service
+      description: A new price applies to new bookings only; agreed bookings keep their snapshot (BR-COB-13).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/services/{serviceId}/resources:
+    get:
+      tags: [catalog]
+      operationId: listServiceResources
+      summary: Resources compatible with a service
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '200':
+          description: Compatible resources.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/services/{serviceId}/resources/{resourceId}:
+    put:
+      tags: [catalog]
+      operationId: linkServiceResource
+      summary: Mark a resource as compatible with a service
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Linked; repeating the call changes nothing.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [catalog]
+      operationId: unlinkServiceResource
+      summary: Remove a compatibility link
+      description: Existing bookings are not changed; new bookings can no longer combine them (API-Q-04).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Unlinked; repeating the call changes nothing.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/resources:
+    get:
+      tags: [catalog]
+      operationId: listResources
+      summary: List resources
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IncludeInactive'
+      responses:
+        '200':
+          description: Resources ordered by preference order, then name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [catalog]
+      operationId: createResource
+      summary: Create a professional or physical resource
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResourceRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/resources/{resourceId}:
+    get:
+      tags: [catalog]
+      operationId: getResource
+      summary: Get a resource
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Resource.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [catalog]
+      operationId: updateResource
+      summary: Update or deactivate a resource
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResourceRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/booking-policies:
+    get:
+      tags: [catalog]
+      operationId: listBookingPolicies
+      summary: Tenant policy and every service or resource override
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Stored policies; empty fields inherit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPolicyList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/booking-policies/tenant:
+    put:
+      tags: [catalog]
+      operationId: putTenantBookingPolicy
+      summary: Replace the tenant base policy
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantPolicyFields'
+      responses:
+        '200':
+          description: Stored policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPolicy'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/booking-policies/services/{serviceId}:
+    put:
+      tags: [catalog]
+      operationId: putServiceBookingPolicy
+      summary: Replace a service override
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverridePolicyFields'
+      responses:
+        '200':
+          description: Stored override.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPolicy'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [catalog]
+      operationId: deleteServiceBookingPolicy
+      summary: Remove a service override so every field inherits again
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ServiceId'
+      responses:
+        '204':
+          description: Removed; bookings keep their snapshots.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/booking-policies/resources/{resourceId}:
+    put:
+      tags: [catalog]
+      operationId: putResourceBookingPolicy
+      summary: Replace a resource override
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OverridePolicyFields'
+      responses:
+        '200':
+          description: Stored override.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPolicy'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [catalog]
+      operationId: deleteResourceBookingPolicy
+      summary: Remove a resource override so every field inherits again
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Removed; bookings keep their snapshots.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/booking-policies/effective:
+    get:
+      tags: [catalog]
+      operationId: getEffectiveBookingPolicy
+      summary: Resolved policy for a service and resource
+      description: Resolves each field by resource > service > tenant, with the source of every value (DM-06).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: serviceId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: resourceId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Effective policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectiveBookingPolicy'
+              examples:
+                courtWithoutDeposit:
+                  $ref: '#/components/examples/EffectiveBookingPolicy'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/calendars:
+    get:
+      tags: [availability]
+      operationId: listCalendars
+      summary: Tenant calendar and resource-specific calendars
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Calendars.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/resources/{resourceId}/calendar:
+    put:
+      tags: [availability]
+      operationId: ensureResourceCalendar
+      summary: Give a resource its own calendar instead of inheriting the tenant hours
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The resource already had a calendar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Calendar'
+        '201':
+          description: Calendar created, with no rules yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Calendar'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [availability]
+      operationId: deleteResourceCalendar
+      summary: Make a resource inherit the tenant hours again
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Removed with its weekly rules.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/calendars/{calendarId}/rules:
+    get:
+      tags: [availability]
+      operationId: getCalendarRules
+      summary: Weekly hours of a calendar
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CalendarId'
+      responses:
+        '200':
+          description: Weekly rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeeklyRules'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [availability]
+      operationId: replaceCalendarRules
+      summary: Replace all weekly hours of a calendar in one change
+      description: Confirmed bookings are preserved even if they fall outside the new hours (BR-DISP-08).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CalendarId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WeeklyRules'
+      responses:
+        '200':
+          description: Stored rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeeklyRules'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/availability-exceptions:
+    get:
+      tags: [availability]
+      operationId: listAvailabilityExceptions
+      summary: Blocks and openings overlapping a range
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/FromInstant'
+        - $ref: '#/components/parameters/ToInstant'
+        - name: calendarId
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Exceptions ordered by start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityExceptionList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [availability]
+      operationId: createAvailabilityException
+      summary: Register a block or an authorized opening
+      description: An opening never overrides a block or an active claim (DM-05); the authorizing actor is recorded.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAvailabilityExceptionRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityException'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/availability-exceptions/{exceptionId}:
+    delete:
+      tags: [availability]
+      operationId: deleteAvailabilityException
+      summary: Remove a block or an unused opening
+      description: Removing a block may release capacity; an opening used by a booking cannot be removed (409).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: exceptionId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/resources/{resourceId}/windows:
+    get:
+      tags: [availability]
+      operationId: getResourceWindows
+      summary: Effective open windows of a resource, ignoring occupancy
+      description: Regular or inherited hours plus openings, minus blocks. Not free slots (MOD-DM-05).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Windows ordered by start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceWindows'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/free-slots:
+    get:
+      tags: [bookings]
+      operationId: listFreeSlots
+      summary: Free slots for a service
+      description: A read never reserves a slot (BR-DISP-04); the same check runs again when booking.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: serviceId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: resourceId
+          in: query
+          required: false
+          description: Omit to search every compatible resource.
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200':
+          description: Free slots ordered by start, then resource preference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeSlotList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/agenda:
+    get:
+      tags: [bookings]
+      operationId: getAgenda
+      summary: Bookings, blocks and openings for a range of days
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - name: resourceId
+          in: query
+          required: false
+          description: Repeat to select several resources; omit for all active ones.
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Agenda.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgendaView'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/bookings:
+    get:
+      tags: [bookings]
+      operationId: listBookings
+      summary: Search bookings
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: status
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/BookingStatus'
+        - name: from
+          in: query
+          required: false
+          description: Bookings starting at or after this instant.
+          schema:
+            $ref: '#/components/schemas/Instant'
+        - name: to
+          in: query
+          required: false
+          description: Bookings starting before this instant.
+          schema:
+            $ref: '#/components/schemas/Instant'
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [startAt, -startAt]
+            default: startAt
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of bookings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [bookings]
+      operationId: createCrmBooking
+      summary: Create a CRM booking (walk-in or on behalf of a customer)
+      description: |
+        Confirmed directly, with no HOLD, when no deposit is required or an Admin grants the
+        existing deposit exception (BR-RES-09, BR-SEN-09). Recording payments or receipts
+        for a deposit belongs to the payments increment.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCrmBookingRequest'
+            examples:
+              walkInNewCustomer:
+                $ref: '#/components/examples/CreateCrmBookingRequest'
+      responses:
+        '201':
+          description: Booking created and confirmed.
+          headers:
+            Location:
+              description: URL of the new booking.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+              examples:
+                confirmedWalkIn:
+                  $ref: '#/components/examples/BookingDetailConfirmed'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}:
+    get:
+      tags: [bookings]
+      operationId: getBooking
+      summary: Get a booking
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Booking.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/bookings/{bookingId}/events:
+    get:
+      tags: [bookings]
+      operationId: listBookingEvents
+      summary: Functional history of a booking
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Events ordered by occurrence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/bookings/{bookingId}/cancel:
+    post:
+      tags: [bookings]
+      operationId: cancelBooking
+      summary: Cancel a booking and release its slot
+      description: Releases immediately, even during review or partial-deposit waiting; finances continue separately (BR-CAN-04).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelBookingRequest'
+            examples:
+              customerRequest:
+                $ref: '#/components/examples/CancelBookingRequest'
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}/reschedule:
+    post:
+      tags: [bookings]
+      operationId: rescheduleBooking
+      summary: Move a confirmed booking to a new slot, service or resource
+      description: Checks the target without releasing the current slot; the move and release are atomic (BR-CAN-08, BR-CAN-12).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleBookingRequest'
+      responses:
+        '200':
+          description: Moved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RescheduleResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}/outcome:
+    post:
+      tags: [bookings]
+      operationId: recordBookingOutcome
+      summary: Record completion or no-show of a confirmed booking
+      description: Completion from start; no-show from start + 15 minutes. Never records a payment (BR-RES-10–11).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordOutcomeRequest'
+      responses:
+        '200':
+          description: Outcome recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}/outcome-correction:
+    post:
+      tags: [bookings]
+      operationId: correctBookingOutcome
+      summary: Correct NO_SHOW ↔ COMPLETED with a mandatory reason
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectOutcomeRequest'
+      responses:
+        '200':
+          description: Corrected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}/remainder-walk-ins:
+    post:
+      tags: [bookings]
+      operationId: createRemainderWalkIn
+      summary: Reuse the private remainder of an early-terminal booking for a CRM walk-in
+      description: Atomically adjusts the remainder and creates the walk-in booking, preserving history (BR-RES-17).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemainderWalkInRequest'
+      responses:
+        '201':
+          description: Walk-in booking created and confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/customers:
+    get:
+      tags: [customers]
+      operationId: listCustomers
+      summary: Search customers by name or phone
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: query
+          in: query
+          required: false
+          description: Case-insensitive name fragment, or a phone prefix starting with `+`.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of customers ordered by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [customers]
+      operationId: createCustomer
+      summary: Create a customer from the CRM
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/customers/{customerId}:
+    get:
+      tags: [customers]
+      operationId: getCustomer
+      summary: Customer with indicators and current restriction
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: Customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerDetail'
+              examples:
+                problematicCustomer:
+                  $ref: '#/components/examples/CustomerDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [customers]
+      operationId: updateCustomer
+      summary: Update the name, or add a phone to a customer without one
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerRequest'
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/customers/{customerId}/restrictions:
+    get:
+      tags: [customers]
+      operationId: listCustomerRestrictions
+      summary: Restriction history, newest first
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: History.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestrictionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [customers]
+      operationId: applyCustomerRestriction
+      summary: Apply a restriction, replacing the active one
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyRestrictionRequest'
+      responses:
+        '201':
+          description: Applied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restriction'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/customers/{customerId}/restrictions/current/removal:
+    post:
+      tags: [customers]
+      operationId: removeCustomerRestriction
+      summary: Remove the active restriction with a reason
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveRestrictionRequest'
+      responses:
+        '200':
+          description: The restriction, now ended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Restriction'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/customers/{customerId}/incidents:
+    get:
+      tags: [customers]
+      operationId: listCustomerIncidents
+      summary: Operational incidents other than no-shows
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: Incidents, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncidentList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [customers]
+      operationId: createCustomerIncident
+      summary: Record an operational incident (never a no-show)
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CustomerId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIncidentRequest'
+      responses:
+        '201':
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: agendoxa_session
+      description: Opaque server-side session set by `POST /session` (API-DM-06).
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Token from the session response; required on every non-safe method.
+  headers:
+    PublicCacheControl:
+      description: Public data may be cached briefly.
+      schema:
+        type: string
+        example: public, max-age=300
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      description: Selects the business; access requires an active membership, revalidated on every request.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+        maxLength: 63
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    ResourceId:
+      name: resourceId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    CalendarId:
+      name: calendarId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    CustomerId:
+      name: customerId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated, unique per intended operation; a retry reuses it (API-DM-10).
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9_-]+$'
+    IncludeInactive:
+      name: includeInactive
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    FromDate:
+      name: from
+      in: query
+      required: true
+      description: First local date, inclusive, in the tenant timezone.
+      schema:
+        $ref: '#/components/schemas/LocalDate'
+    ToDate:
+      name: to
+      in: query
+      required: true
+      description: Last local date, inclusive. Agenda and free slots accept at most 14 days; windows at most 31.
+      schema:
+        $ref: '#/components/schemas/LocalDate'
+    FromInstant:
+      name: from
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/Instant'
+    ToInstant:
+      name: to
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/Instant'
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque value from `nextCursor`; valid only with the same filters.
+      schema:
+        type: string
+        maxLength: 512
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+  responses:
+    ValidationError:
+      description: The request does not match the contract.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            invalidPhone:
+              $ref: '#/components/examples/ProblemValidation'
+    Unauthorized:
+      description: No valid session, or invalid credentials on sign-in.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Valid membership, but the role lacks the permission, or the operation is Admin-only.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            adminOnly:
+              $ref: '#/components/examples/ProblemForbidden'
+    NotFound:
+      description: Not found, including records of another tenant and tenants without an active membership.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            otherTenant:
+              $ref: '#/components/examples/ProblemNotFound'
+    Conflict:
+      description: Current state prevents the operation, such as an occupied slot or a reused idempotency key.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            slotTaken:
+              $ref: '#/components/examples/ProblemSlotUnavailable'
+    RuleViolation:
+      description: The request is valid, but a business rule rejects it now.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            lateCancellation:
+              $ref: '#/components/examples/ProblemLateChange'
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Instant:
+      description: UTC instant, RFC 3339 with a `Z` suffix.
+      type: string
+      format: date-time
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z$'
+    LocalDate:
+      description: Calendar date in the tenant timezone.
+      type: string
+      format: date
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    LocalTime:
+      description: Wall-clock time in the tenant timezone, 24-hour `HH:mm`.
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+    Money:
+      description: Exact non-negative decimal with two places in the tenant currency.
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+    Minutes:
+      type: integer
+      minimum: 0
+    PhoneE164:
+      type: string
+      pattern: '^\+[1-9][0-9]{1,14}$'
+    Weekday:
+      type: string
+      enum: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]
+    Reason:
+      type: string
+      minLength: 1
+      maxLength: 500
+    BookingStatus:
+      description: The seven statuses of `booking_status`; only the bookings module changes them.
+      type: string
+      enum: [HOLD, PENDING_PAYMENT_REVIEW, CONFIRMED, CANCELLED, EXPIRED, COMPLETED, NO_SHOW]
+    DepositState:
+      description: Derived from the booking and payment facts; never a booking status (API-DM-13).
+      type: string
+      enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, PARTIAL, MET, ADMIN_EXCEPTION]
+    RestrictionKind:
+      type: string
+      enum: [FULL_PREPAYMENT, BLOCKED]
+    Problem:
+      description: RFC 9457 problem details (API-DM-09).
+      type: object
+      required: [type, title, status, code, requestId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+          enum: [validation, unauthorized, forbidden, not_found, conflict, rule_violation, external_dependency, internal]
+        reason:
+          description: Stable snake_case reason within the code, listed per endpoint in the document.
+          type: string
+          pattern: '^[a-z][a-z0-9_]*$'
+        detail:
+          type: string
+        requestId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path:
+                type: string
+              message:
+                type: string
+        lateChange:
+          $ref: '#/components/schemas/LateChangeNotice'
+      additionalProperties: false
+    LateChangeNotice:
+      description: Returned with reason `late_change_requires_acceptance` so the CRM can show the consequence.
+      type: object
+      required: [noticeMinutes, startAt, depositRefundPolicy]
+      properties:
+        noticeMinutes:
+          $ref: '#/components/schemas/Minutes'
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        depositRefundPolicy:
+          type: [string, 'null']
+          enum: [NO_MONEY_BACK, REFUND_POSSIBLE, null]
+      additionalProperties: false
+    Page:
+      type: object
+      required: [nextCursor]
+      properties:
+        nextCursor:
+          type: [string, 'null']
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+      additionalProperties: false
+    MembershipSummary:
+      type: object
+      required: [membershipId, tenantId, tenantName, tenantSlug, roleName]
+      properties:
+        membershipId:
+          $ref: '#/components/schemas/Uuid'
+        tenantId:
+          $ref: '#/components/schemas/Uuid'
+        tenantName:
+          type: string
+        tenantSlug:
+          type: string
+        roleName:
+          type: string
+      additionalProperties: false
+    SessionView:
+      type: object
+      required: [user, memberships, csrfToken]
+      properties:
+        user:
+          type: object
+          required: [id, email, fullName]
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            email:
+              type: string
+              format: email
+            fullName:
+              type: string
+          additionalProperties: false
+        memberships:
+          description: Active memberships only; nothing about other installations.
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipSummary'
+        csrfToken:
+          type: string
+      additionalProperties: false
+    TenantContextView:
+      type: object
+      required: [tenantId, membershipId, role, permissions]
+      properties:
+        tenantId:
+          $ref: '#/components/schemas/Uuid'
+        membershipId:
+          $ref: '#/components/schemas/Uuid'
+        role:
+          type: object
+          required: [id, name, systemKey]
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            name:
+              type: string
+            systemKey:
+              type: [string, 'null']
+              enum: [ADMIN, STAFF, null]
+          additionalProperties: false
+        permissions:
+          description: Effective permission keys; the catalog is defined with identity (API-Q-02).
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    TenantProfile:
+      type: object
+      required: [id, name, slug, timezone, currency, branding]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        slug:
+          type: string
+        timezone:
+          description: IANA timezone name.
+          type: string
+        currency:
+          description: ISO 4217 code; one currency per tenant.
+          type: string
+          pattern: '^[A-Z]{3}$'
+        branding:
+          type: [string, 'null']
+      additionalProperties: false
+    UpdateTenantProfileRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        branding:
+          type: [string, 'null']
+          maxLength: 2000
+      additionalProperties: false
+    WeeklyHours:
+      type: object
+      required: [weekday, startTime, endTime]
+      properties:
+        weekday:
+          $ref: '#/components/schemas/Weekday'
+        startTime:
+          $ref: '#/components/schemas/LocalTime'
+        endTime:
+          $ref: '#/components/schemas/LocalTime'
+      additionalProperties: false
+    PublicBusinessProfile:
+      type: object
+      required: [name, slug, timezone, branding, whatsappUrl, regularHours]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        timezone:
+          type: string
+        branding:
+          type: [string, 'null']
+        whatsappUrl:
+          description: wa.me link to the active WhatsApp connection; null when none is active.
+          type: [string, 'null']
+          format: uri
+        regularHours:
+          description: Tenant calendar weekly hours. No availability or occupancy.
+          type: array
+          items:
+            $ref: '#/components/schemas/WeeklyHours'
+      additionalProperties: false
+    PublicService:
+      type: object
+      required: [id, name, description, durationMinutes, price]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        durationMinutes:
+          type: integer
+          minimum: 1
+        price:
+          $ref: '#/components/schemas/Money'
+      additionalProperties: false
+    PublicServiceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicService'
+      additionalProperties: false
+    Service:
+      type: object
+      required: [id, name, description, durationMinutes, price, isActive]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        durationMinutes:
+          type: integer
+          minimum: 1
+        price:
+          $ref: '#/components/schemas/Money'
+        isActive:
+          type: boolean
+      additionalProperties: false
+    ServiceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Service'
+      additionalProperties: false
+    CreateServiceRequest:
+      type: object
+      required: [name, durationMinutes, price]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        price:
+          $ref: '#/components/schemas/Money'
+      additionalProperties: false
+    UpdateServiceRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        durationMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        price:
+          $ref: '#/components/schemas/Money'
+        isActive:
+          type: boolean
+      additionalProperties: false
+    Resource:
+      type: object
+      required: [id, name, kind, isActive, preferenceOrder]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [PROFESSIONAL, PHYSICAL]
+        isActive:
+          type: boolean
+        preferenceOrder:
+          type: [integer, 'null']
+          minimum: 0
+      additionalProperties: false
+    ResourceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+      additionalProperties: false
+    CreateResourceRequest:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        kind:
+          type: string
+          enum: [PROFESSIONAL, PHYSICAL]
+        preferenceOrder:
+          type: [integer, 'null']
+          minimum: 0
+      additionalProperties: false
+    UpdateResourceRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        isActive:
+          type: boolean
+        preferenceOrder:
+          type: [integer, 'null']
+          minimum: 0
+      additionalProperties: false
+    DepositRule:
+      description: FIXED uses an amount; PERCENTAGE uses 0–100 with two decimals; DISABLED explicitly disables.
+      type: object
+      required: [mode, value]
+      properties:
+        mode:
+          type: string
+          enum: [DISABLED, FIXED, PERCENTAGE]
+        value:
+          type: [string, 'null']
+          pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+      additionalProperties: false
+    OverridePolicyFields:
+      description: Service or resource override. Null means inherit (DM-06).
+      type: object
+      required: [noticeMinutes, reminderLeadMinutes, deposit, depositRefundPolicy, rescheduleLimit]
+      properties:
+        noticeMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        reminderLeadMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        deposit:
+          oneOf:
+            - $ref: '#/components/schemas/DepositRule'
+            - type: 'null'
+        depositRefundPolicy:
+          type: [string, 'null']
+          enum: [NO_MONEY_BACK, REFUND_POSSIBLE, null]
+        rescheduleLimit:
+          type: [integer, 'null']
+          minimum: 0
+      additionalProperties: false
+    TenantPolicyFields:
+      description: Tenant base policy. Null keeps the product default stated in the document (§7.3).
+      type: object
+      required: [noticeMinutes, bookingLeadMinutes, reminderLeadMinutes, deposit, depositRefundPolicy, rescheduleLimit, futureBookingLimit]
+      properties:
+        noticeMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        bookingLeadMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        reminderLeadMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        deposit:
+          oneOf:
+            - $ref: '#/components/schemas/DepositRule'
+            - type: 'null'
+        depositRefundPolicy:
+          type: [string, 'null']
+          enum: [NO_MONEY_BACK, REFUND_POSSIBLE, null]
+        rescheduleLimit:
+          description: Null means unlimited.
+          type: [integer, 'null']
+          minimum: 0
+        futureBookingLimit:
+          description: Null means disabled.
+          type: [integer, 'null']
+          minimum: 1
+      additionalProperties: false
+    BookingPolicy:
+      type: object
+      required: [id, scope, serviceId, resourceId, fields]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        scope:
+          type: string
+          enum: [TENANT, SERVICE, RESOURCE]
+        serviceId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        resourceId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        fields:
+          oneOf:
+            - $ref: '#/components/schemas/TenantPolicyFields'
+            - $ref: '#/components/schemas/OverridePolicyFields'
+      additionalProperties: false
+    BookingPolicyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookingPolicy'
+      additionalProperties: false
+    PolicySource:
+      type: string
+      enum: [RESOURCE, SERVICE, TENANT, DEFAULT]
+    EffectiveBookingPolicy:
+      type: object
+      required: [serviceId, resourceId, noticeMinutes, bookingLeadMinutes, reminderLeadMinutes, deposit, depositRefundPolicy, rescheduleLimit, futureBookingLimit, sources]
+      properties:
+        serviceId:
+          $ref: '#/components/schemas/Uuid'
+        resourceId:
+          $ref: '#/components/schemas/Uuid'
+        noticeMinutes:
+          $ref: '#/components/schemas/Minutes'
+        bookingLeadMinutes:
+          $ref: '#/components/schemas/Minutes'
+        reminderLeadMinutes:
+          type: [integer, 'null']
+          minimum: 0
+        deposit:
+          $ref: '#/components/schemas/DepositRule'
+        depositRefundPolicy:
+          type: [string, 'null']
+          enum: [NO_MONEY_BACK, REFUND_POSSIBLE, null]
+        rescheduleLimit:
+          type: [integer, 'null']
+          minimum: 0
+        futureBookingLimit:
+          type: [integer, 'null']
+          minimum: 1
+        sources:
+          type: object
+          required: [noticeMinutes, bookingLeadMinutes, reminderLeadMinutes, deposit, depositRefundPolicy, rescheduleLimit, futureBookingLimit]
+          properties:
+            noticeMinutes:
+              $ref: '#/components/schemas/PolicySource'
+            bookingLeadMinutes:
+              $ref: '#/components/schemas/PolicySource'
+            reminderLeadMinutes:
+              $ref: '#/components/schemas/PolicySource'
+            deposit:
+              $ref: '#/components/schemas/PolicySource'
+            depositRefundPolicy:
+              $ref: '#/components/schemas/PolicySource'
+            rescheduleLimit:
+              $ref: '#/components/schemas/PolicySource'
+            futureBookingLimit:
+              $ref: '#/components/schemas/PolicySource'
+          additionalProperties: false
+      additionalProperties: false
+    Calendar:
+      type: object
+      required: [id, scope, resourceId]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        scope:
+          type: string
+          enum: [TENANT, RESOURCE]
+        resourceId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+      additionalProperties: false
+    CalendarList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Calendar'
+      additionalProperties: false
+    WeeklyRules:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          description: startTime before endTime; ranges of the same weekday must not overlap.
+          type: array
+          maxItems: 70
+          items:
+            $ref: '#/components/schemas/WeeklyHours'
+      additionalProperties: false
+    AvailabilityException:
+      type: object
+      required: [id, calendarId, kind, startAt, endAt, reason, createdByMembershipId]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        calendarId:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [BLOCK, OPENING]
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        endAt:
+          $ref: '#/components/schemas/Instant'
+        reason:
+          type: [string, 'null']
+        createdByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+      additionalProperties: false
+    AvailabilityExceptionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailabilityException'
+      additionalProperties: false
+    CreateAvailabilityExceptionRequest:
+      type: object
+      required: [calendarId, kind, startAt, endAt]
+      properties:
+        calendarId:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [BLOCK, OPENING]
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        endAt:
+          $ref: '#/components/schemas/Instant'
+        reason:
+          type: [string, 'null']
+          maxLength: 500
+      additionalProperties: false
+    TimeRange:
+      description: Half-open interval `[startAt, endAt)`.
+      type: object
+      required: [startAt, endAt]
+      properties:
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        endAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    ResourceWindows:
+      type: object
+      required: [resourceId, windows]
+      properties:
+        resourceId:
+          $ref: '#/components/schemas/Uuid'
+        windows:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimeRange'
+      additionalProperties: false
+    FreeSlot:
+      type: object
+      required: [resourceId, startAt, endAt]
+      properties:
+        resourceId:
+          $ref: '#/components/schemas/Uuid'
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        endAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    FreeSlotList:
+      type: object
+      required: [serviceId, items]
+      properties:
+        serviceId:
+          $ref: '#/components/schemas/Uuid'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeSlot'
+      additionalProperties: false
+    NamedRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+      additionalProperties: false
+    BookingSummary:
+      type: object
+      required: [id, status, origin, customer, attendeeName, service, resource, startAt, endAt, agreedPrice, requiredDeposit, depositState, pendingOperationalClose, holdExpiresAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        origin:
+          type: string
+          enum: [WHATSAPP, CRM]
+        customer:
+          type: object
+          required: [id, fullName]
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            fullName:
+              type: [string, 'null']
+          additionalProperties: false
+        attendeeName:
+          type: [string, 'null']
+        service:
+          $ref: '#/components/schemas/NamedRef'
+        resource:
+          $ref: '#/components/schemas/NamedRef'
+        startAt:
+          description: From the active claim, or the last one for a released booking.
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+        endAt:
+          $ref: '#/components/schemas/Instant'
+        agreedPrice:
+          $ref: '#/components/schemas/Money'
+        requiredDeposit:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        depositState:
+          $ref: '#/components/schemas/DepositState'
+        pendingOperationalClose:
+          description: CONFIRMED and already ended; derived, not a status (BR-RES-13).
+          type: boolean
+        holdExpiresAt:
+          oneOf:
+            - $ref: '#/components/schemas/Instant'
+            - type: 'null'
+      additionalProperties: false
+    BookingDetail:
+      type: object
+      required: [booking, attendeePhone, noticeMinutes, depositRefundPolicy, blockedException, depositException, createdByMembershipId, cancelReason, createdAt, updatedAt]
+      properties:
+        booking:
+          $ref: '#/components/schemas/BookingSummary'
+        attendeePhone:
+          oneOf:
+            - $ref: '#/components/schemas/PhoneE164'
+            - type: 'null'
+        noticeMinutes:
+          description: Notice snapshot applied to this booking.
+          allOf:
+            - $ref: '#/components/schemas/Minutes'
+        depositRefundPolicy:
+          type: [string, 'null']
+          enum: [NO_MONEY_BACK, REFUND_POSSIBLE, null]
+        blockedException:
+          type: boolean
+        depositException:
+          type: boolean
+        createdByMembershipId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        cancelReason:
+          type: [string, 'null']
+        createdAt:
+          $ref: '#/components/schemas/Instant'
+        updatedAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    BookingPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/BookingSummary'
+    BookingEvent:
+      type: object
+      required: [id, eventType, fromStatus, toStatus, actorKind, actorMembershipId, reason, lateChangeKind, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        eventType:
+          type: string
+        fromStatus:
+          oneOf:
+            - $ref: '#/components/schemas/BookingStatus'
+            - type: 'null'
+        toStatus:
+          oneOf:
+            - $ref: '#/components/schemas/BookingStatus'
+            - type: 'null'
+        actorKind:
+          type: string
+          enum: [CUSTOMER, MEMBER, AI, SYSTEM]
+        actorMembershipId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        reason:
+          type: [string, 'null']
+        lateChangeKind:
+          type: [string, 'null']
+          enum: [LATE_CANCELLATION, LATE_RESCHEDULE, null]
+        occurredAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    BookingEventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookingEvent'
+      additionalProperties: false
+    AgendaView:
+      type: object
+      required: [from, to, timezone, resources, bookings, exceptions]
+      properties:
+        from:
+          $ref: '#/components/schemas/LocalDate'
+        to:
+          $ref: '#/components/schemas/LocalDate'
+        timezone:
+          type: string
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Resource'
+        bookings:
+          description: Occupying and terminal bookings in range; EXPIRED and CANCELLED are omitted.
+          type: array
+          items:
+            $ref: '#/components/schemas/BookingSummary'
+        exceptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailabilityException'
+      additionalProperties: false
+    CustomerInput:
+      description: An existing customer, or the data to create one in the same operation.
+      oneOf:
+        - type: object
+          required: [customerId]
+          properties:
+            customerId:
+              $ref: '#/components/schemas/Uuid'
+          additionalProperties: false
+        - type: object
+          required: [newCustomer]
+          properties:
+            newCustomer:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+          additionalProperties: false
+    AdminException:
+      description: Admin-only, non-delegable; the reason is recorded (BR-IAM-04).
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    CreateCrmBookingRequest:
+      type: object
+      required: [customer, serviceId, resourceId, startAt]
+      properties:
+        customer:
+          $ref: '#/components/schemas/CustomerInput'
+        attendeeName:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 120
+        attendeePhone:
+          oneOf:
+            - $ref: '#/components/schemas/PhoneE164'
+            - type: 'null'
+        serviceId:
+          $ref: '#/components/schemas/Uuid'
+        resourceId:
+          description: Null assigns any compatible resource with the tenant's assignment mode.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        startAt:
+          description: The end comes from the service duration (BR-RES-02).
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+        acknowledgeBlockedCustomer:
+          description: Required as true to book a BLOCKED customer after the internal warning (BR-CLI-09).
+          type: boolean
+          default: false
+        depositException:
+          description: Admin confirms without the required deposit; the reason is optional (BR-SEN-09).
+          type: object
+          properties:
+            reason:
+              type: [string, 'null']
+              maxLength: 500
+          additionalProperties: false
+      additionalProperties: false
+    CancelBookingRequest:
+      type: object
+      required: [cause]
+      properties:
+        cause:
+          type: string
+          enum: [CUSTOMER_REQUEST, BUSINESS_OPERATIONAL]
+        reason:
+          description: Required when cause is BUSINESS_OPERATIONAL (BR-CAN-06).
+          oneOf:
+            - $ref: '#/components/schemas/Reason'
+            - type: 'null'
+        acceptLateConsequence:
+          description: The customer accepted the stated late consequence (BR-CAN-14).
+          type: boolean
+          default: false
+        adminException:
+          $ref: '#/components/schemas/AdminException'
+      additionalProperties: false
+    RescheduleBookingRequest:
+      type: object
+      required: [cause, startAt]
+      properties:
+        cause:
+          type: string
+          enum: [CUSTOMER_REQUEST, BUSINESS_OPERATIONAL]
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        resourceId:
+          description: Omit to keep the current resource.
+          $ref: '#/components/schemas/Uuid'
+        serviceId:
+          description: Omit to keep the current service.
+          $ref: '#/components/schemas/Uuid'
+        acceptLateConsequence:
+          type: boolean
+          default: false
+        adminException:
+          description: For a late consequence or the reschedule limit (BR-CAN-03, CU-09 A1b).
+          $ref: '#/components/schemas/AdminException'
+      additionalProperties: false
+    RescheduleResult:
+      type: object
+      required: [booking, previousSlot, lateChange]
+      properties:
+        booking:
+          $ref: '#/components/schemas/BookingDetail'
+        previousSlot:
+          type: object
+          required: [resourceId, startAt, endAt]
+          properties:
+            resourceId:
+              $ref: '#/components/schemas/Uuid'
+            startAt:
+              $ref: '#/components/schemas/Instant'
+            endAt:
+              $ref: '#/components/schemas/Instant'
+          additionalProperties: false
+        lateChange:
+          type: boolean
+      additionalProperties: false
+    RecordOutcomeRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [COMPLETED, NO_SHOW]
+      additionalProperties: false
+    CorrectOutcomeRequest:
+      type: object
+      required: [outcome, reason]
+      properties:
+        outcome:
+          type: string
+          enum: [COMPLETED, NO_SHOW]
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    RemainderWalkInRequest:
+      type: object
+      required: [customer, serviceId, startAt]
+      properties:
+        customer:
+          $ref: '#/components/schemas/CustomerInput'
+        attendeeName:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 120
+        serviceId:
+          $ref: '#/components/schemas/Uuid'
+        startAt:
+          description: Must fit inside the private remainder of the original booking's resource.
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    CustomerIndicators:
+      description: Derived from current bookings and their events, never stored on the customer.
+      type: object
+      required: [noShowCount, lateCancellationCount, lateRescheduleCount, problematic]
+      properties:
+        noShowCount:
+          type: integer
+          minimum: 0
+        lateCancellationCount:
+          type: integer
+          minimum: 0
+        lateRescheduleCount:
+          type: integer
+          minimum: 0
+        problematic:
+          description: Two or more no-shows; an internal indicator that restricts nothing (BR-CLI-07).
+          type: boolean
+      additionalProperties: false
+    CustomerSummary:
+      type: object
+      required: [id, fullName, phone, currentRestriction, problematic]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        fullName:
+          type: [string, 'null']
+        phone:
+          oneOf:
+            - $ref: '#/components/schemas/PhoneE164'
+            - type: 'null'
+        currentRestriction:
+          oneOf:
+            - $ref: '#/components/schemas/RestrictionKind'
+            - type: 'null'
+        problematic:
+          type: boolean
+      additionalProperties: false
+    CustomerDetail:
+      type: object
+      required: [id, fullName, phone, reminderPreference, waitlistPreference, deletionStatus, deletionDueAt, currentRestriction, indicators, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        fullName:
+          type: [string, 'null']
+        phone:
+          oneOf:
+            - $ref: '#/components/schemas/PhoneE164'
+            - type: 'null'
+        reminderPreference:
+          type: string
+          enum: [UNSET, ACCEPTED, REFUSED]
+        waitlistPreference:
+          type: string
+          enum: [UNSET, ACCEPTED, REFUSED]
+        deletionStatus:
+          type: string
+          enum: [NONE, REQUESTED, EXECUTED]
+        deletionDueAt:
+          oneOf:
+            - $ref: '#/components/schemas/Instant'
+            - type: 'null'
+        currentRestriction:
+          oneOf:
+            - $ref: '#/components/schemas/RestrictionKind'
+            - type: 'null'
+        indicators:
+          $ref: '#/components/schemas/CustomerIndicators'
+        createdAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    CustomerPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CustomerSummary'
+    CreateCustomerRequest:
+      type: object
+      required: [fullName]
+      properties:
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        phone:
+          oneOf:
+            - $ref: '#/components/schemas/PhoneE164'
+            - type: 'null'
+      additionalProperties: false
+    UpdateCustomerRequest:
+      description: A phone can only be added when the customer has none (API-Q-03).
+      type: object
+      minProperties: 1
+      properties:
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        phone:
+          $ref: '#/components/schemas/PhoneE164'
+      additionalProperties: false
+    Restriction:
+      type: object
+      required: [id, kind, reason, appliedByMembershipId, effectiveFrom, effectiveTo, removedByMembershipId, removalReason]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          $ref: '#/components/schemas/RestrictionKind'
+        reason:
+          type: string
+        appliedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        effectiveFrom:
+          $ref: '#/components/schemas/Instant'
+        effectiveTo:
+          oneOf:
+            - $ref: '#/components/schemas/Instant'
+            - type: 'null'
+        removedByMembershipId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        removalReason:
+          type: [string, 'null']
+      additionalProperties: false
+    RestrictionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Restriction'
+      additionalProperties: false
+    ApplyRestrictionRequest:
+      type: object
+      required: [kind, reason]
+      properties:
+        kind:
+          $ref: '#/components/schemas/RestrictionKind'
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    RemoveRestrictionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    Incident:
+      type: object
+      required: [id, bookingId, kind, description, recordedByMembershipId, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        bookingId:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+        description:
+          type: [string, 'null']
+        recordedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        occurredAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    IncidentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+      additionalProperties: false
+    CreateIncidentRequest:
+      type: object
+      required: [bookingId, kind, occurredAt]
+      properties:
+        bookingId:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          description: Damage, conduct and similar. A no-show is recorded on the booking instead.
+          type: string
+          minLength: 1
+          maxLength: 60
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        occurredAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+  examples:
+    PublicBusinessProfile:
+      summary: Barbershop landing data
+      value:
+        name: Barbería Centro
+        slug: barberia-centro
+        timezone: America/Argentina/Buenos_Aires
+        branding: null
+        whatsappUrl: https://wa.me/5493794000000
+        regularHours:
+          - weekday: TUESDAY
+            startTime: '09:00'
+            endTime: '13:00'
+          - weekday: TUESDAY
+            startTime: '16:00'
+            endTime: '20:00'
+    SessionView:
+      summary: A person with memberships in two businesses
+      value:
+        user:
+          id: 6f1c2a1e-6d7b-4b8e-9a4f-2f1d5c3b7a10
+          email: ana@example.com
+          fullName: Ana Gómez
+        memberships:
+          - membershipId: 0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f
+            tenantId: 2d4c6e8a-1b3d-4f5a-9c7e-0a2b4c6d8e01
+            tenantName: Barbería Centro
+            tenantSlug: barberia-centro
+            roleName: Admin
+          - membershipId: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+            tenantId: 7e5d3c1b-9a8f-4e6d-8c4b-2a0f1e3d5c7b
+            tenantName: Club Norte
+            tenantSlug: club-norte
+            roleName: Staff
+        csrfToken: 4QmV1c2VyLWNzcmYtdG9rZW4tZXhhbXBsZQ
+    EffectiveBookingPolicy:
+      summary: Court with the deposit disabled on the resource
+      value:
+        serviceId: 3a1b5c7d-9e2f-4a6b-8c0d-1e3f5a7b9c2d
+        resourceId: 5c7e9a1b-3d5f-4b7a-9c1e-3f5a7b9d1e3f
+        noticeMinutes: 600
+        bookingLeadMinutes: 0
+        reminderLeadMinutes: 180
+        deposit:
+          mode: DISABLED
+          value: null
+        depositRefundPolicy: NO_MONEY_BACK
+        rescheduleLimit: null
+        futureBookingLimit: null
+        sources:
+          noticeMinutes: DEFAULT
+          bookingLeadMinutes: DEFAULT
+          reminderLeadMinutes: TENANT
+          deposit: RESOURCE
+          depositRefundPolicy: TENANT
+          rescheduleLimit: DEFAULT
+          futureBookingLimit: DEFAULT
+    CreateCrmBookingRequest:
+      summary: Walk-in for a new customer without a phone
+      value:
+        customer:
+          newCustomer:
+            fullName: Juan Pérez
+            phone: null
+        serviceId: 8b1d3f5a-7c9e-4b2d-8f1a-3c5e7a9b1d3f
+        resourceId: 1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f
+        startAt: '2026-11-10T13:00:00Z'
+    BookingDetailConfirmed:
+      summary: Confirmed CRM walk-in
+      value:
+        booking:
+          id: c4e6a8b0-2d4f-4a6c-8e0b-2d4f6a8c0e2a
+          status: CONFIRMED
+          origin: CRM
+          customer:
+            id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+            fullName: Juan Pérez
+          attendeeName: null
+          service:
+            id: 8b1d3f5a-7c9e-4b2d-8f1a-3c5e7a9b1d3f
+            name: Corte
+          resource:
+            id: 1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f
+            name: Martín
+          startAt: '2026-11-10T13:00:00Z'
+          endAt: '2026-11-10T13:30:00Z'
+          agreedPrice: '8000.00'
+          requiredDeposit: null
+          depositState: NOT_REQUIRED
+          pendingOperationalClose: false
+          holdExpiresAt: null
+        attendeePhone: null
+        noticeMinutes: 600
+        depositRefundPolicy: null
+        blockedException: false
+        depositException: false
+        createdByMembershipId: 0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f
+        cancelReason: null
+        createdAt: '2026-11-10T12:58:41Z'
+        updatedAt: '2026-11-10T12:58:41Z'
+    CancelBookingRequest:
+      summary: Customer request, late consequence accepted
+      value:
+        cause: CUSTOMER_REQUEST
+        acceptLateConsequence: true
+    CustomerDetail:
+      summary: Customer with two no-shows and no restriction
+      value:
+        id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+        fullName: Lucía Fernández
+        phone: '+5493794111222'
+        reminderPreference: ACCEPTED
+        waitlistPreference: REFUSED
+        deletionStatus: NONE
+        deletionDueAt: null
+        currentRestriction: null
+        indicators:
+          noShowCount: 2
+          lateCancellationCount: 1
+          lateRescheduleCount: 0
+          problematic: true
+        createdAt: '2026-10-02T15:20:00Z'
+    ProblemValidation:
+      summary: Invalid phone
+      value:
+        type: urn:agendoxa:problem:validation
+        title: The request does not match the contract
+        status: 400
+        code: validation
+        requestId: req_01JC8Q2W7N4
+        errors:
+          - path: /customer/newCustomer/phone
+            message: Must be an E.164 phone number, such as +5493794111222
+    ProblemForbidden:
+      summary: Deposit exception requested by a non-Admin
+      value:
+        type: urn:agendoxa:problem:forbidden
+        title: The operation is not allowed for this role
+        status: 403
+        code: forbidden
+        reason: admin_only
+        detail: Only an Admin can confirm a booking without its required deposit.
+        requestId: req_01JC8Q3M2X9
+    ProblemNotFound:
+      summary: Booking of another tenant
+      value:
+        type: urn:agendoxa:problem:not-found
+        title: Not found
+        status: 404
+        code: not_found
+        requestId: req_01JC8Q4B6T1
+    ProblemSlotUnavailable:
+      summary: Slot taken by a concurrent booking or HOLD
+      value:
+        type: urn:agendoxa:problem:conflict
+        title: The slot is no longer available
+        status: 409
+        code: conflict
+        reason: slot_unavailable
+        requestId: req_01JC8Q5D0K7
+    ProblemLateChange:
+      summary: Late cancellation not yet accepted
+      value:
+        type: urn:agendoxa:problem:rule-violation
+        title: The change is inside the notice window
+        status: 422
+        code: rule_violation
+        reason: late_change_requires_acceptance
+        detail: Confirm that the customer accepted the consequence, or ask an Admin for an exception.
+        requestId: req_01JC8Q6H3R5
+        lateChange:
+          noticeMinutes: 600
+          startAt: '2026-11-10T21:00:00Z'
+          depositRefundPolicy: NO_MONEY_BACK

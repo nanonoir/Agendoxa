@@ -184,3 +184,175 @@ Clients never compute availability, prices or deposits; they display what the AP
   - A command runs its checks against the current state inside one transaction ([modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction)). If the state no longer allows it, for example a booking cancelled by someone else a second earlier, it returns `409 state_changed` and the client reloads the booking.
   - Occupancy races end in exactly one winner: the database exclusion rejects the loser, which receives `409 slot_unavailable` (**Defined:** INV-DISP-01, EJ-08).
   - Configuration updates (`PATCH` of the profile, services and resources; `PUT` of policies and hours) are last-write-wins in this increment, without `ETag` or `If-Match`. Configuration is edited by few people and changes to it never rewrite agreed bookings (**Defined:** DM-06 snapshots, BR-DISP-08). Conditional requests can be added later as an additive change.
+
+## 7. Endpoints by owner module
+
+### API-DM-12: Each endpoint belongs to the module that owns its operation
+
+- **Defined:** Operation owners come from [modules §4](./modules.md#4-operations-by-module); data owners from [modules MOD-DM-02](./modules.md#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables).
+- **Rule (Proposed):** The controller of an endpoint lives in its owner's `adapters/in/http` and calls one use case of that module ([modules §7.1](./modules.md#71-folder-and-file-conventions)). Reads that combine modules, such as the agenda or the customer indicators, are composed by the highest module involved ([modules §6.4](./modules.md#64-queries-and-read-compositions)). OpenAPI tags carry the owner.
+
+| Owner | Paths (under `/api/v1`) | Tag |
+|---|---|---|
+| `identity` | `/session`, `/tenants/{tenantId}/me` | `identity` |
+| `tenants` | `/tenants/{tenantId}`; public profile `/public/businesses/{slug}` | `tenants`, `public` |
+| `catalog` | `/services…`, `/resources`, `/resources/{resourceId}`, `/booking-policies…`; public `/public/businesses/{slug}/services` | `catalog`, `public` |
+| `availability` | `/calendars…`, `/resources/{resourceId}/calendar`, `/resources/{resourceId}/windows`, `/availability-exceptions…` | `availability` |
+| `bookings` | `/free-slots`, `/agenda`, `/bookings…` | `bookings` |
+| `customers` | `/customers…` | `customers` |
+
+The public profile includes the WhatsApp link, owned by `messaging`, and the tenant's weekly hours, owned by `availability`. `tenants` is level 0 and cannot call them, so the HTTP adapter of that endpoint composes the three public APIs ([modules §6.4](./modules.md#64-queries-and-read-compositions)).
+
+Below, paths are relative to `/api/v1/tenants/{tenantId}` unless they start with `/api/v1`. Every operation is in the [OpenAPI file](./api-contracts.openapi.yaml) with its schemas and responses.
+
+### 7.1 `identity`: session and tenant context
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `POST /api/v1/session` | `signIn` | None | Sets the cookie; returns `SessionView` with memberships and `csrfToken` |
+| `GET /api/v1/session` | `getSession` | Session | Active memberships only |
+| `DELETE /api/v1/session` | `signOut` | Session | Ends the server session |
+| `GET /me` | `getTenantContext` | Active membership | Role and effective permission keys |
+
+### 7.2 `tenants` and the public endpoints
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /api/v1/public/businesses/{slug}` | `getPublicBusiness` | None | [API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information); `Cache-Control: public, max-age=300` |
+| `GET /api/v1/public/businesses/{slug}/services` | `listPublicServices` | None | Active services only |
+| `GET /` | `getTenantProfile` | `schedule.view` | Name, slug, timezone, currency, branding |
+| `PATCH /` | `updateTenantProfile` | `tenant.manage` | Name and branding only |
+
+Changing the slug, timezone or currency is not offered: the slug is an installation-wide identifier, and the other two change how existing bookings and amounts are read. Settings stored on `Tenant` that belong to other modules ([modules MOD-DM-06](./modules.md#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) get their endpoints in those modules' increments ([§11.2](#112-next-contract-increment)).
+
+### 7.3 `catalog`: services, resources, compatibility and policies
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /services` | `listServices` | `schedule.view` | `includeInactive` defaults to `false` |
+| `POST /services` | `createService` | `catalog.manage` | A combination is one service (BR-CAT-01) |
+| `GET`, `PATCH /services/{serviceId}` | `getService`, `updateService` | `schedule.view`, `catalog.manage` | Deactivate with `isActive: false`; no `DELETE` (ERD: deactivate). A new price applies to new bookings only |
+| `GET /services/{serviceId}/resources` | `listServiceResources` | `schedule.view` | Compatible resources |
+| `PUT`, `DELETE /services/{serviceId}/resources/{resourceId}` | `linkServiceResource`, `unlinkServiceResource` | `catalog.manage` | Idempotent; unlinking leaves existing bookings unchanged ([API-Q-04](#13-decisions-and-open-questions)) |
+| `GET /resources`, `POST /resources` | `listResources`, `createResource` | `schedule.view`, `catalog.manage` | `kind` is `PROFESSIONAL` or `PHYSICAL`; a professional needs no CRM user (BR-CAT-02) |
+| `GET`, `PATCH /resources/{resourceId}` | `getResource`, `updateResource` | `schedule.view`, `catalog.manage` | Deactivate with `isActive: false`. The receiving account belongs to `payments` |
+| `GET /booking-policies` | `listBookingPolicies` | `schedule.view` | Tenant policy and every override as stored |
+| `PUT /booking-policies/tenant` | `putTenantBookingPolicy` | `policies.manage` | Replaces the base policy |
+| `PUT`, `DELETE /booking-policies/services/{serviceId}` | `putServiceBookingPolicy`, `deleteServiceBookingPolicy` | `policies.manage` | Override; `DELETE` makes every field inherit again |
+| `PUT`, `DELETE /booking-policies/resources/{resourceId}` | `putResourceBookingPolicy`, `deleteResourceBookingPolicy` | `policies.manage` | Same, for a resource |
+| `GET /booking-policies/effective?serviceId&resourceId` | `getEffectiveBookingPolicy` | `schedule.view` | Resolved values and the source of each one |
+
+**Policy fields.** **Defined:** each field resolves resource > service > tenant, distinguishing inherit, set and disable (DM-06, BR-SEN-02); booking lead time and the future-booking limit exist only at tenant scope; bookings keep snapshots ([REP-02 T-05](./rep-02-core-persistence.md#t-05-calendar-and-policy-subset)). In overrides, `null` means inherit. `deposit.mode: DISABLED` disables the deposit explicitly; `FIXED` takes an amount and `PERCENTAGE` a value from `0.00` to `100.00`. As in the schema, an override cannot express "unlimited reschedules" for one service while the tenant has a limit.
+
+When the tenant field is `null`, the effective policy uses the product default and reports `DEFAULT` as its source:
+
+| Field | Value when the tenant leaves it empty | Origin |
+|---|---|---|
+| `noticeMinutes` | 600 (10 hours) | **Defined:** BR-CAN-01 |
+| `bookingLeadMinutes` | 0 | **Defined:** BR-DISP-09 |
+| `rescheduleLimit` | `null`, unlimited | **Defined:** BR-CAN-07 |
+| `futureBookingLimit` | `null`, disabled | **Defined:** BR-CLI-10 |
+| `deposit` | `DISABLED` | **Proposed:** a deposit is optional (BR-SEN-01) and no default is implied (BR-SEN-02) |
+| `depositRefundPolicy` | `null`, not configured | **Defined:** no default was agreed (P-07) |
+| `reminderLeadMinutes` | `null`, no reminder scheduled | **Proposed**, pending a product default ([API-Q-05](#13-decisions-and-open-questions)) |
+
+### 7.4 `availability`: calendars, hours, blocks and openings
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /calendars` | `listCalendars` | `schedule.view` | The tenant calendar and each resource-specific one |
+| `PUT /resources/{resourceId}/calendar` | `ensureResourceCalendar` | `availability.manage` | `201` creates it with no hours; `200` if it exists |
+| `DELETE /resources/{resourceId}/calendar` | `deleteResourceCalendar` | `availability.manage` | The resource inherits tenant hours again (BR-DISP-01); `409 calendar_has_exceptions` if it still has blocks or openings |
+| `GET`, `PUT /calendars/{calendarId}/rules` | `getCalendarRules`, `replaceCalendarRules` | `schedule.view`, `availability.manage` | Replaces the whole weekly set at once. Ranges of one weekday must not overlap (`400`). Confirmed bookings outside new hours are kept (BR-DISP-08) |
+| `GET /availability-exceptions?from&to&calendarId` | `listAvailabilityExceptions` | `schedule.view` | Instant range |
+| `POST /availability-exceptions` | `createAvailabilityException` | `availability.manage` | `BLOCK` or `OPENING`; the actor is recorded. An opening never overrides a block or an active claim (DM-05): the block wins when windows are computed |
+| `DELETE /availability-exceptions/{exceptionId}` | `deleteAvailabilityException` | `availability.manage` | Removing a block is an explicit action (BR-DISP-02) and may release capacity to the waitlist ([UC-02 §4.2](../product-specs/uc-02/use-cases.md#42-triggering-events)). An opening used by a booking returns `409 opening_in_use` |
+| `GET /resources/{resourceId}/windows?from&to` | `getResourceWindows` | `schedule.view` | Open windows, ignoring occupancy ([modules MOD-DM-05](./modules.md#mod-dm-05-availability-supplies-windows-bookings-finds-free-slots)) |
+
+### 7.5 `bookings`: free slots, agenda and lifecycle commands
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /free-slots?serviceId&resourceId&from&to` | `listFreeSlots` | `schedule.view` | Without `resourceId`, every compatible resource. Never reserves (BR-DISP-04) |
+| `GET /agenda?from&to&resourceId` | `getAgenda` | `schedule.view` | Resources, bookings and exceptions for up to 14 days (CU-21) |
+| `GET /bookings` | `listBookings` | `schedule.view` | Filters `customerId`, `status`, `from`, `to`; cursor pagination |
+| `POST /bookings` | `createCrmBooking` | `bookings.create` | Below |
+| `GET /bookings/{bookingId}` | `getBooking` | `schedule.view` | `BookingDetail` |
+| `GET /bookings/{bookingId}/events` | `listBookingEvents` | `schedule.view` | `BookingEvent` history, with actor and reason |
+| `POST /bookings/{bookingId}/cancel` | `cancelBooking` | `bookings.cancel` | Below |
+| `POST /bookings/{bookingId}/reschedule` | `rescheduleBooking` | `bookings.reschedule` | Below |
+| `POST /bookings/{bookingId}/outcome` | `recordBookingOutcome` | `bookings.record_outcome` | Below |
+| `POST /bookings/{bookingId}/outcome-correction` | `correctBookingOutcome` | `bookings.correct_outcome` | Below |
+| `POST /bookings/{bookingId}/remainder-walk-ins` | `createRemainderWalkIn` | `bookings.create` | Below |
+
+HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only in the WhatsApp flow, through the agent (**Defined:** the CRM never creates a HOLD, BR-SEN-09), and expiry is a job (CU-22).
+
+### API-DM-13: Seven statuses, with derived conditions as separate fields
+
+- **Defined:** `booking_status` has exactly `HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `CANCELLED`, `EXPIRED`, `COMPLETED` and `NO_SHOW` ([REP-02](./rep-02-core-persistence.md)); only `bookings` changes it ([modules §11](./modules.md#11-reconciliation-with-sources)). The conditions inside `PENDING_PAYMENT_REVIEW` and "pending operational close" are not statuses ([INV §2](../product-specs/uc-03/invariants.md#2-booking-lifecycle), BR-RES-13).
+- **Rule (Proposed):** `status` takes only those seven values. Derived conditions are separate read-only fields of `BookingSummary`:
+
+| Field | Meaning | Source |
+|---|---|---|
+| `pendingOperationalClose` | `CONFIRMED` and its end has passed; still awaiting an outcome | BR-RES-13 |
+| `holdExpiresAt` | Deadline of a `HOLD`; `null` otherwise | ERD `Booking` |
+| `depositState: NOT_REQUIRED` | No deposit applies | BR-SEN-01 |
+| `depositState: AWAITING_EVIDENCE` | `HOLD` with a deposit and no evidence yet | BR-RES-03, BR-RES-06 |
+| `depositState: UNDER_REVIEW` | Evidence awaiting human review; occupies with no timeout | BR-RES-06 |
+| `depositState: CORRECTION_WINDOW` | First initial-evidence rejection without verified funds; 15-minute window | BR-SEN-10 |
+| `depositState: PARTIAL` | Verified funds below the threshold; occupies, unconfirmed | BR-SEN-11 |
+| `depositState: MET` | Verified funds allocated up to the threshold | BR-SEN-07 |
+| `depositState: ADMIN_EXCEPTION` | Confirmed by an Admin without the required deposit | BR-SEN-09 |
+
+  Until the payments module exists, `bookings` can only produce `NOT_REQUIRED`, `AWAITING_EVIDENCE` and `ADMIN_EXCEPTION`; the others need payment facts through the finance port ([modules §5.3](./modules.md#53-needs-against-the-direction)). Clients must treat an unknown `depositState` as "see booking detail" ([API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1)).
+
+**`POST /bookings` — create a CRM booking (CU-02 A7, CU-03 CRM, CU-04).**
+
+- **Input:** an existing `customerId` or a `newCustomer` (name required, phone optional, BR-CLI-04); optional attendee name and phone; `serviceId`; `resourceId`, or `null` to let the tenant's assignment mode choose a compatible one (BR-DISP-05); `startAt`. The end comes from the service duration.
+- **Result:** `201`, always `CONFIRMED`, origin `CRM`, without a HOLD.
+- **Refusals, in the order they are checked:**
+  1. The customer is `BLOCKED` and `acknowledgeBlockedCustomer` is not `true`: `422 customer_blocked_requires_acknowledgement`. With `true`, the booking is created with `blockedException` and the restriction stays (BR-CLI-09).
+  2. A deposit is required, including 100% for `FULL_PREPAYMENT` (BR-SEN-04), and there is no `depositException`: `422 deposit_required`, and nothing occupies the slot (BR-SEN-09). With `depositException` from an Admin, the booking is confirmed with `depositException: true` and the full balance due; from anyone else, `403 admin_only`.
+  3. `startAt` has passed or is closer than the booking lead time: `422 slot_in_past` or `booking_lead_not_met`.
+  4. Inactive service or resource, a resource incompatible with the service, or a slot outside the open windows: `422 inactive_service`, `inactive_resource`, `incompatible_resource` or `outside_open_hours`.
+  5. The future-booking limit is reached: `422 future_booking_limit_reached` (BR-CLI-10).
+  6. The slot is occupied when the claim is inserted: `409 slot_unavailable` (INV-DISP-01).
+- Recording a verified payment or a pending receipt during creation, which produces `PENDING_PAYMENT_REVIEW` or a partial deposit, belongs to the payments increment ([§11.2](#112-next-contract-increment)) as an additive input.
+
+**`POST /bookings/{id}/cancel` — CU-08.**
+
+- **Input:** `cause` (`CUSTOMER_REQUEST` or `BUSINESS_OPERATIONAL`); `reason`, required for a business cause (`400` otherwise, BR-CAN-06); `acceptLateConsequence`; optional `adminException`.
+- **Allowed from** `HOLD`, `PENDING_PAYMENT_REVIEW` and `CONFIRMED`, including partial-deposit waiting; any other status returns `409 state_changed`. Cancelling a `HOLD` from the CRM follows the proposal in [INV §2.1](../product-specs/uc-03/invariants.md#21-allowed-transitions).
+- **Late changes:** a customer-requested cancellation inside the notice window needs `acceptLateConsequence: true` or an Admin exception; otherwise `422 late_change_requires_acceptance` with the `lateChange` details. The executed change records one late cancellation (BR-CLI-12). A business-caused cancellation never counts as a late change.
+- **Effects:** releases the slot at once and suppresses reminders, while any review or refund continues separately (BR-CAN-04); never moves money. The response is the cancelled `BookingDetail`.
+
+**`POST /bookings/{id}/reschedule` — CU-09.**
+
+- **Input:** `cause`, new `startAt`, optional `resourceId` and `serviceId`, `acceptLateConsequence`, optional `adminException` for a late consequence or the reschedule limit.
+- **Allowed from** `CONFIRMED` only (CU-09 precondition); otherwise `409 state_changed`.
+- **Checks:** the target is checked without releasing the current slot; a failure leaves the booking intact (BR-CAN-08). The limit returns `422 reschedule_limit_reached` without an Admin exception. Late handling is the same as for cancellation and records a late reschedule.
+- **Result:** `200` with the moved booking, still `CONFIRMED`, the previous slot and `lateChange`. A deposit difference is requested afterwards and never undoes the move (BR-CAN-10); its contract belongs to the payments increment.
+
+**`POST /bookings/{id}/outcome` and `/outcome-correction` — CU-10.**
+
+- `outcome` is `COMPLETED`, allowed from the start instant, or `NO_SHOW`, from start + 15 minutes; earlier returns `422 too_early_for_outcome` (BR-RES-10–11). Only from `CONFIRMED`.
+- A correction switches `COMPLETED` ↔ `NO_SHOW`, needs a `reason` and respects the destination's timing guard (BR-RES-12). Neither endpoint records or changes payments; "complete and collect" in the CRM is this call plus a payment in the next increment.
+
+**`POST /bookings/{id}/remainder-walk-ins` — CU-10 A5.** For a booking completed or marked no-show early, it creates a `CONFIRMED` CRM booking inside the private remainder of the same resource, adjusting the remainder atomically (BR-RES-17). A slot outside the remainder returns `422 not_in_private_remainder`. The same customer, deposit and policy checks as `POST /bookings` apply.
+
+### 7.6 `customers`: customers, restrictions and incidents
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /customers?query` | `listCustomers` | `schedule.view` | Name fragment or phone prefix; cursor pagination |
+| `POST /customers` | `createCustomer` | `customers.manage` | Name required, phone optional; `409 phone_already_registered` within the tenant (DM-03) |
+| `GET /customers/{customerId}` | `getCustomer` | `schedule.view` | Preferences, deletion status, current restriction and indicators |
+| `PATCH /customers/{customerId}` | `updateCustomer` | `customers.manage` | Name; a phone only if the customer has none, otherwise `422 phone_change_not_supported` ([API-Q-03](#13-decisions-and-open-questions)) |
+| `GET /customers/{customerId}/restrictions` | `listCustomerRestrictions` | `schedule.view` | History, newest first |
+| `POST /customers/{customerId}/restrictions` | `applyCustomerRestriction` | `customers.restrict` | `FULL_PREPAYMENT` or `BLOCKED` with a reason; closes any active one first, keeping at most one (DM-18) |
+| `POST /customers/{customerId}/restrictions/current/removal` | `removeCustomerRestriction` | `customers.restrict` | With a reason; `409 no_active_restriction` if none |
+| `GET`, `POST /customers/{customerId}/incidents` | `listCustomerIncidents`, `createCustomerIncident` | `schedule.view`, `customers.manage` | Other operational incidents, linked to a booking; never a no-show (DM-17) |
+
+- **Indicators are derived** (**Defined:** [ERD §6.4](./erd.md#64-module-2--customers), BR-CLI-06–07, BR-CLI-12): `noShowCount` counts the customer's current `NO_SHOW` bookings as requester; `lateCancellationCount` and `lateRescheduleCount` come from booking events; `problematic` is `true` from two no-shows and restricts nothing.
+- **Notice preferences are read-only here.** The customer changes them over WhatsApp (CU-19); recording consent given in person from the CRM is still a proposal in UC-02, so no endpoint changes them.
+- **Deletion:** a customer with `deletionStatus: REQUESTED` stays visible so personnel can resolve their bookings and money before `deletionDueAt` (BR-DAT-08). After execution, the name and phone may be `null` (BR-DAT-03).
