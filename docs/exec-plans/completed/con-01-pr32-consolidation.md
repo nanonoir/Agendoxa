@@ -54,15 +54,19 @@ Consolidate [PR #32](https://github.com/nanonoir/Agendoxa/pull/32) into one revi
 - [x] Architecture consolidation: original decision IDs/ownership structure retained, nine functional modules/two supports, explicit coordinators/contracts, target reconciliation and technical screening direction. Worker ingress and recovery corrections completed and re-reviewed.
 - [x] Independent review and focused validation: product and architecture reviewers ended PASS after focused corrections; consolidated local links/anchors, ownership, complete allowed DAG, fences, whitespace and docs-only scope passed.
 - [x] Issue updates and rationale comments: #11/#12 bodies edited after concurrency checks; readback matches the drafts and title/state/assignees are preserved. Comments: [CON-02 rationale](https://github.com/nanonoir/Agendoxa/issues/11#issuecomment-6748681000), [CON-03 rationale](https://github.com/nanonoir/Agendoxa/issues/12#issuecomment-6748682501). Both remain open with pending acceptance checks.
-- [ ] Logical commits, archival, push and PR update.
+- [x] Product and architecture units committed as `74248f9` and `c49579e`, then pushed additively after a remote-head check; five original commits preserved. Remote branch and PR head verified at `c49579edf65f0dd2c131ca3a78f889569c60afbe`.
+- [x] PR title/body updated to explain the scope extension, decisions and actual evidence; removed automatic closure wording, PR remains open. Review requested from `gonzaloogv`; [follow-up for Agus/team](https://github.com/nanonoir/Agendoxa/pull/32#issuecomment-6748824549) posted. Body readback matches.
+- [x] Complete the documentary execution and archive this plan.
+
+The parent session delivers this administrative archive as the final Git step. The final commit/head and clean-worktree confirmation are recorded in the PR delivery follow-up and task handoff, rather than embedding a self-referential commit hash here.
 
 ## Validation
 
-Product review completed: reviewer found a lost explicit atomicity requirement in BR-SEN-10/INV-SEN-10 and a correction-window path returning to HOLD expiry in the diagram. A focused fix restored atomic check-and-transition and origin-specific diagram paths; re-review verdict PASS, no remaining material findings. Issue #12 draft was checked for functional coherence. Initial product-only local-link/anchor/fence and whitespace checks passed; final consolidated checks remain pending. Product unit committed as `74248f9` after staged-scope and whitespace inspection.
+Product review completed: reviewer found a lost explicit atomicity requirement in BR-SEN-10/INV-SEN-10 and a correction-window path returning to HOLD expiry in the diagram. A focused fix restored atomic check-and-transition and origin-specific diagram paths; re-review verdict PASS, no remaining material findings. Issue #12 draft was checked for functional coherence. Initial product-only local-link/anchor/fence and whitespace checks passed, followed by the consolidated checks below. Product unit committed as `74248f9` after staged-scope and whitespace inspection.
 
 Issue #11/#12 body updates were independently deliverable after the product review and were applied while architecture consolidation continued. No Issue title, assignee, state or acceptance status changed; body readback and rationale comment URLs verified. This overlap does not claim architecture validation is complete.
 
-Final pre-delivery checks: 10 Markdown files (including the new plan), 366 local links, 256 heading anchors, 38 exact unique ERD owners; DAG has 12 nodes and 47 allowed edges (26 diagram edges plus the explicit technical-dependency table), without cycles. Fences, whitespace (preserving intentional Markdown hard breaks), `git diff --check` and docs-only scope passed. Git reports only LF/CRLF conversion warnings. No authored application/config/test code is included (0 authored-code lines; documentation is excluded from the delivery size budget). Issue readbacks passed; final pushed-head/PR verification remains pending.
+Final pre-delivery checks: 10 Markdown files (including the new plan), 366 local links, 256 heading anchors, 38 exact unique ERD owners; DAG has 12 nodes and 47 allowed edges (26 diagram edges plus the explicit technical-dependency table), without cycles. Fences, whitespace (preserving intentional Markdown hard breaks), `git diff --check` and docs-only scope passed. Git reports only LF/CRLF conversion warnings. No authored application/config/test code is included (0 authored-code lines; documentation is excluded from the delivery size budget). Issue and PR body readbacks, requested review, branch ancestry and pre-archive pushed head verified. The same checks passed again after moving the plan to completed; final archive-delivery receipt belongs in the PR follow-up and task handoff.
 
 Architecture review identified (1) owner-local expiry jobs unable to call the required higher multi-owner coordinator under the DAG and (2) missing explicit timely-unresolved-screening rechecks in the architecture's expiry contract/test list. Both were corrected. The reviewer withdrew a separate durability warning after checking the general recovery rule; the final path was nevertheless made explicit. A subsequent review caught that direct notice-to-booking writes contradicted the multi-owner coordination rule: invitation dispatch/outcome/recovery now enters workflows and commits notice outcome plus round advancement/intent atomically. Final focal verdict PASS. The technical dependency table is explicit and includes identity-to-audit without same-level cycles. P-40 was editorially narrowed to later human-review/correction boundaries, not the already agreed first/second replacement sequence.
 
@@ -70,6 +74,20 @@ The independent proposal in the original checkout still matches SHA256 `3fbc7aad
 
 No runtime code or SQL is changed, so no application test suites, database migrations, provider calls or live receipt processing will run. Future implementation tests are requirements, not evidence from this task. No claim of actual Gemini latency, Nest bootstrap, PostgreSQL concurrency or Mermaid rendering without executing those checks.
 
-## Final implementation outcome
+## Implementation Outcome
 
-Pending. Technical/product proposals and Issues remain for team review and later implementation; this execution must not close their unresolved functional/legal questions.
+### Implemented
+
+The product rules and modular architecture proposal were consolidated as documentation, delivered in commits `74248f9` and `c49579e`, and pushed to PR #32. Issues #11 and #12 and the PR were reconciled and communicated as recorded above. No application code or SQL was implemented. The PR and Issues remain open; team review, acceptance and integration under the Definition of Done are not complete.
+
+### Deviations from Design
+
+The PR scope was expanded to include the agreed preliminary receipt screening and associated Issue reconciliation. Review-driven corrections made atomicity, worker ingress, timely screening and invitation outcome coordination explicit. GitHub reconciliation and the product/architecture commits were delivered before archival; the parent session will separately commit and push this administrative archive and verify the final head and worktree.
+
+### Validation
+
+Product and architecture independent reviews ended PASS after the corrections described above. Consolidated documentary checks passed for links, anchors, ownership, the acyclic dependency graph, fences, whitespace and docs-only scope; PR and Issue readbacks and the pre-archive pushed head were verified. No runtime, provider, latency, PostgreSQL concurrency or Mermaid rendering validation was performed.
+
+### Follow-up
+
+P-40 remains open only for carry-over after human review or later correction rounds. T-01–05 and tenancy/legal team ratification remain for future resolution. Product and architecture proposals require team review and later implementation; no merge or Issue closure is claimed. The parent handles administrative archive delivery and records its final verification in the PR follow-up and task handoff.
