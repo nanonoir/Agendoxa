@@ -213,7 +213,7 @@ These are runtime chains, not dependencies. Some of them loop (a released slot b
 | Event | Raised by | Starts or continues |
 |---|---|---|
 | A slot is actually released | CU-08, CU-09 (old slot), CU-22, initial evidence rejection only when cancellation is permitted (CU-03 A3), CU-15 (lifted block) | CU-06, if an eligible waitlist entry exists |
-| A receipt arrives within the HOLD, or is recorded as pending from the CRM | CU-03 step 5; CU-03 CRM step 2b | Review in CU-11 (A1) |
+| Timely evidence is routed to human review, or a receipt is recorded as pending from the CRM | CU-03 step 5; CU-03 CRM step 2b | Review in CU-11 (A1) |
 | An offer is created | CU-06 step 2 | Notice in CU-16 |
 | An offer is accepted | CU-06 step 4 | CU-02 step 3 or CU-03 step 3 |
 | A HOLD deadline is reached | CU-02, CU-03, CU-06 | CU-22 |
@@ -351,7 +351,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 2. The system creates the exclusive **10-minute HOLD**.
 3. After HOLD acquisition, show price, required deposit, modality-selected receiver/account and cancellation conditions. Never request a transfer merely for a waitlist invitation; freeze issued instructions.
 4. Request PDF/image evidence before HOLD expiry; only on explicit inability to attach it accept transfer details by text within that same deadline. No AI interpretation verifies funds.
-5. The receipt is attached as a transfer pending review; the booking moves to `PENDING_PAYMENT_REVIEW`, stays blocked with no review timeout, appears in the CRM review queue, and the customer is told that confirmation follows verification.
+5. Record evidence and receipt time. Screen image/PDF relevance under [BR-SEN-14–16](../uc-03/business-rules.md#9-deposits-sen): plausible, second clearly unrelated, uncertain or failed screening routes to human review; the first clearly unrelated file requests replacement. Explicit-inability text fallback goes directly to human review. Pending review occupies without inactivity timeout, appears in CRM, and the customer is told confirmation follows verification.
 6. Staff/Admin check the actual credit in the bank/wallet account ([CU-11](#cu-11)).
 7. Record verified Payment, actor and time, then explicit manual allocation. Confirm only at the required threshold. If insufficient, preserve occupied/unconfirmed partial-deposit waiting without automatic release; show missing amount/contact action and allow completion through more payments.
 
@@ -368,10 +368,10 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 3. The occupancy check runs when the booking is created; the booking has origin CRM.
 
 #### Alternatives and Exceptions
-- **A1 — No receipt in time:** At step 4, [CU-22](#cu-22) expires the HOLD.
+- **A1 — No qualifying evidence in time:** [CU-22](#cu-22) expires the HOLD after the applicable screening and state checks; unresolved screening of timely evidence prevents release.
 - **A2 — Receipt after expiry:** At step 4, the booking is not reactivated; the receipt becomes a financial incident (CU-11 A8) and the customer is told the slot was released.
-- **A3 — Initial evidence rejected:** With no verified partial deposit, first rejection opens 15-minute correction; pending distinct review suspends timeout. Second distinct rejection/expiry may cancel only before start after atomic current-state/funds/review checks. Verified partial funds instead retain occupied/unconfirmed capacity for manual handling; started slots and supplemental reschedule collection also never auto-release. Technical duplicates do not count. See BR-SEN-10–11.
-- **A4 — Unreadable or non-receipt attachment:** At step 5, the AI asks again; the HOLD deadline does not change *(proposal)*.
+- **A3 — Initial evidence rejected by a human:** With no verified partial deposit, first rejection opens 15-minute correction; timely distinct evidence follows screening and review safeguards. Second distinct human rejection/expiry may cancel only before start after current-state/evidence/funds/review checks. Verified partial funds instead retain occupied/unconfirmed capacity for manual handling; started slots and supplemental reschedule collection also never auto-release. Technical duplicates and AI discards do not count as human rejections. See BR-SEN-10–11, BR-SEN-14–16.
+- **A4 — Clearly unrelated or uncertain file:** First clearly unrelated file prompts an explanation and replacement; second prompts explanation of failed attempts and human review. Uncertain/failed screening also routes to human review, not an unrelated classification or bank-credit finding. No retry renews the existing deadline; a timely second file reaches review even when screening completes later.
 - **A5 — Amount below required deposit:** Retain verified funds/occupied unconfirmed slot, allow additional payments, show missing amount. No automatic missing-remainder or rejected-subsequent-evidence release. Personnel may release manually under applicable permission/policy; explicitly confirmed authorized customer cancellation releases via CU-08.
 - **A6 — Full prepayment:** Same flow with 100% of the price.
 - **A7 — Customer withdraws:** At steps 3–4, the customer may cancel the HOLD with nothing to forfeit *(proposal)*.
@@ -1018,14 +1018,14 @@ Configuration includes preference-order/resource rotation, booking lead time (de
 
 #### Main Flow
 1. At the deadline, the job checks the current state of the booking.
-2. If still an unconfirmed HOLD with no timely evidence and no verified partial deposit, it becomes EXPIRED and releases. Recheck current state/funds atomically; verified partial waiting uses BR-SEN-11 instead, never auto-release.
+2. If still an unconfirmed HOLD with no timely evidence awaiting screening or human review and no verified partial deposit, it becomes EXPIRED and releases. Recheck current state, evidence and funds atomically; verified partial waiting uses BR-SEN-11 instead, never auto-release. A first unrelated result does not renew the deadline; see BR-SEN-16.
 3. The customer is notified, best effort.
 4. [CU-06](#cu-06) may start for the released slot.
 
 #### Alternatives and Exceptions
-- **A1 — Already confirmed, under review or cancelled:** The job does nothing.
-- **A2 — Job lost or delayed:** The HOLD must still expire later; it never occupies a slot indefinitely (`mvp.md` §6.3.14).
-- **A3 — Receipt or confirmation at the same moment:** Only one outcome may win — *pending (UC-03)*.
+- **A1 — Already confirmed, under review or cancelled, or timely screening unresolved:** The job does not release the slot against that condition.
+- **A2 — Job lost or delayed:** An eligible expired HOLD must still expire later, subject to the evidence and funds safeguards (`mvp.md` §6.3.14).
+- **A3 — Receipt or confirmation at the deadline:** Apply the recorded receipt time and applicable deadline with current-state checks; exact boundary/concurrency details remain pending (UC-03).
 
 #### Outcome / Postconditions
 - **Success:** The slot is free and the booking is `EXPIRED`, which is never a no-show.

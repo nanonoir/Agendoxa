@@ -1,6 +1,6 @@
 # UC-03 — Domain Invariants
 
-> **Status:** In Review — product-owner reconciliation and subsequent 2026-11-04 agreements; not collective team approval or implemented behavior. Current [UC-03 rules](./business-rules.md) supersede incompatible historical handoff portions.
+> **Status:** In Review — product-owner agreements through 2026-11-09; not collective team approval or implemented behavior. Current [UC-03 rules](./business-rules.md) supersede incompatible historical handoff portions.
 > **Objective:** State what the system must guarantee **always**, regardless of channel, event order, retries or partial failures, with examples that can become tests.
 > **Complements:** [business-rules.md](./business-rules.md) (rules `BR-*` and pending decisions `P-NN`) and [UC-02 use cases](../uc-02/use-cases.md) (`CU-XX`).
 > **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.3 §6.3; [target architecture](../../design-docs/target-architecture.md) v1.2 §9, §10, §13 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)).
@@ -47,13 +47,13 @@ stateDiagram-v2
     [*] --> CONFIRMED: CRM direct booking
     [*] --> PENDING_PAYMENT_REVIEW: CRM booking with an unverified receipt
     HOLD --> CONFIRMED: explicit confirmation without deposit
-    HOLD --> PENDING_PAYMENT_REVIEW: receipt before deadline
-    HOLD --> EXPIRED: deadline without confirmation or receipt
+    HOLD --> PENDING_PAYMENT_REVIEW: timely evidence routed to human review
+    HOLD --> EXPIRED: deadline after applicable evidence checks
     HOLD --> CANCELLED: withdrawn (proposal)
     PENDING_PAYMENT_REVIEW --> CONFIRMED: credit verified and manually allocated to required threshold
     PENDING_PAYMENT_REVIEW --> CANCELLED: guarded rejection cancellation without verified partial funds, before start
     PENDING_PAYMENT_REVIEW --> CANCELLED: explicit authorized cancellation; finances resolved separately
-    PENDING_PAYMENT_REVIEW --> PENDING_PAYMENT_REVIEW: before start, first rejection opens correction window; new evidence creates pending review
+    PENDING_PAYMENT_REVIEW --> PENDING_PAYMENT_REVIEW: first human rejection opens correction window; timely evidence follows screening rules
     CONFIRMED --> CONFIRMED: permitted reschedule, then request difference
     CONFIRMED --> CANCELLED: cancellation
     CONFIRMED --> COMPLETED: manual, from start
@@ -77,8 +77,8 @@ stateDiagram-v2
 | ∅ → `PENDING_PAYMENT_REVIEW` | No | Yes | Yes | No | CRM booking with a transfer receipt not yet verified; slot free. | Confirmed (UC-01 Confirmed Decisions; BR-SEN-09) |
 | `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
 | `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified and explicitly manually allocated by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
-| `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, by sending the receipt | — | — | No | Receipt registered **before** the deadline. | Confirmed (MVP §6.3.5) |
-| `HOLD` → `EXPIRED` | No | No | No | **Yes** | Deadline reached and still `HOLD`. | Confirmed (MVP §6.3.6) |
+| `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, by sending evidence | — | — | No | Timely evidence routed to human review under BR-SEN-12, BR-SEN-14–16; first clearly unrelated file instead prompts replacement. | Product-owner agreement 2026-11-09 |
+| `HOLD` → `EXPIRED` | No | No | No | **Yes** | Deadline reached, with no timely screening unresolved or human review and no protected partial funds. | BR-RES-08, BR-SEN-16 |
 | `HOLD` → `CANCELLED` | Yes | Yes | Yes | No | Withdrawn before confirmation. | Proposal (UC-01 does not cover withdrawing a HOLD) |
 | `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and manually allocated to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
 | Initial evidence rejection / correction | New evidence or valid manual resolution | Authorized role | Yes | Guarded timeout only | BR-SEN-10 applies only without verified partial deposit; pending review suspends timeout, started slots require manual handling. Partial verified funds invoke BR-SEN-11, never automatic release. | Updated F-018; follow-up P-27 |
@@ -165,36 +165,42 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-SEN-01 | `HOLD` → `CONFIRMED` without a deposit requires an explicit confirmation recorded **while the HOLD is valid**, checked in the same transaction. | TX | BR-RES-04 |
-| INV-SEN-02 | `HOLD` → `PENDING_PAYMENT_REVIEW` happens only if the receipt is registered **while the HOLD is valid**. Expiry and receipt cannot both succeed for the same HOLD. | TX | BR-RES-06 |
-| INV-SEN-03 | HOLD expiry is idempotent; if no longer HOLD, already under review or protected by verified partial funds, it does not release. Current state/funds and occupancy are checked atomically. | JOB + TX | BR-RES-08, BR-SEN-11 |
+| INV-SEN-02 | Timeliness uses recorded evidence receipt time, not screening completion. Timely evidence routed to review protects the HOLD; a first clearly unrelated file instead requests replacement without renewal. Expiry cannot release against unresolved screening of timely evidence. | TX | BR-RES-06, BR-SEN-14–16 |
+| INV-SEN-03 | HOLD expiry is idempotent; if no longer HOLD, timely evidence is still being screened, already under review or protected by verified partial funds, it does not release. Current state, evidence, funds and occupancy are checked atomically. | JOB + TX | BR-RES-08, BR-SEN-11, BR-SEN-16 |
 | INV-SEN-04 | A receipt or payment that arrives **after** expiry never reactivates the booking or takes the slot; it is recorded as a financial incident. | TX | BR-COB-12 |
 | INV-SEN-05 | A deposit becomes verified **only** through a recorded human verification. Nothing created by the AI or by an image is verified. | UC | BR-SEN-07, BR-COB-07 |
-| INV-SEN-06 | If the expiry job fails to enqueue, a **durable intention** in PostgreSQL lets it be reconciled: a HOLD never occupies a slot indefinitely. | TX + JOB | ARQ §6.5, §10.3 |
+| INV-SEN-06 | If expiry processing fails, it is recovered; an eligible expired HOLD does not occupy a slot indefinitely. Timely unresolved screening and human review remain protected under BR-SEN-16. | TX + JOB | ARQ §6.5, §10.3; BR-SEN-16 |
 | INV-SEN-07 | The required deposit is computed by the backend; with `FULL_PREPAYMENT` it is 100% of the charge. | UC | BR-SEN-04, BR-SEN-05 |
 | INV-SEN-08 | An `EXPIRED` HOLD never counts as a no-show. | UC | BR-RES-16 |
 | INV-SEN-09 | CRM deposit booking confirms only when verified/manual allocations meet threshold or Admin grants its existing exception; pending evidence occupies under review and verified insufficient deposit occupies unconfirmed under BR-SEN-11. Without funds/evidence/exception nothing occupies. | TX + UC | BR-SEN-09 |
-| INV-SEN-10 | First rejected initial evidence without verified partial funds opens 15 minutes; new pending review suspends cancellation. A permitted second-distinct-rejection/expiry cancellation atomically rechecks current review, verified funds, deadline, ownership and start. Partial verified funds, started appointments and supplemental reschedule deposits preclude automatic cancellation/release. | TX + JOB | BR-SEN-10–11 |
+| INV-SEN-10 | First human rejection of initial evidence without verified partial funds opens 15 minutes; timely evidence undergoing screening or human review prevents timeout against it. A permitted second-distinct-human-rejection/expiry cancellation is an atomic check-and-transition that rechecks current evidence, screening, review, verified funds, deadline, ownership and start. Partial verified funds, started appointments and supplemental reschedule deposits preclude automatic cancellation/release. | TX + JOB | BR-SEN-10–11, BR-SEN-14–16 |
 | INV-SEN-11 | Multiple verified partial deposits retain occupied unconfirmed capacity indefinitely pending manual resolution or explicit authorized cancellation. Show missing amount; no rejected later evidence or timer releases it. Threshold confirmation still requires explicit manual allocation; FULL_PREPAYMENT is not bypassed. | TX + UC | BR-SEN-11 |
+| INV-SEN-12 | Preliminary relevance screening never verifies authenticity or credit; clearly unrelated attempts are not human financial rejections. Technical duplicates do not add attempts. Failure or uncertainty goes to human review, not unrelated classification or payment approval. | UC | BR-SEN-14–15 |
+| INV-SEN-13 | Neither replacement nor screening renews the HOLD or correction window. A timely second clearly unrelated attempt reaches human review without inactivity timeout, including when analysis finishes after the deadline. Explicit authorized cancellation and late-evidence safeguards still apply. | UC + TX | BR-SEN-14–16, BR-CAN-04 |
 
-**EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when the receipt arrives at 15:07, then the booking is `PENDING_PAYMENT_REVIEW` and the slot is still blocked at 15:30.
+**EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when plausible evidence arrives at 15:07 and enters human review, then the slot is still blocked at 15:30.
 
 **EJ-14 · Late receipt.** Given a HOLD that expired at 15:10 and the slot taken by another customer at 15:11, when the first customer's receipt arrives at 15:12, then a financial incident is recorded, the first booking stays `EXPIRED` and the other booking is untouched.
 
-**EJ-15 · Expiry after the receipt.** Given a receipt registered at 15:09, when the expiry job runs at 15:10, then nothing changes.
+**EJ-15 · Expiry during screening.** Given evidence received at 15:09 and still being screened at the 15:10 deadline, expiry does not release it while screening is unresolved. A first unrelated result requests replacement without extending the deadline; subsequent expiry follows current-state checks. A plausible, uncertain or failed result enters human review instead.
 
 **EJ-16 · Expiry after confirmation.** Given a no-deposit HOLD confirmed by the customer at 15:09, when the expiry job runs at 15:10, then nothing changes.
 
-**EJ-17 · Receipt image.** Given a customer who sends a $5,000 transfer screenshot, when the AI interprets it, then a pending `PaymentReview` exists, no verified `Payment` is created and the balance does not change.
+**EJ-17 · Receipt image.** Given a customer who sends a plausible $5,000 transfer screenshot on time, when the AI screens it, a pending human `PaymentReview` exists, no verified `Payment` is created and the balance does not change.
 
 **EJ-18 · Expiry is not absence.** Given a customer with one expired HOLD and one cancellation within policy, then their no-show booking count is 0.
 
 **EJ-49 · CRM booking with a deposit.** Given a $10,000 service with a $3,000 deposit, when authorized personnel book it in the CRM, record $3,000 in cash in an open session and explicitly manually allocate it to the charge to meet the deposit threshold, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it; in that case the booking records that no deposit was paid and a $10,000 balance due, with or without a reason.
 
+**EJ-55 · Second unrelated file near deadline.** Given a first clearly unrelated file and a distinct second one received before the deadline, when screening finishes after the deadline and finds it clearly unrelated, the customer is told to await human review; the review occupies without inactivity timeout. Neither attempt counts as a human rejection and the deadline was not renewed.
+
+**EJ-56 · Screening failure.** Given timely evidence whose screening fails or is uncertain, it goes to human review without being called unrelated or credited; no bank verification is claimed. Explicit inability to attach permits timely text fallback, while late evidence is retained for financial handling without rebooking.
+
 ## 5. Payments and Balances
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING_REVIEW: receipt received by WhatsApp
+    [*] --> PENDING_REVIEW: evidence routed to human review
     PENDING_REVIEW --> APPROVED: personnel verify the actual credit
     PENDING_REVIEW --> REJECTED: credit not found
     APPROVED --> [*]

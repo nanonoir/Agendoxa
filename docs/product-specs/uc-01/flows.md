@@ -2,7 +2,7 @@
 
 > **Status:** In review · **Scope:** Main MVP use cases for barbershops/beauty and sports clubs/courts.  
 > **Related:** [Actors, permissions and use-case index](./actors.md).  
-> **Boundary:** Functional scenarios, not implementation contracts. [UC-03 business rules](../uc-03/business-rules.md) and [invariants](../uc-03/invariants.md) own canonical rules. Product-owner decisions of 2026-11-04 are in review, not team-approved or implemented.
+> **Boundary:** Functional scenarios, not implementation contracts. [UC-03 business rules](../uc-03/business-rules.md) and [invariants](../uc-03/invariants.md) own canonical rules. Product-owner decisions through 2026-11-09 are in review, not team-approved or implemented.
 
 ## Shared Rules (Apply to All Cases)
 
@@ -11,7 +11,7 @@
 - **Personnel authorization:** In every CRM case and diagram, Staff/Admin is actor shorthand, not an unconditional grant: an active tenant membership and the applicable role permission are required and checked by the backend. Role management, agreed-price changes, commercial exceptions, refunds, post-close cash adjustments and global AI control retain their Admin-only boundaries.
 - **Exclusivity:** Availability inquiries do not reserve a slot; bookings, HOLDs and exclusive waitlist offers must prevent overlapping allocations for the same resource/time.
 - **Initial HOLD:** **10 minutes** after selecting a concrete slot (with or without deposit); no hold for information-only inquiries. A CRM employee can book/confirm directly, without a HOLD; when a deposit applies, see the CRM path of [CU-03](#cu-03).
-- **Deposit:** Timely evidence enters human review and occupies the slot while actually pending; explicit rejection follows [CU-03](#cu-03). An image never proves credit. No-deposit bookings require explicit customer confirmation during HOLD.
+- **Deposit:** Timely evidence is screened or routed to human review under [CU-03](#cu-03); a first clearly unrelated file prompts replacement rather than review. Unresolved timely screening and actual human review protect occupancy. An image never proves credit. No-deposit bookings require explicit customer confirmation during HOLD.
 - **Waitlist:** Voluntary; actual release starts progressive invitations for 1–4 eligible people (only first gets five-minute exclusivity), or simultaneous invitations for 5+. Prior recipients may claim late; one atomic winner gets the ten-minute HOLD, then payment instructions. See [CU-06](#cu-06).
 - **Defaults and selection:** Booking lead time defaults to 0, never past start. Future-booking limit defaults off; if enabled count future occupying bookings, including third parties, per requester/tenant. Any-resource assignment uses the tenant's active preference-order or rotation mode.
 - **Operational truth:** Time passing never proves attendance or payment. Human-recorded completion, outstanding balance and cash closing are independent.
@@ -120,16 +120,16 @@ flowchart TD
 
 **Main flow**
 1. Validate and create a **10-minute HOLD**; display price, required deposit, bank alias/account holder and cancellation policy **before transfer**.
-2. Request PDF/image evidence within HOLD; only if the customer explicitly cannot attach it, accept transfer details by text within the same deadline. Register pending human review without automatic review expiry.
+2. Request PDF/image evidence within HOLD; only if the customer explicitly cannot attach it, accept transfer details by text within the same deadline for human review. AI screens files for relevance only: plausible evidence goes to human review, the first clearly unrelated file prompts replacement, and the second prompts a failed-attempt explanation and human review. Uncertain or failed screening also goes to human review, without labeling the file unrelated or claiming bank verification. Pending human review has no inactivity expiry.
 3. Authorized personnel verify actual credit in the instructed receiver's account. Record verified money, then explicitly manually allocate to the charge; confirm only when the required threshold is met. Multiple payments may complete it. A verified partial deposit keeps the slot occupied/unconfirmed without automatic release; show missing amount and contact action in CRM.
 
 **CRM path (no HOLD):** Verified money allocated to meet threshold → confirm; pending evidence → occupied review; verified insufficient deposit → occupied unconfirmed partial-deposit waiting. No funds/evidence → no occupancy unless Admin grants the existing no-deposit exception, recording unpaid deposit/balance. Full-prepayment restrictions remain intact.
 
-**Alternatives:** No timely evidence and no verified partial deposit → HOLD expires. Without verified partial funds, first human rejection starts a 15-minute correction window; timely distinct evidence suspends cancellation under active review. Second distinct rejection or expiry may cancel only before start after current-state/funds/review rechecks, notifying customer/staff. Verified partial funds, started slots and supplemental reschedule deposits require manual handling, never automatic release through this mechanism. Explicit authorized cancellation releases immediately under [CU-08](#cu-08). Late funds never rebook automatically.
+**Alternatives:** Record receipt time before analysis; expiry cannot release against timely evidence being screened. A replacement does not renew the HOLD or correction window; after a first unrelated result, the existing deadline still applies. A timely second unrelated attempt goes to review even if analysis ends after deadline. Preliminary discards do not count as human rejections. Without verified partial funds, first human rejection starts a 15-minute correction window; timely distinct evidence follows the same screening and review safeguards. Second distinct human rejection or expiry may cancel only before start after current-state/evidence/funds/review rechecks, notifying customer/staff. Verified partial funds, started slots and supplemental reschedule deposits require manual handling, never automatic release through this mechanism. Explicit authorized cancellation releases immediately under [CU-08](#cu-08). Preserve late evidence for financial handling; late funds never rebook automatically. See [BR-SEN-14–16](../uc-03/business-rules.md#9-deposits-sen).
 
 **Rules/result:** Policy priority and FULL_PREPAYMENT remain unchanged. Tenant chooses all-professional (default), business-deposit/professional-remainder or all-business collection. Missing professional account uses the business default/sequential rotation; missing fallback requires personnel. Record mode/receiver and preserve issued instructions; no automatic commissions/distribution. Human verification and manual allocations remain separate.
 
-**Example:** Receipt received with 3 minutes left in HOLD continues blocking after those 3 minutes, pending human verification.
+**Example:** Plausible evidence received with 3 minutes left in HOLD continues blocking after those 3 minutes, pending human verification.
 
 <a id="booking-deposit-diagram"></a>
 ### Shared Diagram — With / Without Deposit
@@ -150,7 +150,16 @@ flowchart TD
     S -->|Yes| P[Show alias, owner, deposit and policy]
     P --> Q{Receipt received before expiration?}
     Q -->|No| X
-    Q -->|Yes| R[Store receipt as pending verification]
+    Q -->|Yes| SC[Record evidence and receipt time; screen image or PDF]
+    SC --> SR{Screening result?}
+    SR -->|First clearly unrelated| RE[Explain and request replacement within original deadline]
+    RE --> RO{Evidence origin?}
+    RO -->|Initial HOLD evidence| Q
+    RO -->|Correction-window evidence| Y2
+    SR -->|Plausible, uncertain or failure| R[Route evidence to human review]
+    SR -->|Second clearly unrelated| R2[Explain failed attempts; ask customer to await human review]
+    R2 --> R
+    Q -->|Explicit inability to attach and timely text| R
     R --> T[Keep blocked for human review]
     T --> U{Employee verifies actual credit?}
     U -->|Approved| V0[Record verified payment and manual allocation]
@@ -166,14 +175,15 @@ flowchart TD
     Y1 -->|Second| Y4[Cancel and release; notify customer and staff]
     Y1 -->|Technical duplicate| Y6[No-op; preserve count, deadline and current condition]
     Y --> Y2{New evidence or valid resolution in time?}
-    Y2 -->|New evidence| Y7[Create separate pending review; preserve rejection count]
-    Y7 --> T
+    Y2 -->|New evidence| Y7[Screen or route text under same evidence rules; preserve human rejection count]
+    Y7 -->|Image or PDF| SC
+    Y7 -->|Explicit-inability text| R
     Y2 -->|Valid manual resolution| Y8[Authorized human verification and explicit allocation or permitted Admin exception; see UC-03]
     Y8 --> G
     Y2 -->|Deadline reached| Y3{Booking started at timeout recheck?}
     Y3 -->|Yes| Y5
-    Y3 -->|No| Y9{Actually pending human review?}
-    Y9 -->|Yes| T
+    Y3 -->|No| Y9{Timely screening unresolved or human review pending?}
+    Y9 -->|Yes| Y10[Keep occupied; apply screening result or await review]
     Y9 -->|No| YP2{Verified partial funds now exist?}
     YP2 -->|Yes| VP
     YP2 -->|No| Y4
@@ -182,6 +192,8 @@ flowchart TD
     G --> Z[Notify customer of confirmation]
     V --> Z
 ```
+
+The diagram summarizes the path: timely evidence being screened prevents expiry or correction timeout until its result is applied; a first unrelated result does not extend the applicable deadline, and replacement evidence returns to that deadline by origin: the original HOLD deadline for initial evidence, or the correction window (with its own timeout guards) for correction evidence. Late evidence is retained for separate financial handling. Explicit text fallback routes directly to human review, not through image screening.
 
 <a id="cu-04"></a>
 ## CU-04 — Create Bookings for Other Attendees
@@ -254,7 +266,7 @@ flowchart TD
     WIN --> M{Deposit required?}
     M -->|No| N[Explicit confirmation and booking]
     M -->|Yes| O[Submit receipt during HOLD]
-    O --> P[Human payment review]
+    O --> P[Screen or route evidence under CU-03]
 ```
 
 <a id="cu-07"></a>
@@ -382,7 +394,7 @@ flowchart TD
 2. For transfer, verify **bank/wallet credit**; for cash, confirm physical receipt. Record amount, method, date/time and employee.
 3. Allocate verified funds explicitly across one or more charges, including different bookings, with partial allocations; never automatically allocate. Balance cannot go below zero and allocation cannot exceed debt or available net funds. Preserve correction history and enforce atomicity/idempotence; optionally complete through [CU-10](#cu-10).
 
-**Alternatives:** WhatsApp image → review pending, **not paid** ([CU-03](#cu-03)). `Payment` records only verified commercial money, possibly unallocated; unknown or personal transfers are not payments. Excess remains unallocated for manual application or Admin-authorized refund. `Refund` is a separate linked historical operation; only execution reduces retained funds, without exceeding available funds. Cash refunds require an open session and physical cash movement; transfer refunds are bank outflows, not cash movements. The original payment is never mutated; payment and its cash movement are not two incomes. Admin alone performs post-close adjustments and agreed-price changes. See [business rules](../uc-03/business-rules.md).
+**Alternatives:** WhatsApp image → preliminary relevance screening and, when applicable, human review, **not paid** ([CU-03](#cu-03)). `Payment` records only verified commercial money, possibly unallocated; unknown or personal transfers are not payments. Excess remains unallocated for manual application or Admin-authorized refund. `Refund` is a separate linked historical operation; only execution reduces retained funds, without exceeding available funds. Cash refunds require an open session and physical cash movement; transfer refunds are bank outflows, not cash movements. The original payment is never mutated; payment and its cash movement are not two incomes. Admin alone performs post-close adjustments and agreed-price changes. See [business rules](../uc-03/business-rules.md).
 
 **Result:** Verified collected money and remaining debt are traceable. Only service/rental charges are in scope; no POS/product sales or inventory.
 
@@ -498,7 +510,7 @@ flowchart TD
 | Scenario | Expected behavior | Case |
 |---|---|---|
 | Two people target the same court/time | At most one protected allocation; other sees alternatives/waitlist | [CU-02](#cu-02), [CU-03](#cu-03) |
-| Receipt arrives just before HOLD expiry | Remains blocked for human payment verification | [CU-03](#cu-03) |
+| Evidence arrives just before HOLD expiry | Screening completes without expiry racing it; outcome follows CU-03 without extending the deadline | [CU-03](#cu-03) |
 | Fixed Friday 22:00 slot is unavailable | Direct waitlist option | [CU-01](#cu-01), [CU-05](#cu-05) |
 | Several waitlisted customers claim simultaneously | One atomic ten-minute HOLD winner; only winner gets transfer instructions, not confirmed booking | [CU-06](#cu-06) |
 | Change of a confirmed booking requires more deposit | Move confirmed booking atomically first; verify difference later, without automatic cancellation | [CU-09](#cu-09) |
