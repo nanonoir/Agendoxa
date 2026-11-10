@@ -5,7 +5,8 @@
 > **Scope:** HTTP contracts between the Next.js web, the NestJS API and its internal consumers: operations, endpoints and methods, inputs and outputs, validation, errors, authentication and tenant context, data representations, idempotency, pagination and contract evolution.
 > **Files:** this document and the [OpenAPI 3.1 specification](./api-contracts.openapi.yaml) it explains.
 > **Out of scope:** Controllers, endpoints, business logic, authentication, frontend or provider integrations as code; provider contracts ([CON-03 #12](https://github.com/nanonoir/Agendoxa/issues/12)); contracts for features outside the MVP.
-> **Next step:** Team review. Decisions are `API-DM-XX`, all **Proposed for team review**; open questions are `API-Q-XX` in [§13](#13-decisions-and-open-questions).
+> **Reconciled:** 2026-11-10, with CON-01 as consolidated at `5f31914` (nine functional modules plus `audit` and `assets`, `workflows` coordinators), UC-03 BR-SEN-14–16 and INV-SEN-12–13, and Issues [#11](https://github.com/nanonoir/Agendoxa/issues/11) and [#12](https://github.com/nanonoir/Agendoxa/issues/12) as rewritten on 2026-11-09. Changed sections carry a *Reconciled 2026-11-10* note and are listed in [§16](#16-reconciliation-log).
+> **Next step:** Team review. Decisions are `API-DM-XX`, all **Proposed for team review**; open questions are `API-Q-XX` in [§13](#13-decisions-and-open-questions); scope differences with the rewritten Issue are in [§14.1](#141-scope-differences-with-the-rewritten-issue-11).
 
 ## 1. How to use this document
 
@@ -826,8 +827,30 @@ These questions are flagged, not resolved here.
 | Schemas and types for `packages/shared` | §9 |
 | Representative requests, responses, errors and conflicts, with authorized context and no sensitive data | §8 and `components.examples` in the OpenAPI file |
 
-**Verification done for this proposal** (2026-11-08; checks on documents, not on running code):
+**Verification done for this proposal** (first on 2026-11-08, repeated on 2026-11-10 after the reconciliation; checks on documents, not on running code):
 
 - The OpenAPI file passes Redocly CLI 2 `lint` with the recommended rules and invalid examples as errors. The only warning is the missing `info.license`, left on purpose because licensing is a project decision.
-- Every example in §8 validates against its OpenAPI schema with Ajv (JSON Schema 2020-12) and is identical to the example of the same name in the file. Every example the file attaches to an operation validates too. A copy with a wrong enum value and a numeric amount fails both tools, so the checks are effective.
-- Relative links and anchors of this document and the catalog resolve, and `git diff --check` reports nothing.
+- Every example in §8 validates against its OpenAPI schema with Ajv (JSON Schema 2020-12) and is identical to an example of the same schema in the file. Every example the file attaches to an operation validates too, and every component example is used. A copy with a wrong enum value and a numeric amount fails, so the checks are effective.
+- Relative links and anchors of this document and the catalog resolve, including the CON-01 anchors renamed by its consolidation, and `git diff --check` reports nothing.
+
+## 16. Reconciliation log
+
+**2026-11-10**, against CON-01 at `5f31914`, UC-03 BR-SEN-14–16 and INV-SEN-12–13, and Issues #11 and #12 as rewritten on 2026-11-09. No schema, path or example changed shape; the OpenAPI `info.version` moved to `0.2.0-proposal`.
+
+| Section | What changed |
+|---|---|
+| Header, [§1](#1-how-to-use-this-document) | Reconciliation note; endpoints invoke an owner use case or the `workflows` coordinator |
+| [API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information) | Contradiction with the Issue resolved; hours and WhatsApp link flagged against CON-01 §8.1 (D-6) |
+| [API-DM-02](#api-dm-02-full-contracts-for-context-and-five-areas-the-rest-of-the-crm-is-identified) | Notes the wider scope of the rewritten Issue and points to §14.1 |
+| [API-DM-07](#api-dm-07-the-tenant-is-a-path-segment-revalidated-on-every-request) | Revocation of memberships and permissions made explicit |
+| [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Rewritten: owner tags, `workflows` coordinators, read compositions, `x-agendoxa-invokes` |
+| [§7.4](#74-catalog-calendars-hours-blocks-and-openings) | Calendar endpoints owned by `catalog`; block removal through `workflows` |
+| [§7.5](#75-bookings-free-slots-agenda-and-lifecycle-commands), [API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields) | Coordinator per command; `depositState` composed without a finance port; deposit meanings follow screening rules |
+| [API-DM-14](#api-dm-14-packagesshared-holds-the-http-contracts-as-zod-schemas-and-nothing-else) | `availability.ts` merged into `catalog.ts` |
+| [§10](#10-internal-consumers-the-agent), [§10.1](#101-receipt-evidence-screening-is-not-human-review) | Agent facades per CON-01 §8.2; new section separating screening from human review |
+| [§11.1](#111-for-con-03-external-integrations), [§11.2](#112-next-contract-increment) | Receipt screening and transfer instruction rows; payment gateway resolved; cash rows in `payments`; "Through" column |
+| [§13](#13-decisions-and-open-questions) | API-DM-12 summary; new API-Q-10 and API-Q-11 |
+| [§14](#14-reconciliation-with-sources), [§14.1](#141-scope-differences-with-the-rewritten-issue-11) | Status per difference; resolved rows marked; scope differences D-1 to D-7 for the team |
+| [§15](#15-traceability) | Criteria and deliverables of the rewritten #11, with coverage |
+| [API-DM-17](#api-dm-17-the-openapi-file-lives-in-the-design-catalog-until-code-exists) | Issue path wording updated |
+| OpenAPI | `availability` tag removed; `x-agendoxa-invokes` on 11 operations; `DepositState` and `holdExpiresAt` descriptions; version `0.2.0-proposal` |
