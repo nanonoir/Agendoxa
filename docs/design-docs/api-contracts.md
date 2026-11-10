@@ -305,16 +305,16 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 ### API-DM-13: Seven statuses, with derived conditions as separate fields
 
 - **Defined:** `booking_status` has exactly `HOLD`, `PENDING_PAYMENT_REVIEW`, `CONFIRMED`, `CANCELLED`, `EXPIRED`, `COMPLETED` and `NO_SHOW` ([REP-02](./rep-02-core-persistence.md)); only `bookings` changes it ([modules §11](./modules.md#11-reconciliation-with-sources)). The conditions inside `PENDING_PAYMENT_REVIEW` and "pending operational close" are not statuses ([INV §2](../product-specs/uc-03/invariants.md#2-booking-lifecycle), BR-RES-13).
-- **Rule (Proposed):** `status` takes only those seven values. Derived conditions are separate read-only fields of `BookingSummary`:
+- **Rule (Proposed):** `status` takes only those seven values. Derived conditions are separate read-only fields of `BookingSummary`. *Reconciled 2026-11-10: the deposit meanings below now follow the preliminary screening rules BR-SEN-14–16; values and schema are unchanged.*
 
 | Field | Meaning | Source |
 |---|---|---|
 | `pendingOperationalClose` | `CONFIRMED` and its end has passed; still awaiting an outcome | BR-RES-13 |
-| `holdExpiresAt` | Deadline of a `HOLD`; `null` otherwise | ERD `Booking` |
+| `holdExpiresAt` | Deadline of a `HOLD`; `null` otherwise. Never extended by a replacement file or a screening retry; a `HOLD` may still show it in the past while the screening of evidence received in time is unresolved | ERD `Booking`; BR-SEN-16, INV-SEN-13 |
 | `depositState: NOT_REQUIRED` | No deposit applies | BR-SEN-01 |
-| `depositState: AWAITING_EVIDENCE` | `HOLD` with a deposit and no evidence yet | BR-RES-03, BR-RES-06 |
-| `depositState: UNDER_REVIEW` | Evidence awaiting human review; occupies with no timeout | BR-RES-06 |
-| `depositState: CORRECTION_WINDOW` | First initial-evidence rejection without verified funds; 15-minute window | BR-SEN-10 |
+| `depositState: AWAITING_EVIDENCE` | `HOLD` with a deposit and no evidence in human review yet: nothing received, a first clearly unrelated file awaiting its replacement, or a file still under preliminary screening | BR-RES-03, BR-RES-06, BR-SEN-14, BR-SEN-16 |
+| `depositState: UNDER_REVIEW` | Evidence in human review: a plausible file, a second clearly unrelated attempt, an uncertain or failed screening, or the text fallback. Occupies with no inactivity timeout. Arriving here is not a human finding | BR-RES-06, BR-SEN-12, BR-SEN-14–15 |
+| `depositState: CORRECTION_WINDOW` | First **human** rejection of initial evidence without verified funds; 15-minute window. A preliminary AI discard never opens it | BR-SEN-10, INV-SEN-12 |
 | `depositState: PARTIAL` | Verified funds below the threshold; occupies, unconfirmed | BR-SEN-11 |
 | `depositState: MET` | Verified funds allocated up to the threshold | BR-SEN-07 |
 | `depositState: ADMIN_EXCEPTION` | Confirmed by an Admin without the required deposit | BR-SEN-09 |
@@ -603,7 +603,7 @@ Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nin
 
 ### API-DM-15: The agent reuses module use cases in-process, not the HTTP API
 
-- **Defined:** Agent tools call the same use cases as the CRM, with tenant and requester fixed by the validated WhatsApp connection; the model chooses neither (BR-AGT-02, BR-CH-05). The agent cannot verify transfers, infer no-shows, change cash records or obtain personnel privileges (BR-AGT-04). It may attach evidence to a pending `PaymentReview`, but a receipt never proves payment (BR-COB-07, INV-PAY-04). CON-01 lists the operations allowed to it ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)).
+- **Defined:** Agent tools call the same use cases as the CRM, with tenant and requester fixed by the validated WhatsApp connection; the model chooses neither (BR-AGT-02, BR-CH-05). The agent cannot verify transfers, infer no-shows, change cash records or obtain personnel privileges (BR-AGT-04). It may submit transfer evidence, which is recorded with its receipt time and preliminarily screened before any human review ([§10.1](#101-receipt-evidence-screening-is-not-human-review)); neither the file nor its screening proves payment (BR-COB-07, INV-PAY-04, INV-SEN-12). CON-01 lists the operations allowed to it ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)).
 - **Rule (Proposed):**
   - The agent has no HTTP credential, service account or endpoint of its own. It calls module facades and `workflows` coordinators inside the API process, through their plain public contracts ([modules MOD-DM-10](./modules.md#mod-dm-10-a-modules-public-surface-separates-contracts-from-nest-composition)): owners directly for reads, coordinators for composite changes, without pass-through wrappers ([modules §5.2](./modules.md#52-coordination-and-asynchronous-activation)). Authorization is the conversation's requester and never a personnel role.
   - What the customer sees is not the CRM view. A tool result never includes `currentRestriction`, `indicators`, `blockedException`, internal reasons or other labels (BR-AGT-03, INV-CLI-06). A `BLOCKED` customer is refused as when they cannot book, without the reason.
@@ -619,11 +619,35 @@ Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nin
 | Create a HOLD; confirm it without a deposit | `workflows` | None | WhatsApp only (BR-RES-03–04) |
 | Cancel or reschedule own booking | `workflows` | `/cancel`, `/reschedule` | Always `CUSTOMER_REQUEST`; `acceptLateConsequence` only after the customer's explicit confirmation; never an Admin exception |
 | Join the waitlist; claim an invitation | `bookings`, or `workflows` when the change spans owners | None | — |
-| Read payment status; attach evidence to a pending review | `payments` | Next increment | Attaching creates or extends a review; it never verifies money |
+| Read payment status | `payments` | Next increment | Customer-facing result only |
+| Submit receipt evidence and have it preliminarily screened | `agent` screening adapter, then the protected `workflows` operation (`bookings`, `payments`, `assets`) | None | Routed to human review or to a replacement request as in [§10.1](#101-receipt-evidence-screening-is-not-human-review); it never verifies, credits or renews a deadline |
 | Record notice preferences; request or withdraw deletion | `workflows` (`customers`, `bookings`, `audit`, and the deletion participants) | None | Customer channel only (CU-19, CU-23) |
 | Escalate to a human with a summary | `messaging` | None | — |
 
-**Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, cash operations and conversation control. These exist only as authenticated CRM endpoints.
+**Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, approving or rejecting a review, cash operations and conversation control. These exist only as authenticated CRM endpoints.
+
+### 10.1 Receipt evidence: screening is not human review
+
+> **Added 2026-11-10** to reconcile with BR-SEN-14–16 and INV-SEN-12–13, and with the screening criterion of the rewritten [Issue #11](https://github.com/nanonoir/Agendoxa/issues/11).
+
+- **Defined:** Evidence and its receipt time are recorded before processing; timeliness is judged by receipt, not by when screening ends (BR-SEN-16, INV-SEN-02). Screening checks only whether an image or PDF plausibly is a transfer receipt, never its authenticity or bank credit (BR-SEN-14, INV-SEN-12). The receipt and the screening record commit before the provider call, outside any transaction; the result is applied in a new transaction that rechecks current state ([modules §6.2](./modules.md#62-transactions)).
+
+| Screening outcome (for timely evidence) | Effect on the booking | Customer is told | Human rejection? |
+|---|---|---|---|
+| Plausible receipt | Human review, `depositState: UNDER_REVIEW`; from a `HOLD`, the booking moves to `PENDING_PAYMENT_REVIEW` | Confirmation follows verification | No |
+| First clearly unrelated file | No review; same deadline, no renewal of the `HOLD` or correction window | It does not look like a receipt; send a correct one | No |
+| Second clearly unrelated attempt | Human review, without inactivity timeout, even if screening ends after the deadline | The attempts failed; wait for human review | No |
+| Uncertain result or technical failure | Human review; never labelled unrelated | Confirmation follows verification, without claiming anyone checked the bank | No |
+| Duplicate delivery of the same attempt | None; not another attempt | — | No |
+| Text fallback after explicit inability to attach (BR-SEN-12) | Human review directly, no screening | Confirmation follows verification | No |
+
+  Evidence received after the applicable deadline is kept for human financial handling and never revives a released slot (BR-SEN-16). Sources: BR-SEN-12, BR-SEN-14–16, INV-SEN-02, INV-SEN-12–13, [UC-02 CU-03](../product-specs/uc-02/use-cases.md#cu-03) step 5 and A4.
+
+- **Rule (Proposed):**
+  - **Two different results, two different contracts.** The screening outcome is an internal result of the agent's `receipt-screening` port, consumed by the protected `workflows` operation; it has no HTTP endpoint, and its result values belong to CON-03 ([§11.1](#111-for-con-03-external-integrations)). The human decision is only `approve` or `reject` on a payment review, an authenticated CRM command of `payments` through `workflows` ([§11.2](#112-next-contract-increment)). Only that decision counts for BR-SEN-10.
+  - **No HTTP field reports a screening outcome as a financial state.** The CRM sees a review and, in the next increment, how it arrived (plausible, second unrelated attempt, uncertain or failed screening, text fallback). It never sees "rejected by AI" or "verified by AI", and personnel do not approve or override screening itself.
+  - **Attempt counting is not exposed or reset by contract.** Whether the clearly unrelated count carries over after a human decision or into a later correction round is pending in [P-40](../product-specs/uc-03/business-rules.md#16-pending-decisions); no field or endpoint assumes either answer.
+  - **No retry adds time.** No CRM or agent operation changes `holdExpiresAt` or the correction deadline because a file was replaced or rescreened (INV-SEN-13).
 
 ## 11. Left to CON-03 and to the next contract increment
 
@@ -636,6 +660,7 @@ CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these con
 | WhatsApp webhook (Evolution API) | Inbound route, origin verification, payload normalization, deduplication and the responses the provider expects | An inbound adapter of `messaging`. It takes no session or CSRF token, and its tenant comes from the connection, never from a parameter (INV-MSG-02) |
 | Agent tools (LangGraph) | Tool schemas, results and failure handling | The operations in [§10](#10-internal-consumers-the-agent), with the `code` and `reason` values of §5 |
 | Durable jobs (pg-boss) | Job names, payloads, scheduling and retries | Jobs from [modules §6.6](./modules.md#66-jobs); no job is exposed over HTTP |
+| Receipt screening *(added 2026-11-10)* | The replaceable `receipt-screening` port of `agent`: result values (plausible, clearly unrelated, uncertain or technical failure), model and versioning, timeout, latency measurement, recovery, data minimization. Gemini Flash and five seconds are the requested direction and an objective, not guarantees ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)) | The outcomes and effects of [§10.1](#101-receipt-evidence-screening-is-not-human-review). No HTTP endpoint; no result verifies money, counts as a human rejection or adds time. The attempt boundary in P-40 stays open |
 | Private file storage | Storage, authorized reads and deletion | Viewing a receipt from the CRM will be an authenticated endpoint of `payments` in the next increment; no public file links (DM-14) |
 | Payment gateway | Nothing | No provider in the MVP. The Issue's Mercado Pago contracts contradict BR-SEN-08 and MVP §5.3 ([modules §11](./modules.md#11-reconciliation-with-sources)) |
 
@@ -647,9 +672,9 @@ These CRM operations are needed by the MVP and identified here so that their con
 
 | Owner (tag) | Method and path | Through | Use case | Note |
 |---|---|---|---|---|
-| `payments` | `GET /payment-reviews?status=PENDING` | Owner | CU-11 A1, CU-21 A1 | Review queue |
+| `payments` | `GET /payment-reviews?status=PENDING` | Owner | CU-11 A1, CU-21 A1 | Review queue. Shows how each review arrived (plausible file, second clearly unrelated attempt, uncertain or failed screening, text fallback), never as a human or AI verdict ([§10.1](#101-receipt-evidence-screening-is-not-human-review)) |
 | `payments` | `POST /bookings/{bookingId}/payment-reviews` | `workflows` (`payments`, `bookings`) | CU-03 CRM 2b | Pending receipt recorded from the CRM; the booking occupies under review (BR-SEN-09) |
-| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | `workflows` (`payments`, `bookings`, `notifications`) | CU-11 A1, CU-03 A3 | Human verification; a rejection drives BR-SEN-10 in `bookings` |
+| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | `workflows` (`payments`, `bookings`, `notifications`) | CU-11 A1, CU-03 A3 | Human verification; only a human rejection drives BR-SEN-10 in `bookings`, never a screening discard |
 | `payments` | `POST /payments`; `POST /payments/{paymentId}/allocations`; `POST /payment-allocations/{allocationId}/reversal` | `workflows` when an allocation can confirm a booking | CU-11 | Cash requires an open session; explicit manual allocation |
 | `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | Owner | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only |
 | `payments` | `GET`, `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | Owner; `tenants` stores the field ([modules MOD-DM-06](./modules.md#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) | CU-15 | Collection mode and rotation (BR-COB-19) |
@@ -723,6 +748,7 @@ These questions are flagged, not resolved here.
 | `API-Q-08` | How are passwords set and recovered, how long do sessions last, and how are personnel invited ([TEN-Q6](./tenancy.md#10-open-questions))? Does any installation put the web and the API on different sites? | API-DM-06 covers the session only; a cross-site deployment needs the Next.js server as a proxy | `identity` and authentication design | Sign-in implementation |
 | `API-Q-09` | Should the architecture proposal add `rule_violation` to its error categories? | API-DM-09 uses it | Team, in the architecture review | Nothing |
 | `API-Q-10` | Where do cross-owner read compositions live (public profile, agenda and booking reads with `depositState`, customer indicators, overview)? CON-01 requires them above the owners ([modules §6.4](./modules.md#64-queries-and-read-compositions)) but names no folder, and `workflows` is defined for multi-owner business operations | `tenants` and `customers` cannot import the owners they would compose ([modules MOD-DM-07](./modules.md#mod-dm-07-dependencies-only-point-to-lower-levels)) | Team, with CON-01 | The first composed endpoint |
+| `API-Q-11` | Should the CRM see a distinct condition while timely evidence is under preliminary screening? Today it shows `AWAITING_EVIDENCE` and a `holdExpiresAt` that may already have passed ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)) | A new `depositState` value would be additive (API-DM-16), but depends on how CON-03 represents screening and its failures | Team, with CON-03 | Nothing in this increment |
 
 ## 14. Reconciliation with sources
 

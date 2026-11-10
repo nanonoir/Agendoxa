@@ -1792,7 +1792,12 @@ components:
       type: string
       enum: [HOLD, PENDING_PAYMENT_REVIEW, CONFIRMED, CANCELLED, EXPIRED, COMPLETED, NO_SHOW]
     DepositState:
-      description: Derived from the booking and payment facts; never a booking status (API-DM-13).
+      description: |
+        Derived from the booking and payment facts; never a booking status (API-DM-13).
+        AWAITING_EVIDENCE also covers a first clearly unrelated file and evidence still under
+        preliminary screening. UNDER_REVIEW means human review, whatever routed the evidence
+        there; CORRECTION_WINDOW follows a human rejection only. No value is a screening verdict
+        (BR-SEN-14–16).
       type: string
       enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, PARTIAL, MET, ADMIN_EXCEPTION]
     RestrictionKind:
@@ -2463,6 +2468,7 @@ components:
           description: CONFIRMED and already ended; derived, not a status (BR-RES-13).
           type: boolean
         holdExpiresAt:
+          description: Never extended by a replacement or rescreening; may be past while timely evidence is still screened (BR-SEN-16).
           oneOf:
             - $ref: '#/components/schemas/Instant'
             - type: 'null'
