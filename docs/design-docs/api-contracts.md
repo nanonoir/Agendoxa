@@ -24,7 +24,9 @@
 
 ### API-DM-01: No public booking; the public API is read-only landing information
 
-- **What:** The [Issue](https://github.com/nanonoir/Agendoxa/issues/11) asks for a public API to create, consult, cancel and reschedule bookings without an account. The product documents exclude it.
+> **Reconciled 2026-11-10:** the [Issue](https://github.com/nanonoir/Agendoxa/issues/11), rewritten on 2026-11-09, now excludes web self-service and asks for deliberately public projections of business data, services, location, informational hours and the WhatsApp link. The contradiction recorded here is resolved; the rule is unchanged.
+
+- **What:** The original text of the Issue asked for a public API to create, consult, cancel and reschedule bookings without an account. The product documents exclude it, and the rewritten Issue now agrees.
 - **Defined:** WhatsApp is the only customer self-service channel (BR-CH-01). The landing is informational, with no availability calendar, booking form or customer accounts (BR-CH-02, [MVP §5.3](../product-specs/mvp.md#53-explicitly-out-of-scope), [MVP §7.2](../product-specs/mvp.md#72-informational-public-landing)). Public booking is excluded use case X-01 ([UC-02 §7](../product-specs/uc-02/use-cases.md#7-excluded-and-deferred-use-cases)). Public endpoints expose read-only landing information only ([architecture §11](./target-architecture.md#11-internal-api-and-integration-boundaries)). UC-03 already records this Issue as superseded ([UC-03 §17](../product-specs/uc-03/business-rules.md#17-differences-with-earlier-documents)), and CON-01 restricts public endpoints the same way.
 - **Rule (Proposed):** The product documents prevail over the Issue text. This contract has **no public booking, consultation, cancellation or rescheduling endpoint**. Customers manage bookings over WhatsApp, through the agent and module facades ([§10](#10-internal-consumers-the-agent)).
 - **Public read-only endpoints proposed:**
@@ -34,12 +36,12 @@
 | `GET /public/businesses/{slug}` | Name, branding, timezone, weekly hours and the WhatsApp link | The landing must show business identity, hours and a WhatsApp call to action (MVP §7.2). `apps/web` may not read the database ([architecture §5](./target-architecture.md#5-monorepo-organization)), so it needs an endpoint |
 | `GET /public/businesses/{slug}/services` | Active services with duration and price | The landing lists services (BR-CH-02) |
 
-  No public endpoint returns free slots, resources' occupancy or anything about customers or bookings. The slug only selects the business to display ([TEN-DM-07](./tenancy.md#ten-dm-07-every-entry-point-has-one-source-of-tenant-context)). Location is missing from the data model ([API-Q-01](#13-decisions-and-open-questions)).
-- **Recorded, not edited:** The Issue keeps its text; [§14](#14-reconciliation-with-sources) lists the difference for the team.
+  No public endpoint returns free slots, resources' occupancy or anything about customers or bookings. The slug only selects the business to display ([TEN-DM-07](./tenancy.md#ten-dm-07-every-entry-point-has-one-source-of-tenant-context)). Location is missing from the data model ([API-Q-01](#13-decisions-and-open-questions)). The weekly hours come from `catalog` and the WhatsApp link from `messaging`; CON-01 §8.1 names only `tenants` information and `catalog` services, so the team should confirm these two projections ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)).
+- **Recorded:** [§14](#14-reconciliation-with-sources) marks the former difference with the Issue as resolved. [UC-03 §17](../product-specs/uc-03/business-rules.md#17-differences-with-earlier-documents) still describes the Issue's earlier text; that product document is not edited here.
 
 ### API-DM-02: Full contracts for context and five areas; the rest of the CRM is identified
 
-- **What:** The Issue asks for initial contracts for services, resources, availability, customers and bookings, while the MVP's CRM also covers payments, cash, conversations, roles, the WhatsApp channel and audit.
+- **What:** The Issue asks for initial contracts for services, resources, hours, internal availability, customers and bookings, while the MVP's CRM also covers payments, cash, conversations, roles, the WhatsApp channel and audit. *Reconciled 2026-11-10: the rewritten Issue also asks for the priority receipt/review, allocation, financial-state and cash operations those flows need, and for typed internal contracts. This increment does not yet cover them; the difference is listed for the team in [§14.1](#141-scope-differences-with-the-rewritten-issue-11) instead of being decided here.*
 - **Rule (Proposed):** This increment specifies, with schemas and OpenAPI, the session and tenant context, the business profile, catalog, availability, customers, bookings and the public endpoints. The remaining CRM operations are identified with method, path, owner and use case in [§11.2](#112-next-contract-increment), so that their later contracts keep the same conventions.
 - **Coverage of the [UC-02 use cases](../product-specs/uc-02/use-cases.md#3-prioritized-catalog):**
 
@@ -114,6 +116,7 @@ Clients never compute availability, prices or deposits; they display what the AP
 - **Rule (Proposed):**
   - Every CRM endpoint includes `{tenantId}` in its path. The server holds no "current business" for the session: two browser tabs can work in two businesses, and nothing carries over between them (CU-17 A4).
   - On every request the API resolves the caller's **active** membership in that tenant and the role's effective permissions. Without one, the response is `404 not_found`, identical to a tenant that does not exist, so the API never confirms another business exists.
+  - **Revocation takes effect on the next request** *(made explicit 2026-11-10 for the rewritten Issue's acceptance criteria)*. A deactivated membership returns `404 not_found` even with a valid session; a permission removed from the role returns `403 missing_permission`. Nothing is cached in the session or in the `GET /me` response that the backend trusts later.
   - A record of another tenant, reached by tampering with an ID, is `404 not_found` (**Defined:** EJ-01). The API never returns `403` for data of another tenant.
   - `GET /session` lists the user's active memberships; `GET /tenants/{tenantId}/me` returns the role and effective permission keys in one business, so the CRM can hide actions the role lacks (CU-17 step 4). Hiding is only usability: the backend checks every request.
 
@@ -658,11 +661,12 @@ CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these con
 | Integration | CON-03 defines | Constraint from this document |
 |---|---|---|
 | WhatsApp webhook (Evolution API) | Inbound route, origin verification, payload normalization, deduplication and the responses the provider expects | An inbound adapter of `messaging`. It takes no session or CSRF token, and its tenant comes from the connection, never from a parameter (INV-MSG-02) |
-| Agent tools (LangGraph) | Tool schemas, results and failure handling | The operations in [§10](#10-internal-consumers-the-agent), with the `code` and `reason` values of §5 |
+| Agent tools (LangGraph) | Tool schemas, results and failure handling | The operations in [§10](#10-internal-consumers-the-agent), with the `code` and `reason` values of §5. The rewritten #11 also asks CON-02 for typed internal contracts; who writes them is open ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)) |
 | Durable jobs (pg-boss) | Job names, payloads, scheduling and retries | Jobs from [modules §6.6](./modules.md#66-jobs); no job is exposed over HTTP |
 | Receipt screening *(added 2026-11-10)* | The replaceable `receipt-screening` port of `agent`: result values (plausible, clearly unrelated, uncertain or technical failure), model and versioning, timeout, latency measurement, recovery, data minimization. Gemini Flash and five seconds are the requested direction and an objective, not guarantees ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)) | The outcomes and effects of [§10.1](#101-receipt-evidence-screening-is-not-human-review). No HTTP endpoint; no result verifies money, counts as a human rejection or adds time. The attempt boundary in P-40 stays open |
 | Private file storage | Storage, authorized reads and deletion | Viewing a receipt from the CRM will be an authenticated endpoint of `payments` in the next increment; no public file links (DM-14) |
-| Payment gateway | Nothing | No provider in the MVP. The Issue's Mercado Pago contracts contradict BR-SEN-08 and MVP §5.3 ([modules §11](./modules.md#11-reconciliation-with-sources)) |
+| Manual transfer instructions *(added 2026-11-10)* | How messages and the agent consume the alias or bank details already issued | Issued and persisted by `payments` before they are shown; a retry reuses them and never rotates again (BR-SEN-06). Not a provider contract |
+| Payment gateway | Nothing | No provider in the MVP (BR-SEN-08, MVP §5.3). *Resolved 2026-11-10:* the rewritten [#12](https://github.com/nanonoir/Agendoxa/issues/12) removed Mercado Pago, gateways and bank APIs from its scope |
 
 ### 11.2 Next contract increment
 
@@ -706,9 +710,9 @@ These CRM operations are needed by the MVP and identified here so that their con
 
 ### API-DM-17: The OpenAPI file lives in the design catalog until code exists
 
-- **What:** The Issue asks for an initial OpenAPI specification; nothing defines where it lives.
+- **What:** The Issue asks for an initial OpenAPI specification next to `docs/design-docs/api-contracts.md`, but does not name its file.
 - **Rule (Proposed):** The specification is [`docs/design-docs/api-contracts.openapi.yaml`](./api-contracts.openapi.yaml), next to this document and registered with it in the [design catalog](./index.md). While no endpoint exists, it is the reviewed contract. Once the `packages/shared` schemas exist, they become the source: the OpenAPI is generated from them, through Zod's JSON Schema conversion or a NestJS OpenAPI integration chosen at implementation, and served by `apps/api`. From then on, this file is regenerated, or replaced by a link to the generated one. A drift check belongs to CI when it exists (DOC-02). No dependency is added for this now.
-- **Alternatives:** `apps/api/openapi.yaml` now, which would look like an implemented contract; or `docs/architecture/`, which the repository does not use ([§14](#14-reconciliation-with-sources)).
+- **Alternatives:** `apps/api/openapi.yaml` now, which would look like an implemented contract; or `docs/architecture/`, which the repository does not use and the rewritten Issue no longer names ([§14](#14-reconciliation-with-sources)).
 
 ## 13. Decisions and open questions
 
@@ -752,24 +756,43 @@ These questions are flagged, not resolved here.
 
 ## 14. Reconciliation with sources
 
-| Topic | Sources say | This document |
-|---|---|---|
-| Public API | The [Issue](https://github.com/nanonoir/Agendoxa/issues/11) asks to create, consult, cancel and reschedule bookings without an account | Excluded by BR-CH-01–02, MVP §5.3 and X-01; UC-03 §17 and CON-01 already record it. Two read-only endpoints remain ([API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information)). The Issue is not edited |
-| Deliverable path | `docs/architecture/api-contracts.md` | The repository has no `docs/architecture/`. This file and its OpenAPI follow the [design catalog](./index.md), as CON-01, DOM-01 and DOM-02 did |
-| References in the Issue | `docs/domain/*.md`, `architecture.md`, `docs/architecture/modules.md` | The documents are in `docs/product-specs/` and `docs/design-docs/` |
-| Authentication method | CU-17 leaves it to a CON task | [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie), chosen with the team; open parts in API-Q-08 |
-| Booking statuses | UC-02 §1 and UC-03 §0 call them conceptual labels, not persisted enums; REP-02 implemented `booking_status` | The seven values, plus derived fields for conditions that are not statuses ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)), as in [modules §11](./modules.md#11-reconciliation-with-sources) |
-| Error categories | Architecture §11 lists six | Adds `rule_violation` and `internal` (API-Q-09) |
-| Landing location | MVP §5.1 and §7.2 show location | Not in the ERD (API-Q-01) |
-| Weekly hours | The schema stores `weekday` 0–6 without a convention | Names in the API (API-Q-07) |
-| Agreed-price change | CU-11 A5 is a payment case | `agreed_price` is a `Booking` field, so its endpoint belongs to `bookings` ([§11.2](#112-next-contract-increment)) |
+> **Reconciled 2026-11-10** against the [Issue #11](https://github.com/nanonoir/Agendoxa/issues/11) and [Issue #12](https://github.com/nanonoir/Agendoxa/issues/12) as rewritten on 2026-11-09 and the consolidated CON-01. The first three rows were contradictions with the earlier Issue text and are now **resolved**; they stay listed so the history is visible. New scope differences are in [§14.1](#141-scope-differences-with-the-rewritten-issue-11).
+
+| Topic | Sources say | This document | Status |
+|---|---|---|---|
+| Public API | The earlier Issue text asked to create, consult, cancel and reschedule bookings without an account. The rewritten #11 excludes web self-service and keeps read-only public projections | Excluded by BR-CH-01–02, MVP §5.3 and X-01; two read-only endpoints remain ([API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information)) | **Resolved** by the rewritten #11. [UC-03 §17](../product-specs/uc-03/business-rules.md#17-differences-with-earlier-documents) still quotes the earlier text; updating it belongs to the product documents |
+| Deliverable path | The earlier text named `docs/architecture/api-contracts.md`; the rewritten #11 names `docs/design-docs/api-contracts.md`, registered in the design index | This file and its OpenAPI, in the [design catalog](./index.md) | **Resolved** |
+| References in the Issue | The earlier text pointed to `docs/domain/*.md`, `architecture.md` and `docs/architecture/modules.md`; the rewritten #11 points to `docs/product-specs/` and `docs/design-docs/` | Same documents | **Resolved** |
+| Payment gateway | The earlier #12 included Mercado Pago contracts; the rewritten #12 removes gateways and bank APIs | No provider ([§11.1](#111-for-con-03-external-integrations)) | **Resolved** by the rewritten #12 |
+| Module structure | CON-01 consolidated to nine functional modules plus `audit` and `assets`, with `workflows` coordinators and no finance port | Owners, tags, coordinators and compositions in [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation); `depositState` composed (API-DM-13) | **Reconciled** 2026-11-10; composition location open (API-Q-10) |
+| Receipt screening | BR-SEN-14–16, INV-SEN-12–13 (product-owner agreement 2026-11-09) | [§10.1](#101-receipt-evidence-screening-is-not-human-review), API-DM-13 meanings, §11.1 | **Reconciled** 2026-11-10; P-40 and API-Q-11 open |
+| Authentication method | CU-17 leaves it to a CON task | [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie), chosen with the team; open parts in API-Q-08 | Proposed |
+| Booking statuses | UC-02 §1 and UC-03 §0 call them conceptual labels; REP-02 implemented `booking_status`, and the architecture proposal now says so | The seven values, plus derived fields for conditions that are not statuses ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)), as in [modules §11](./modules.md#11-reconciliation-with-sources) | Consistent |
+| Error categories | Architecture §11 lists six | Adds `rule_violation` and `internal` | Open (API-Q-09) |
+| Landing location | MVP §5.1 and §7.2 and the rewritten #11 show location | Not in the ERD | Open (API-Q-01) |
+| Weekly hours | The schema stores `weekday` 0–6 without a convention | Names in the API | Open (API-Q-07) |
+| Agreed-price change | CU-11 A5 is a payment case | `agreed_price` is a `Booking` field, so its endpoint is tagged `bookings` and goes through `workflows` because it changes the charge ([§11.2](#112-next-contract-increment)) | Proposed |
+
+### 14.1 Scope differences with the rewritten Issue #11
+
+> **Added 2026-11-10.** These are differences between the rewritten Issue and this proposal that the documents do not settle. They are listed for the team, **not decided here**.
+
+| # | The rewritten Issue asks | This proposal today | Decision needed |
+|---|---|---|---|
+| D-1 | Priority CRM operations for receipts and human review, explicit allocation, financial states and cash "needed for those flows" | Only identified, with path, owner and coordinator, in [§11.2](#112-next-contract-increment); no schemas | Which of them are priority for CON-02, and whether they are specified in this PR or in a follow-up CON-02 increment |
+| D-2 | Represent pending review, partial-deposit waiting and **supplemental** deposit separately from credit, service outcome and physical cash balance | `depositState` covers the initial deposit (API-DM-13); `status` covers the outcome. Nothing represents the supplemental collection after a reschedule (BR-CAN-10) or the cash balance | Whether `BookingSummary` gets a separate supplemental field now, or with D-1 |
+| D-3 | Typed contracts for internal consumers that are not HTTP (agent tools) | [§10](#10-internal-consumers-the-agent) lists the operations and refusal codes; tool input and output schemas are left to CON-03, whose rewritten #12 also asks for "typed contracts" for the agent | Which ticket owns the typed tool contracts, or how CON-02 and CON-03 split them |
+| D-4 | Minimum contracts for transactional participation between owners: results and required locks or preconditions, without ORM types | API-DM-12 names each coordinator and its participants; the protocol itself is CON-01 MOD-DM-08. No participant signature or per-operation lock order is written here | Whether CON-02 specifies those application contracts or CON-01 / implementation ([#31](https://github.com/nanonoir/Agendoxa/issues/31)) does |
+| D-5 | Versions and preconditions for concurrency | Commands recheck current state; configuration is last-write-wins without `ETag` ([API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins)) | Confirm that this answers the Issue, or require conditional requests now |
+| D-6 | Public informational hours and the WhatsApp link | Included in the public profile (API-DM-01), composed from `catalog` and `messaging` | CON-01 §8.1 allows only `tenants` information and `catalog` services; confirm the two projections in the CON-01 review |
+| D-7 | Public location | Not in the ERD | API-Q-01, unchanged |
 
 **CON-01 constraints for CON-02** ([modules §8.1](./modules.md#81-for-con-02-api-contracts)):
 
 | Constraint | Where it holds |
 |---|---|
 | Each endpoint invokes an owner command or the multi-owner coordinator; it never writes tables itself | [§7](#7-endpoints-by-owner-module), API-DM-12 |
-| Public endpoints only for `tenants` information and `catalog` services; no booking | API-DM-01 |
+| Public endpoints only for `tenants` information and `catalog` services; no booking | API-DM-01; hours and WhatsApp link to confirm (D-6) |
 | `identity` resolves authentication; a selected tenant only selects | API-DM-06, API-DM-07 |
 | `not_found` for another tenant's record; `conflict` for occupancy races | API-DM-07, API-DM-09, API-DM-11 |
 | `packages/shared` only for HTTP contracts, never entities or rows | API-DM-03, API-DM-14 |
@@ -780,27 +803,28 @@ These questions are flagged, not resolved here.
 
 ## 15. Traceability
 
-**[CON-02 (#11)](https://github.com/nanonoir/Agendoxa/issues/11)**
+**[CON-02 (#11)](https://github.com/nanonoir/Agendoxa/issues/11)**, acceptance criteria as rewritten on 2026-11-09 *(table reconciled 2026-11-10)*:
 
-| Criterion | Where |
-|---|---|
-| MVP operations identified | §2 (API-DM-02), §7, §10, §11.2 |
-| Endpoints and HTTP methods defined | §7 and the OpenAPI file |
-| Inputs, outputs and validation documented | §7, §9 and the OpenAPI schemas |
-| Consistent error format | §5 |
-| Authentication, authorization and multi-tenant context | §4 |
-| Dates, times, timezones and amounts | §3 (API-DM-04) |
-| Sensitive operations with idempotency requirements | §6 |
-| Compatible with use cases and the domain model | §2, §7, §14 |
-| Contract evolution conventions | §12 |
-| Reviewed and approved by the team | **Pending** |
+| Criterion | Where | Coverage |
+|---|---|---|
+| Priority operations, owners and consumers identified | §2 (API-DM-02), §7 (API-DM-12), §10, §11.2 | Covered; payments and cash only identified (D-1) |
+| Endpoints, methods and needed internal contracts defined, distinguishing landing, CRM and WhatsApp tools | API-DM-01, §7, §10 and the OpenAPI file | Partial: typed internal contracts (D-3) |
+| Inputs, outputs, validation and a consistent error format | §5, §7, §9 and the OpenAPI schemas | Covered for the specified areas |
+| Authentication, capabilities, requester authority and tenant context, including other tenants' IDs and revoked permissions | §4 (API-DM-06–08), §10 | Covered |
+| Dates, times, amounts and identifiers | §3 (API-DM-04) | Covered |
+| Idempotency and conflicts or preconditions of sensitive operations; duplicates create no extra bookings or money | §6 | Partial: money operations are not specified yet (D-1); preconditions (D-5) |
+| Transactional collaborations and participant limits consistent with CON-01, without ORM in application code | API-DM-12, §7.5, [modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction) | Partial (D-4) |
+| Receipt screening results and human review or credit kept apart, per UC-03, coordinated with CON-03 | §10.1, API-DM-13, §11.1 | Covered for this increment; review endpoints with D-1; P-40 and API-Q-11 open |
+| Compatible with use cases, domain model and the exclusion of public web booking | §2, §7, §14 | Covered |
+| Evolution, projections and shared schemas documented | API-DM-03, §9, §12 | Covered |
+| Reviewed and approved by the team | — | **Pending** |
 
 | Deliverable in the Issue | Where |
 |---|---|
-| Specification and API conventions | This file. The Issue names `docs/architecture/api-contracts.md`; see §14 |
-| Initial OpenAPI specification | [api-contracts.openapi.yaml](./api-contracts.openapi.yaml) (API-DM-17) |
+| `docs/design-docs/api-contracts.md`, registered in the design index | This file; [index](./index.md) |
+| Initial OpenAPI for the included endpoints, and typed contracts for non-HTTP internal consumers | [api-contracts.openapi.yaml](./api-contracts.openapi.yaml) (API-DM-17); internal contracts pending D-3 |
 | Schemas and types for `packages/shared` | §9 |
-| Representative requests, responses and errors | §8 and `components.examples` in the OpenAPI file |
+| Representative requests, responses, errors and conflicts, with authorized context and no sensitive data | §8 and `components.examples` in the OpenAPI file |
 
 **Verification done for this proposal** (2026-11-08; checks on documents, not on running code):
 
