@@ -17,7 +17,7 @@
 | **Proposed** | A contract decision made here, identified as `API-DM-XX`, pending team review |
 
 - **The specification and this document go together.** The [OpenAPI file](./api-contracts.openapi.yaml) holds every path, schema and example; this document explains the conventions and decisions behind them. If they disagree, raise it in review; neither is implemented yet.
-- **Endpoints follow CON-01 ownership.** Each endpoint belongs to the module that owns its operation ([modules §4](./modules.md#4-operations-by-module)) and calls one use case of that module. The constraints CON-01 set for CON-02 ([modules §8.1](./modules.md#81-for-con-02-api-contracts)) are applied throughout and checked in [§14](#14-reconciliation-with-sources).
+- **Endpoints follow CON-01 ownership.** Each endpoint names the module that owns the state it reads or changes ([modules §4](./modules.md#4-operations-by-module)) and invokes either one owner use case or, when the operation spans several owners, the `workflows` coordinator ([API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation)). The constraints CON-01 set for CON-02 ([modules §8.1](./modules.md#81-for-con-02-api-contracts)) are applied throughout and checked in [§14](#14-reconciliation-with-sources).
 - **Nothing here is implemented.** Today the API has only `GET /health`, a liveness check outside the versioned base path; it stays as it is.
 
 ## 2. Scope
@@ -189,19 +189,28 @@ Clients never compute availability, prices or deposits; they display what the AP
 
 ### API-DM-12: Each endpoint belongs to the module that owns its operation
 
-- **Defined:** Operation owners come from [modules §4](./modules.md#4-operations-by-module); data owners from [modules MOD-DM-02](./modules.md#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables).
-- **Rule (Proposed):** The controller of an endpoint lives in its owner's `adapters/in/http` and calls one use case of that module ([modules §7.1](./modules.md#71-folder-and-file-conventions)). Reads that combine modules, such as the agenda or the customer indicators, are composed by the highest module involved ([modules §6.4](./modules.md#64-queries-and-read-compositions)). OpenAPI tags carry the owner.
+> **Reconciled 2026-11-10** with the consolidated CON-01: nine functional modules plus `audit` and `assets`; calendars and policy resolution in `catalog`, waitlist in `bookings`, cash in `payments`; `workflows` coordinates multi-owner operations.
 
-| Owner | Paths (under `/api/v1`) | Tag |
+- **Defined:** Operation owners and multi-owner coordinators come from [modules §4](./modules.md#4-operations-by-module); data owners from [modules MOD-DM-02](./modules.md#mod-dm-02-every-entity-has-one-owner-only-the-owner-touches-its-tables). `workflows` is application composition above the owners, not a functional module: it opens the shared transaction of a multi-owner command and invokes each owner's public facade ([modules §5.2](./modules.md#52-coordination-and-asynchronous-activation), [MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction)). Owners never import it. Cross-owner reads are composed above the owners, never through a finance port or cross-owner SQL ([modules §6.4](./modules.md#64-queries-and-read-compositions)).
+- **Rule (Proposed):** Every endpoint is one of three kinds, and the OpenAPI shows which:
+
+| Kind | Inbound HTTP adapter | OpenAPI |
 |---|---|---|
-| `identity` | `/session`, `/tenants/{tenantId}/me` | `identity` |
-| `tenants` | `/tenants/{tenantId}`; public profile `/public/businesses/{slug}` | `tenants`, `public` |
-| `catalog` | `/services…`, `/resources`, `/resources/{resourceId}`, `/booking-policies…`; public `/public/businesses/{slug}/services` | `catalog`, `public` |
-| `availability` | `/calendars…`, `/resources/{resourceId}/calendar`, `/resources/{resourceId}/windows`, `/availability-exceptions…` | `availability` |
-| `bookings` | `/free-slots`, `/agenda`, `/bookings…` | `bookings` |
-| `customers` | `/customers…` | `customers` |
+| Owner command or query | The owner's `adapters/in/http`, calling one of its use cases ([modules §7.1](./modules.md#71-folder-and-public-contract-conventions)) | Tag = owner; no extension |
+| Multi-owner command | `workflows/adapters/in/http`, calling the named coordinator, as CON-01 places multi-owner jobs in `workflows/adapters/in/jobs` ([modules §6.6](./modules.md#66-jobs)) | Tag = owner of the main state; `x-agendoxa-invokes` with `coordinator: workflows` and its `participants` |
+| Cross-owner read composition | Above every participating owner; exact location open ([API-Q-10](#13-decisions-and-open-questions)) | Tag = owner of the main state; `x-agendoxa-invokes` with `composition` listing the owners read |
 
-The public profile includes the WhatsApp link, owned by `messaging`, and the tenant's weekly hours, owned by `availability`. `tenants` is level 0 and cannot call them, so the HTTP adapter of that endpoint composes the three public APIs ([modules §6.4](./modules.md#64-queries-and-read-compositions)).
+  The kind does not change the HTTP contract: path, permission, errors and idempotency are the same whoever composes the call. A single-owner command that only uses technical `tenants`, `identity` or `audit` support is an owner command, not a coordinator ([modules §4](./modules.md#4-operations-by-module)).
+
+| Owner (tag) | Paths (under `/api/v1`) | Multi-owner commands (`workflows`) | Read compositions |
+|---|---|---|---|
+| `identity` | `/session`, `/tenants/{tenantId}/me` | — | — |
+| `tenants` | `/tenants/{tenantId}`; public profile `/public/businesses/{slug}` (tag `public`) | — | Public profile: `tenants`, `catalog` weekly hours, `messaging` WhatsApp link |
+| `catalog` | `/services…`, `/resources…`, `/booking-policies…`, `/calendars…`, `/resources/{resourceId}/calendar`, `/resources/{resourceId}/windows`, `/availability-exceptions…`; public `/public/businesses/{slug}/services` (tag `public`) | Removing an availability exception: `catalog`, `bookings` (reevaluation intent after a block is removed, [modules §6.3](./modules.md#63-events-and-durable-intents)) | — |
+| `bookings` | `/free-slots`, `/agenda`, `/bookings…` | Create, cancel, reschedule and remainder walk-in: `bookings` with `customers`, `payments` and `notifications` as each needs ([§7.5](#75-bookings-free-slots-agenda-and-lifecycle-commands)) | Agenda and booking reads: `bookings`, `catalog`, `payments` (for `depositState`) |
+| `customers` | `/customers…` | — | Customer list and detail: `customers`, `bookings` (derived indicators) |
+
+`bookings` may read `catalog` directly ([modules §5.1](./modules.md#51-dependency-diagram)); the agenda is a composition only because `depositState` needs `payments` facts. Outcome recording and correction stay `bookings` owner commands: they change only booking history and private remainder occupancy ([modules §6.2](./modules.md#62-transactions)).
 
 Below, paths are relative to `/api/v1/tenants/{tenantId}` unless they start with `/api/v1`. Every operation is in the [OpenAPI file](./api-contracts.openapi.yaml) with its schemas and responses.
 
@@ -256,7 +265,9 @@ When the tenant field is `null`, the effective policy uses the product default a
 | `depositRefundPolicy` | `null`, not configured | **Defined:** no default was agreed (P-07) |
 | `reminderLeadMinutes` | `null`, no reminder scheduled | **Proposed**, pending a product default ([API-Q-05](#13-decisions-and-open-questions)) |
 
-### 7.4 `availability`: calendars, hours, blocks and openings
+### 7.4 `catalog`: calendars, hours, blocks and openings
+
+> **Reconciled 2026-11-10:** these endpoints moved from the former `availability` module to `catalog` ([modules MOD-DM-01](./modules.md#mod-dm-01-nine-business-modules-and-two-platform-modules)); paths, schemas and permissions are unchanged.
 
 | Method and path | Operation | Permission | Notes |
 |---|---|---|---|
@@ -266,24 +277,28 @@ When the tenant field is `null`, the effective policy uses the product default a
 | `GET`, `PUT /calendars/{calendarId}/rules` | `getCalendarRules`, `replaceCalendarRules` | `schedule.view`, `availability.manage` | Replaces the whole weekly set at once. Ranges of one weekday must not overlap (`400`). Confirmed bookings outside new hours are kept (BR-DISP-08) |
 | `GET /availability-exceptions?from&to&calendarId` | `listAvailabilityExceptions` | `schedule.view` | Instant range |
 | `POST /availability-exceptions` | `createAvailabilityException` | `availability.manage` | `BLOCK` or `OPENING`; the actor is recorded. An opening never overrides a block or an active claim (DM-05): the block wins when windows are computed |
-| `DELETE /availability-exceptions/{exceptionId}` | `deleteAvailabilityException` | `availability.manage` | Removing a block is an explicit action (BR-DISP-02) and may release capacity to the waitlist ([UC-02 §4.2](../product-specs/uc-02/use-cases.md#42-triggering-events)). An opening used by a booking returns `409 opening_in_use` |
-| `GET /resources/{resourceId}/windows?from&to` | `getResourceWindows` | `schedule.view` | Open windows, ignoring occupancy ([modules MOD-DM-05](./modules.md#mod-dm-05-availability-supplies-windows-bookings-finds-free-slots)) |
+| `DELETE /availability-exceptions/{exceptionId}` | `deleteAvailabilityException` | `availability.manage` | Removing a block is an explicit action (BR-DISP-02) and may release capacity to the waitlist ([UC-02 §4.2](../product-specs/uc-02/use-cases.md#42-triggering-events)). Through `workflows`: the same transaction records the range/resource reevaluation intent in `bookings`, even with no earlier booking or round ([modules §6.3](./modules.md#63-events-and-durable-intents)). An opening used by a booking returns `409 opening_in_use` |
+| `GET /resources/{resourceId}/windows?from&to` | `getResourceWindows` | `schedule.view` | Open windows, ignoring occupancy ([modules MOD-DM-05](./modules.md#mod-dm-05-catalog-supplies-windows-bookings-finds-free-slots)) |
 
 ### 7.5 `bookings`: free slots, agenda and lifecycle commands
+
+> **Reconciled 2026-11-10:** the table names which commands go through `workflows`, and API-DM-13 composes `depositState` instead of using a finance port that CON-01 no longer has.
 
 | Method and path | Operation | Permission | Notes |
 |---|---|---|---|
 | `GET /free-slots?serviceId&resourceId&from&to` | `listFreeSlots` | `schedule.view` | Without `resourceId`, every compatible resource. Never reserves (BR-DISP-04) |
 | `GET /agenda?from&to&resourceId` | `getAgenda` | `schedule.view` | Resources, bookings and exceptions for up to 14 days (CU-21) |
 | `GET /bookings` | `listBookings` | `schedule.view` | Filters `customerId`, `status`, `from`, `to`; cursor pagination |
-| `POST /bookings` | `createCrmBooking` | `bookings.create` | Below |
+| `POST /bookings` | `createCrmBooking` | `bookings.create` | Below; `workflows` with `bookings`, `customers`, `payments`, `notifications` |
 | `GET /bookings/{bookingId}` | `getBooking` | `schedule.view` | `BookingDetail` |
 | `GET /bookings/{bookingId}/events` | `listBookingEvents` | `schedule.view` | `BookingEvent` history, with actor and reason |
-| `POST /bookings/{bookingId}/cancel` | `cancelBooking` | `bookings.cancel` | Below |
-| `POST /bookings/{bookingId}/reschedule` | `rescheduleBooking` | `bookings.reschedule` | Below |
-| `POST /bookings/{bookingId}/outcome` | `recordBookingOutcome` | `bookings.record_outcome` | Below |
-| `POST /bookings/{bookingId}/outcome-correction` | `correctBookingOutcome` | `bookings.correct_outcome` | Below |
-| `POST /bookings/{bookingId}/remainder-walk-ins` | `createRemainderWalkIn` | `bookings.create` | Below |
+| `POST /bookings/{bookingId}/cancel` | `cancelBooking` | `bookings.cancel` | Below; `workflows` with `bookings`, `notifications` |
+| `POST /bookings/{bookingId}/reschedule` | `rescheduleBooking` | `bookings.reschedule` | Below; `workflows` with `bookings`, `payments`, `notifications` |
+| `POST /bookings/{bookingId}/outcome` | `recordBookingOutcome` | `bookings.record_outcome` | Below; `bookings` owner command |
+| `POST /bookings/{bookingId}/outcome-correction` | `correctBookingOutcome` | `bookings.correct_outcome` | Below; `bookings` owner command |
+| `POST /bookings/{bookingId}/remainder-walk-ins` | `createRemainderWalkIn` | `bookings.create` | Below; `workflows`, same participants as `POST /bookings` |
+
+The participants follow the same-transaction effects of [modules §6.2](./modules.md#62-transactions): a booking creation includes the applied deposit snapshot, any charge and its notices; a cancellation its notice suppression and release intent; a reschedule its charge correction and notices. Whether a participant has work to do depends on the request (for example, no charge without a deposit); the coordinator is the same.
 
 HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only in the WhatsApp flow, through the agent (**Defined:** the CRM never creates a HOLD, BR-SEN-09), and expiry is a job (CU-22).
 
@@ -304,7 +319,7 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 | `depositState: MET` | Verified funds allocated up to the threshold | BR-SEN-07 |
 | `depositState: ADMIN_EXCEPTION` | Confirmed by an Admin without the required deposit | BR-SEN-09 |
 
-  Until the payments module exists, `bookings` can only produce `NOT_REQUIRED`, `AWAITING_EVIDENCE` and `ADMIN_EXCEPTION`; the others need payment facts through the finance port ([modules §5.3](./modules.md#53-needs-against-the-direction)). Clients must treat an unknown `depositState` as "see booking detail" ([API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1)).
+  `bookings` alone knows the applied requirement and the booking status; the review, correction, partial and met conditions need `payments` facts. So `depositState` is produced by a read composition above `bookings` and `payments`, never by a finance port inside `bookings` *(reconciled 2026-11-10: CON-01 removed that port, [modules §6.4](./modules.md#64-queries-and-read-compositions))*. Until `payments` exists, the composition can only produce `NOT_REQUIRED`, `AWAITING_EVIDENCE` and `ADMIN_EXCEPTION`. Clients must treat an unknown `depositState` as "see booking detail" ([API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1)).
 
 **`POST /bookings` — create a CRM booking (CU-02 A7, CU-03 CRM, CU-04).**
 
@@ -568,7 +583,7 @@ After the customer accepts, the CRM sends it again with a new idempotency key:
 - **Rule (Proposed):**
   - Each OpenAPI component becomes a Zod 4 schema named `<camelCaseName>Schema`, with its type `type <Name> = z.infer<typeof <name>Schema>`, for example `createCrmBookingRequestSchema` and `CreateCrmBookingRequest`.
   - Request objects are strict, so unknown fields fail as in the OpenAPI `additionalProperties: false`.
-  - Inbound adapters in `apps/api` validate with these schemas and map the result to use-case inputs. Domain code never imports them ([modules §7.2](./modules.md#72-layer-rules), rule 3).
+  - Inbound adapters in `apps/api` validate with these schemas and map the result to use-case inputs. Domain code never imports them ([modules §7.2](./modules.md#72-layer-rules)).
   - `apps/web` uses the same schemas to type its API client and to validate forms. That validation is only usability: the backend decides availability, prices, deposits and permissions.
   - Not in `packages/shared`: database rows, domain entities, permission-checking logic, error-to-HTTP mapping, or anything only one application uses.
 
@@ -578,12 +593,11 @@ After the customer accepts, the CRM sends it again with a new idempotency key:
 | `src/contracts/problem.ts` | `Problem`, `LateChangeNotice` | Web error handling; API error filter |
 | `src/contracts/session.ts` | `SignInRequest`, `SessionView`, `MembershipSummary`, `TenantContextView` | Web sign-in and business selector |
 | `src/contracts/tenants.ts` | `TenantProfile`, `UpdateTenantProfileRequest`, `PublicBusinessProfile`, `WeeklyHours` | CRM settings; landing |
-| `src/contracts/catalog.ts` | `Service`, `Resource`, their create and update requests, `PublicService`, `DepositRule`, `TenantPolicyFields`, `OverridePolicyFields`, `BookingPolicy`, `EffectiveBookingPolicy`, `PolicySource` | CRM configuration; landing |
-| `src/contracts/availability.ts` | `Calendar`, `WeeklyRules`, `AvailabilityException`, `CreateAvailabilityExceptionRequest`, `ResourceWindows` | CRM hours and blocks |
+| `src/contracts/catalog.ts` | `Service`, `Resource`, their create and update requests, `PublicService`, `DepositRule`, `TenantPolicyFields`, `OverridePolicyFields`, `BookingPolicy`, `EffectiveBookingPolicy`, `PolicySource`; calendars: `Calendar`, `WeeklyRules`, `AvailabilityException`, `CreateAvailabilityExceptionRequest`, `ResourceWindows` | CRM configuration, hours and blocks; landing |
 | `src/contracts/bookings.ts` | `BookingStatus`, `DepositState`, `BookingSummary`, `BookingDetail`, `BookingEvent`, `FreeSlot`, `AgendaView`, `CustomerInput`, `AdminException`, the command requests, `RescheduleResult` | CRM agenda and booking actions |
 | `src/contracts/customers.ts` | `CustomerSummary`, `CustomerDetail`, `CustomerIndicators`, `CreateCustomerRequest`, `UpdateCustomerRequest`, `Restriction`, `RestrictionKind`, the restriction requests, `Incident`, `CreateIncidentRequest` | CRM customers |
 
-Adding these schemas is a [shared change](./modules.md#92-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
+Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nine-business-modules-and-two-platform-modules); calendar schemas live in `catalog.ts` because calendars belong to `catalog` *(reconciled 2026-11-10; the earlier `availability.ts` is merged)*. Adding these schemas is a [shared change](./modules.md#9-technical-autonomy-and-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
 
 ## 10. Internal consumers: the agent
 
@@ -591,20 +605,22 @@ Adding these schemas is a [shared change](./modules.md#92-shared-changes) for `a
 
 - **Defined:** Agent tools call the same use cases as the CRM, with tenant and requester fixed by the validated WhatsApp connection; the model chooses neither (BR-AGT-02, BR-CH-05). The agent cannot verify transfers, infer no-shows, change cash records or obtain personnel privileges (BR-AGT-04). It may attach evidence to a pending `PaymentReview`, but a receipt never proves payment (BR-COB-07, INV-PAY-04). CON-01 lists the operations allowed to it ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)).
 - **Rule (Proposed):**
-  - The agent has no HTTP credential, service account or endpoint of its own. It calls module facades inside the API process ([modules MOD-DM-10](./modules.md#mod-dm-10-a-modules-public-surface-is-its-indexts)), so authorization is the conversation's requester and never a personnel role.
+  - The agent has no HTTP credential, service account or endpoint of its own. It calls module facades and `workflows` coordinators inside the API process, through their plain public contracts ([modules MOD-DM-10](./modules.md#mod-dm-10-a-modules-public-surface-separates-contracts-from-nest-composition)): owners directly for reads, coordinators for composite changes, without pass-through wrappers ([modules §5.2](./modules.md#52-coordination-and-asynchronous-activation)). Authorization is the conversation's requester and never a personnel role.
   - What the customer sees is not the CRM view. A tool result never includes `currentRestriction`, `indicators`, `blockedException`, internal reasons or other labels (BR-AGT-03, INV-CLI-06). A `BLOCKED` customer is refused as when they cannot book, without the reason.
   - Tool input and output schemas belong to CON-03. They should reuse the `code` and `reason` values of [§5](#5-errors), so the agent and the CRM interpret refusals the same way.
+
+> **Reconciled 2026-11-10:** the "Facade" column follows [modules §8.2](./modules.md#82-for-con-03-integration-contracts): waitlist is in `bookings`, and composite changes go through `workflows`.
 
 | Operation for the requester | Facade | Equivalent CRM endpoint | Difference |
 |---|---|---|---|
 | Business information, services and prices | `tenants`, `catalog` | Public endpoints | Same data |
 | Find free slots | `bookings` | `GET /free-slots` | Same search and lead time |
-| Create a HOLD; confirm it without a deposit | `bookings` | None | WhatsApp only (BR-RES-03–04) |
 | Consult own future bookings | `bookings` | `GET /bookings` | Only bookings managed by the sender number (CU-07, INV-CAN-01) |
-| Cancel or reschedule own booking | `bookings` | `/cancel`, `/reschedule` | Always `CUSTOMER_REQUEST`; `acceptLateConsequence` only after the customer's explicit confirmation; never an Admin exception |
-| Join the waitlist; claim an invitation | `waitlist` | None | — |
+| Create a HOLD; confirm it without a deposit | `workflows` | None | WhatsApp only (BR-RES-03–04) |
+| Cancel or reschedule own booking | `workflows` | `/cancel`, `/reschedule` | Always `CUSTOMER_REQUEST`; `acceptLateConsequence` only after the customer's explicit confirmation; never an Admin exception |
+| Join the waitlist; claim an invitation | `bookings`, or `workflows` when the change spans owners | None | — |
 | Read payment status; attach evidence to a pending review | `payments` | Next increment | Attaching creates or extends a review; it never verifies money |
-| Record notice preferences; request or withdraw deletion | `customers` | None | Customer channel only (CU-19, CU-23) |
+| Record notice preferences; request or withdraw deletion | `workflows` (`customers`, `bookings`, `audit`, and the deletion participants) | None | Customer channel only (CU-19, CU-23) |
 | Escalate to a human with a summary | `messaging` | None | — |
 
 **Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, cash operations and conversation control. These exist only as authenticated CRM endpoints.
@@ -627,27 +643,29 @@ CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these con
 
 These CRM operations are needed by the MVP and identified here so that their contracts follow the same conventions. Paths are relative to `/api/v1/tenants/{tenantId}` and are **Proposed**; schemas come in the next increment.
 
-| Owner | Method and path | Use case | Note |
-|---|---|---|---|
-| `payments` | `GET /payment-reviews?status=PENDING` | CU-11 A1, CU-21 A1 | Review queue |
-| `payments` | `POST /bookings/{bookingId}/payment-reviews` | CU-03 CRM 2b | Pending receipt recorded from the CRM |
-| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | CU-11 A1, CU-03 A3 | Human verification; rejection drives BR-SEN-10 in `bookings` |
-| `payments` | `POST /payments`; `POST /payments/{paymentId}/allocations`; `POST /payment-allocations/{allocationId}/reversal` | CU-11 | Cash requires an open session; explicit manual allocation |
-| `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only |
-| `payments` | `GET`, `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | CU-15 | Collection mode and rotation (BR-COB-19) |
-| `payments` | `GET /payment-reviews/{reviewId}/evidence` | CU-11 | Authorized receipt download through `assets` |
-| `bookings` | `POST /bookings/{bookingId}/agreed-price` | CU-11 A5, BR-COB-13 | Admin-only; customer acceptance when it increases |
-| `bookings` | `PUT /settings/resource-assignment` | CU-15 | Preference order or rotation (BR-DISP-05) |
-| `cash-register` | `GET /cash-sessions/current`; `POST /cash-sessions`; `POST /cash-sessions/{sessionId}/close` | CU-13 | One open session per tenant |
-| `cash-register` | `POST /cash-sessions/{sessionId}/movements`; `POST /cash-sessions/{sessionId}/adjustments`; `PUT /settings/cash` | CU-13, CU-11 A4 | Adjustments after close are Admin-only |
-| `messaging` | `GET /conversations`; `GET /conversations/{conversationId}/messages` | CU-14 | Shared inbox |
-| `messaging` | `POST /conversations/{conversationId}/takeover`, `/handback`; `PUT /settings/ai` | CU-14, CU-15 | Global AI is Admin-only (BR-HND-04) |
-| `messaging` | `GET /channel-connection`; `POST /channel-connection`, `/pause`, `/retire` | CU-18 | Connection lifecycle (BR-NOT-05) |
-| `identity` | `GET /permissions`; `GET`, `POST`, `PATCH /roles`; `PUT /roles/{roleId}/permissions` | CU-15 | Admin-only role management |
-| `identity` | `GET`, `POST`, `PATCH /memberships` | CU-15 | Depends on [TEN-Q6](./tenancy.md#10-open-questions) |
-| `notifications` | `GET /notifications?status=UNKNOWN` | BR-NOT-10 | Notices that need CRM attention |
-| `audit` | `GET /audit-events` | BR-AUD-02 | Personnel only |
-| `bookings` | `GET /overview` | CU-15 step 3 | Daily overview composed from several modules |
+> **Reconciled 2026-11-10:** the former `cash-register` rows belong to `payments`; the "Through" column names the `workflows` coordinator where an operation changes several owners ([API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation)). Paths are unchanged.
+
+| Owner (tag) | Method and path | Through | Use case | Note |
+|---|---|---|---|---|
+| `payments` | `GET /payment-reviews?status=PENDING` | Owner | CU-11 A1, CU-21 A1 | Review queue |
+| `payments` | `POST /bookings/{bookingId}/payment-reviews` | `workflows` (`payments`, `bookings`) | CU-03 CRM 2b | Pending receipt recorded from the CRM; the booking occupies under review (BR-SEN-09) |
+| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | `workflows` (`payments`, `bookings`, `notifications`) | CU-11 A1, CU-03 A3 | Human verification; a rejection drives BR-SEN-10 in `bookings` |
+| `payments` | `POST /payments`; `POST /payments/{paymentId}/allocations`; `POST /payment-allocations/{allocationId}/reversal` | `workflows` when an allocation can confirm a booking | CU-11 | Cash requires an open session; explicit manual allocation |
+| `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | Owner | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only |
+| `payments` | `GET`, `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | Owner; `tenants` stores the field ([modules MOD-DM-06](./modules.md#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) | CU-15 | Collection mode and rotation (BR-COB-19) |
+| `payments` | `GET /payment-reviews/{reviewId}/evidence` | Owner, with `assets` | CU-11 | Authorized receipt download |
+| `payments` | `GET /cash-sessions/current`; `POST /cash-sessions`; `POST /cash-sessions/{sessionId}/close` | Owner | CU-13 | Cash subfeature; one open session per tenant |
+| `payments` | `POST /cash-sessions/{sessionId}/movements`; `POST /cash-sessions/{sessionId}/adjustments`; `PUT /settings/cash` | Owner | CU-13, CU-11 A4 | Adjustments after close are Admin-only |
+| `bookings` | `POST /bookings/{bookingId}/agreed-price` | `workflows` (`bookings`, `payments`) | CU-11 A5, BR-COB-13 | Admin-only; customer acceptance when it increases |
+| `bookings` | `PUT /settings/resource-assignment` | Owner; `tenants` stores the field | CU-15 | Preference order or rotation (BR-DISP-05) |
+| `messaging` | `GET /conversations`; `GET /conversations/{conversationId}/messages` | Owner | CU-14 | Shared inbox |
+| `messaging` | `POST /conversations/{conversationId}/takeover`, `/handback`; `PUT /settings/ai` | Owner | CU-14, CU-15 | Global AI is Admin-only (BR-HND-04) |
+| `messaging` | `GET /channel-connection`; `POST /channel-connection`, `/pause`, `/retire` | Owner | CU-18 | Connection lifecycle (BR-NOT-05) |
+| `identity` | `GET /permissions`; `GET`, `POST`, `PATCH /roles`; `PUT /roles/{roleId}/permissions` | Owner | CU-15 | Admin-only role management |
+| `identity` | `GET`, `POST`, `PATCH /memberships` | Owner | CU-15 | Depends on [TEN-Q6](./tenancy.md#10-open-questions) |
+| `notifications` | `GET /notifications?status=UNKNOWN` | Owner | BR-NOT-10 | Notices that need CRM attention |
+| `audit` | `GET /audit-events` | Owner | BR-AUD-02 | Personnel only |
+| — | `GET /overview` | Read composition (API-Q-10) | CU-15 step 3 | Daily overview composed from several owners; no single owner |
 
 ## 12. Contract evolution
 
@@ -658,7 +676,7 @@ These CRM operations are needed by the MVP and identified here so that their con
   - **Clients must tolerate them:** ignore unknown response fields, and handle an unknown enum or `reason` value with a generic path. That is why the CRM must not switch on `depositState` without a default branch.
   - **Breaking, avoided:** removing or renaming a field, changing its type or meaning, making an optional request field required, tightening validation, removing an enum value, or changing a status code.
   - **When a breaking change is needed:** mark the old element `deprecated` in the OpenAPI with its replacement, accept both in the API, move `apps/web`, and remove the old element in a later PR. Because the web and the API may be deployed separately ([architecture §12.1](./target-architecture.md#121-local-development-and-independent-deployment)), the API ships first. A new `/api/v2` is only for a change too broad for that path.
-  - Every contract change is a [shared change](./modules.md#92-shared-changes): it updates the OpenAPI, the `packages/shared` schemas and both consumers in the same PR when possible, and names the affected module owners.
+  - Every contract change is a [shared change](./modules.md#9-technical-autonomy-and-shared-changes): it updates the OpenAPI, the `packages/shared` schemas and both consumers in the same PR when possible, and names the affected module owners.
   - `info.version` stays `0.x` while this is a proposal and becomes `1.0.0` when the team approves it and the first endpoints are implemented. After that, additive changes raise the minor version and documented deprecations the patch version.
 
 ### API-DM-17: The OpenAPI file lives in the design catalog until code exists
@@ -684,7 +702,7 @@ Every decision is **Proposed for team review**.
 | [API-DM-09](#api-dm-09-one-problem-format-with-stable-codes-and-reasons) | RFC 9457 problems with stable `code` and `reason`; adds `rule_violation` |
 | [API-DM-10](#api-dm-10-state-changing-posts-require-an-idempotency-key) | `Idempotency-Key` on state-changing POSTs, kept 24 hours |
 | [API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins) | Commands rechecked against current state; configuration last-write-wins |
-| [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Endpoints belong to the owner module of the operation |
+| [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Endpoints are tagged by owner; multi-owner commands go through `workflows`, cross-owner reads through compositions *(reconciled 2026-11-10)* |
 | [API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields) | Seven statuses; derived conditions as separate fields |
 | [API-DM-14](#api-dm-14-packagesshared-holds-the-http-contracts-as-zod-schemas-and-nothing-else) | `packages/shared` holds HTTP contracts as Zod schemas |
 | [API-DM-15](#api-dm-15-the-agent-reuses-module-use-cases-in-process-not-the-http-api) | The agent uses facades in-process, with customer-facing results |
@@ -704,6 +722,7 @@ These questions are flagged, not resolved here.
 | `API-Q-07` | What does `availability_rules.weekday` 0–6 mean? Proposal: 0 is Sunday, as in PostgreSQL | The API uses names, so the mapping must be fixed once | REP-02 owner | The first availability endpoint |
 | `API-Q-08` | How are passwords set and recovered, how long do sessions last, and how are personnel invited ([TEN-Q6](./tenancy.md#10-open-questions))? Does any installation put the web and the API on different sites? | API-DM-06 covers the session only; a cross-site deployment needs the Next.js server as a proxy | `identity` and authentication design | Sign-in implementation |
 | `API-Q-09` | Should the architecture proposal add `rule_violation` to its error categories? | API-DM-09 uses it | Team, in the architecture review | Nothing |
+| `API-Q-10` | Where do cross-owner read compositions live (public profile, agenda and booking reads with `depositState`, customer indicators, overview)? CON-01 requires them above the owners ([modules §6.4](./modules.md#64-queries-and-read-compositions)) but names no folder, and `workflows` is defined for multi-owner business operations | `tenants` and `customers` cannot import the owners they would compose ([modules MOD-DM-07](./modules.md#mod-dm-07-dependencies-only-point-to-lower-levels)) | Team, with CON-01 | The first composed endpoint |
 
 ## 14. Reconciliation with sources
 
@@ -723,7 +742,7 @@ These questions are flagged, not resolved here.
 
 | Constraint | Where it holds |
 |---|---|
-| Each endpoint belongs to its owner module and calls one use case | [§7](#7-endpoints-by-owner-module), API-DM-12 |
+| Each endpoint invokes an owner command or the multi-owner coordinator; it never writes tables itself | [§7](#7-endpoints-by-owner-module), API-DM-12 |
 | Public endpoints only for `tenants` information and `catalog` services; no booking | API-DM-01 |
 | `identity` resolves authentication; a selected tenant only selects | API-DM-06, API-DM-07 |
 | `not_found` for another tenant's record; `conflict` for occupancy races | API-DM-07, API-DM-09, API-DM-11 |

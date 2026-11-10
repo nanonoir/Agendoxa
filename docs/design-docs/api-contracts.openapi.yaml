@@ -1,33 +1,39 @@
 openapi: 3.1.0
 info:
   title: Agendoxa API — initial MVP contracts (CON-02)
-  version: 0.1.0-proposal
+  version: 0.2.0-proposal
   summary: Proposal for team review; no endpoint is implemented.
   description: |
     Design contract for the authenticated CRM and the read-only public landing.
     It accompanies [api-contracts.md](./api-contracts.md), which explains every
     convention and decision (`API-DM-XX`). Operations are grouped by owner module
-    from [modules.md](./modules.md) through tags.
+    from [modules.md](./modules.md) through tags (API-DM-12).
+
+    `x-agendoxa-invokes` marks how an operation reaches the owners: `coordinator: workflows`
+    with its `participants` for a multi-owner command, or `composition` with the owners a
+    cross-owner read combines. Without it, the operation is one use case of the tagged owner.
+    The extension documents ownership only; it does not change the HTTP contract.
 
     WhatsApp self-service and agent tools are not HTTP and are not described here.
-    Payments, cash register, conversations, roles, channel connection and audit
+    Payments (including cash), conversations, roles, channel connection and audit
     operations are identified in the document but specified in a later increment.
+
+    Reconciled 2026-11-10 with the consolidated CON-01 module catalog: calendars, hours,
+    blocks and openings are tagged `catalog`; the former `availability` tag is removed.
 servers:
   - url: /api/v1
     description: Relative to the API origin of each installation.
 tags:
   - name: public
-    description: Read-only landing information (owners tenants and catalog). No booking.
+    description: Read-only landing information (owners tenants and catalog; the WhatsApp link comes from messaging). No booking.
   - name: identity
     description: Session and tenant context.
   - name: tenants
     description: Business profile.
   - name: catalog
-    description: Services, resources, compatibility and booking policies.
-  - name: availability
-    description: Calendars, weekly hours, blocks, openings and open windows.
+    description: Services, resources, compatibility, booking policies, calendars, weekly hours, blocks, openings and open windows.
   - name: bookings
-    description: Free slots, agenda and booking lifecycle commands.
+    description: Free slots, agenda and booking lifecycle commands. Multi-owner commands go through workflows.
   - name: customers
     description: Customers, restrictions and incidents.
 security:
@@ -37,6 +43,8 @@ paths:
     get:
       tags: [public]
       operationId: getPublicBusiness
+      x-agendoxa-invokes:
+        composition: [tenants, catalog, messaging]
       summary: Public business profile for the landing
       description: The slug selects the business for display only; it never authorizes anything.
       security: []
@@ -654,7 +662,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/calendars:
     get:
-      tags: [availability]
+      tags: [catalog]
       operationId: listCalendars
       summary: Tenant calendar and resource-specific calendars
       parameters:
@@ -672,7 +680,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/resources/{resourceId}/calendar:
     put:
-      tags: [availability]
+      tags: [catalog]
       operationId: ensureResourceCalendar
       summary: Give a resource its own calendar instead of inheriting the tenant hours
       security:
@@ -701,7 +709,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      tags: [availability]
+      tags: [catalog]
       operationId: deleteResourceCalendar
       summary: Make a resource inherit the tenant hours again
       security:
@@ -723,7 +731,7 @@ paths:
           $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/calendars/{calendarId}/rules:
     get:
-      tags: [availability]
+      tags: [catalog]
       operationId: getCalendarRules
       summary: Weekly hours of a calendar
       parameters:
@@ -741,7 +749,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     put:
-      tags: [availability]
+      tags: [catalog]
       operationId: replaceCalendarRules
       summary: Replace all weekly hours of a calendar in one change
       description: Confirmed bookings are preserved even if they fall outside the new hours (BR-DISP-08).
@@ -774,7 +782,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/availability-exceptions:
     get:
-      tags: [availability]
+      tags: [catalog]
       operationId: listAvailabilityExceptions
       summary: Blocks and openings overlapping a range
       parameters:
@@ -800,7 +808,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     post:
-      tags: [availability]
+      tags: [catalog]
       operationId: createAvailabilityException
       summary: Register a block or an authorized opening
       description: An opening never overrides a block or an active claim (DM-05); the authorizing actor is recorded.
@@ -835,8 +843,11 @@ paths:
           $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/availability-exceptions/{exceptionId}:
     delete:
-      tags: [availability]
+      tags: [catalog]
       operationId: deleteAvailabilityException
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [catalog, bookings]
       summary: Remove a block or an unused opening
       description: Removing a block may release capacity; an opening used by a booking cannot be removed (409).
       security:
@@ -862,7 +873,7 @@ paths:
           $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/resources/{resourceId}/windows:
     get:
-      tags: [availability]
+      tags: [catalog]
       operationId: getResourceWindows
       summary: Effective open windows of a resource, ignoring occupancy
       description: Regular or inherited hours plus openings, minus blocks. Not free slots (MOD-DM-05).
@@ -922,6 +933,8 @@ paths:
     get:
       tags: [bookings]
       operationId: getAgenda
+      x-agendoxa-invokes:
+        composition: [bookings, catalog, payments]
       summary: Bookings, blocks and openings for a range of days
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -955,6 +968,8 @@ paths:
     get:
       tags: [bookings]
       operationId: listBookings
+      x-agendoxa-invokes:
+        composition: [bookings, payments]
       summary: Search bookings
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -1009,6 +1024,9 @@ paths:
     post:
       tags: [bookings]
       operationId: createCrmBooking
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [bookings, customers, payments, notifications]
       summary: Create a CRM booking (walk-in or on behalf of a customer)
       description: |
         Confirmed directly, with no HOLD, when no deposit is required or an Admin grants the
@@ -1060,6 +1078,8 @@ paths:
     get:
       tags: [bookings]
       operationId: getBooking
+      x-agendoxa-invokes:
+        composition: [bookings, payments]
       summary: Get a booking
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -1098,6 +1118,9 @@ paths:
     post:
       tags: [bookings]
       operationId: cancelBooking
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [bookings, notifications]
       summary: Cancel a booking and release its slot
       description: Releases immediately, even during review or partial-deposit waiting; finances continue separately (BR-CAN-04).
       security:
@@ -1139,6 +1162,9 @@ paths:
     post:
       tags: [bookings]
       operationId: rescheduleBooking
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [bookings, payments, notifications]
       summary: Move a confirmed booking to a new slot, service or resource
       description: Checks the target without releasing the current slot; the move and release are atomic (BR-CAN-08, BR-CAN-12).
       security:
@@ -1252,6 +1278,9 @@ paths:
     post:
       tags: [bookings]
       operationId: createRemainderWalkIn
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [bookings, customers, payments, notifications]
       summary: Reuse the private remainder of an early-terminal booking for a CRM walk-in
       description: Atomically adjusts the remainder and creates the walk-in booking, preserving history (BR-RES-17).
       security:
@@ -1290,6 +1319,8 @@ paths:
     get:
       tags: [customers]
       operationId: listCustomers
+      x-agendoxa-invokes:
+        composition: [customers, bookings]
       summary: Search customers by name or phone
       parameters:
         - $ref: '#/components/parameters/TenantId'
@@ -1353,6 +1384,8 @@ paths:
     get:
       tags: [customers]
       operationId: getCustomer
+      x-agendoxa-invokes:
+        composition: [customers, bookings]
       summary: Customer with indicators and current restriction
       parameters:
         - $ref: '#/components/parameters/TenantId'
