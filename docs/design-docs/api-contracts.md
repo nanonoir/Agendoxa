@@ -1047,7 +1047,7 @@ Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nin
 - **Rule (Proposed):**
   - The agent has no HTTP credential, service account or endpoint of its own. It calls module facades and `workflows` coordinators inside the API process, through their plain public contracts ([modules MOD-DM-10](./modules.md#mod-dm-10-a-modules-public-surface-separates-contracts-from-nest-composition)): owners directly for reads, coordinators for composite changes, without pass-through wrappers ([modules §5.2](./modules.md#52-coordination-and-asynchronous-activation)). Authorization is the conversation's requester and never a personnel role.
   - What the customer sees is not the CRM view. A tool result never includes `currentRestriction`, `indicators`, `blockedException`, internal reasons or other labels (BR-AGT-03, INV-CLI-06). A `BLOCKED` customer is refused as when they cannot book, without the reason.
-  - Tool input and output schemas belong to CON-03. They should reuse the `code` and `reason` values of [§5](#5-errors), so the agent and the CRM interpret refusals the same way.
+  - Tool input and output schemas belong to CON-03 ([API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes)). They reuse the `code` and `reason` values of [§5](#5-errors), so the agent and the CRM interpret refusals the same way.
 
 > **Reconciled 2026-11-10:** the "Facade" column follows [modules §8.2](./modules.md#82-for-con-03-integration-contracts): waitlist is in `bookings`, and composite changes go through `workflows`.
 
@@ -1059,12 +1059,36 @@ Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nin
 | Create a HOLD; confirm it without a deposit | `workflows` | None | WhatsApp only (BR-RES-03–04) |
 | Cancel or reschedule own booking | `workflows` | `/cancel`, `/reschedule` | Always `CUSTOMER_REQUEST`; `acceptLateConsequence` only after the customer's explicit confirmation; never an Admin exception |
 | Join the waitlist; claim an invitation | `bookings`, or `workflows` when the change spans owners | None | — |
-| Read payment status | `payments` | Next increment | Customer-facing result only |
-| Submit receipt evidence and have it preliminarily screened | `agent` screening adapter, then the protected `workflows` operation (`bookings`, `payments`, `assets`) | None | Routed to human review or to a replacement request as in [§10.1](#101-receipt-evidence-screening-is-not-human-review); it never verifies, credits or renews a deadline |
+| Read payment status | `payments`, through a read composition with `bookings` | `GET /bookings/{bookingId}/financial-state` *(2026-11-10)* | Customer-facing result only: what is still missing and whether evidence is being checked; never reviewer, rejection reason, `arrivedVia` or cash data |
+| Submit receipt evidence and have it preliminarily screened | `agent` screening adapter, then the protected `workflows` operation (`bookings`, `payments`, `assets`) | `POST /bookings/{bookingId}/payment-reviews` *(2026-11-10)* | The CRM path has no screening and cannot target a `HOLD`. The agent path is routed to human review or to a replacement request as in [§10.1](#101-receipt-evidence-screening-is-not-human-review); it never verifies, credits or renews a deadline |
 | Record notice preferences; request or withdraw deletion | `workflows` (`customers`, `bookings`, `audit`, and the deletion participants) | None | Customer channel only (CU-19, CU-23) |
 | Escalate to a human with a summary | `messaging` | None | — |
 
-**Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, approving or rejecting a review, cash operations and conversation control. These exist only as authenticated CRM endpoints.
+**Never available to the agent:** recording or correcting outcomes, remainder walk-ins, restrictions and incidents, configuration, deposit and Admin exceptions, payment verification and allocation, approving or rejecting a review, cash operations and conversation control. These exist only as authenticated CRM endpoints. *(2026-11-10:)* the money ones are now specified: `approvePaymentReview`, `rejectPaymentReview`, `recordPayment`, `allocatePayment`, `reversePaymentAllocation` and every `/cash-sessions` command ([§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session)).
+
+### API-DM-23: Typed agent tool contracts belong to CON-03; this document fixes operations and refusal codes
+
+> **Added 2026-11-10** by author decision D-3 ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)). Proposed for team review.
+
+- **What:** The rewritten #11 asks CON-02 for typed contracts for internal consumers that are not HTTP, and the rewritten #12 asks CON-03 for typed contracts for the agent. One ticket has to own them.
+- **Defined:** Tools are inbound adapters of `agent` over the facades above; CON-03 defines the runtime adapter and the tool input and output schemas ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)).
+- **Rule (Proposed):**
+  - **CON-03 writes the typed tool contracts:** names, input and output schemas, failures, timeouts and escalation. They are not in the OpenAPI file or in `packages/shared`, because no HTTP client uses them ([API-DM-14](#api-dm-14-packagesshared-holds-the-http-contracts-as-zod-schemas-and-nothing-else)).
+  - **This document fixes what they may do:** the allowed operations and the "never available" list above, the customer-facing projection of [API-DM-15](#api-dm-15-the-agent-reuses-module-use-cases-in-process-not-the-http-api), and the refusal vocabulary below. A tool may not offer an operation outside the allowed list, and may not return a CRM-only field.
+  - **Refusals use the `code` and `reason` values of §5.** The agent turns them into messages; it never shows the reason text, and it never reveals a restriction or label (BR-AGT-03). New agent-specific reasons are additive and must be registered here.
+
+| Operation for the requester | Refusals the facade may return (`code`: `reason`) |
+|---|---|
+| Find free slots | `validation`: `range_too_large`; `rule_violation`: `inactive_service` |
+| Create a HOLD | `conflict`: `slot_unavailable`; `rule_violation`: `slot_in_past`, `booking_lead_not_met`, `outside_open_hours`, `incompatible_resource`, `inactive_service`, `inactive_resource`, `future_booking_limit_reached`, `requester_not_eligible` |
+| Confirm a HOLD without deposit | `conflict`: `state_changed` (the HOLD expired or changed) |
+| Cancel or reschedule own booking | `not_found` (not managed by the sender number, INV-CAN-01); `conflict`: `state_changed`, `slot_unavailable`; `rule_violation`: `late_change_requires_acceptance`, `reschedule_limit_reached`, `requester_not_eligible` and the slot reasons of a HOLD |
+| Join the waitlist; claim an invitation | `conflict`: `slot_unavailable`, `state_changed`; `rule_violation`: `waitlist_full`, `invitation_no_longer_available`, `requester_not_eligible` |
+| Read payment status | `not_found` |
+| Submit receipt evidence | `rule_violation`: `booking_released` (late evidence is kept for human financial handling, BR-SEN-16); `validation`: `unsupported_media_type`, `file_too_large`. A screening outcome is never a refusal |
+| Notice preferences; deletion request | `conflict`: `state_changed` |
+
+  `requester_not_eligible`, `waitlist_full` and `invitation_no_longer_available` are agent-only reasons proposed here: the first covers a `BLOCKED` requester without saying so (BR-AGT-03, INV-CLI-06), where the CRM would get `customer_blocked_requires_acknowledgement`; the others name BR-WL-14 and an invitation already taken or expired. `admin_only` and `missing_permission` can never reach the agent, because it never sends an exception or acts as personnel.
 
 ### 10.1 Receipt evidence: screening is not human review
 
@@ -1084,8 +1108,8 @@ Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nin
   Evidence received after the applicable deadline is kept for human financial handling and never revives a released slot (BR-SEN-16). Sources: BR-SEN-12, BR-SEN-14–16, INV-SEN-02, INV-SEN-12–13, [UC-02 CU-03](../product-specs/uc-02/use-cases.md#cu-03) step 5 and A4.
 
 - **Rule (Proposed):**
-  - **Two different results, two different contracts.** The screening outcome is an internal result of the agent's `receipt-screening` port, consumed by the protected `workflows` operation; it has no HTTP endpoint, and its result values belong to CON-03 ([§11.1](#111-for-con-03-external-integrations)). The human decision is only `approve` or `reject` on a payment review, an authenticated CRM command of `payments` through `workflows` ([§11.2](#112-next-contract-increment)). Only that decision counts for BR-SEN-10.
-  - **No HTTP field reports a screening outcome as a financial state.** The CRM sees a review and, in the next increment, how it arrived (plausible, second unrelated attempt, uncertain or failed screening, text fallback). It never sees "rejected by AI" or "verified by AI", and personnel do not approve or override screening itself.
+  - **Two different results, two different contracts.** The screening outcome is an internal result of the agent's `receipt-screening` port, consumed by the protected `workflows` operation; it has no HTTP endpoint, and its result values belong to CON-03 ([§11.1](#111-for-con-03-external-integrations)). The human decision is only `approve` or `reject` on a payment review, an authenticated CRM command of `payments` through `workflows` ([§7.7](#77-payments-evidence-and-human-review), *specified 2026-11-10*). Only that decision counts for BR-SEN-10.
+  - **No HTTP field reports a screening outcome as a financial state.** The CRM sees a review and how it arrived, in `arrivedVia` ([API-DM-19](#api-dm-19-evidence-reaches-people-through-review-only-a-human-decision-approves-or-rejects)). It never sees "rejected by AI" or "verified by AI", and personnel do not approve or override screening itself.
   - **Attempt counting is not exposed or reset by contract.** Whether the clearly unrelated count carries over after a human decision or into a later correction round is pending in [P-40](../product-specs/uc-03/business-rules.md#16-pending-decisions); no field or endpoint assumes either answer.
   - **No retry adds time.** No CRM or agent operation changes `holdExpiresAt` or the correction deadline because a file was replaced or rescreened (INV-SEN-13).
 
@@ -1098,10 +1122,10 @@ CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these con
 | Integration | CON-03 defines | Constraint from this document |
 |---|---|---|
 | WhatsApp webhook (Evolution API) | Inbound route, origin verification, payload normalization, deduplication and the responses the provider expects | An inbound adapter of `messaging`. It takes no session or CSRF token, and its tenant comes from the connection, never from a parameter (INV-MSG-02) |
-| Agent tools (LangGraph) | Tool schemas, results and failure handling | The operations in [§10](#10-internal-consumers-the-agent), with the `code` and `reason` values of §5. The rewritten #11 also asks CON-02 for typed internal contracts; who writes them is open ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)) |
+| Agent tools (LangGraph) | The typed tool contracts: names, input and output schemas, results, failure handling and escalation *(assigned to CON-03 on 2026-11-10 by author decision D-3, [API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes))* | Only the allowed operations of [§10](#10-internal-consumers-the-agent), never the "never available" ones; customer-facing results only; refusals with the `code` and `reason` values of §5 and the agent-only reasons of API-DM-23 |
 | Durable jobs (pg-boss) | Job names, payloads, scheduling and retries | Jobs from [modules §6.6](./modules.md#66-jobs); no job is exposed over HTTP |
 | Receipt screening *(added 2026-11-10)* | The replaceable `receipt-screening` port of `agent`: result values (plausible, clearly unrelated, uncertain or technical failure), model and versioning, timeout, latency measurement, recovery, data minimization. Gemini Flash and five seconds are the requested direction and an objective, not guarantees ([modules §8.2](./modules.md#82-for-con-03-integration-contracts)) | The outcomes and effects of [§10.1](#101-receipt-evidence-screening-is-not-human-review). No HTTP endpoint; no result verifies money, counts as a human rejection or adds time. The attempt boundary in P-40 stays open |
-| Private file storage | Storage, authorized reads and deletion | Viewing a receipt from the CRM will be an authenticated endpoint of `payments` in the next increment; no public file links (DM-14) |
+| Private file storage | Storage, authorized reads and deletion; accepted media types and size limits | Receipts enter through `POST /payment-evidence-uploads` and are read through `GET /payment-reviews/{reviewId}/evidence`, both authenticated `payments` endpoints *(2026-11-10)*; no public file links (DM-14). Deleting unlinked uploads is open ([API-Q-12](#13-decisions-and-open-questions)) |
 | Manual transfer instructions *(added 2026-11-10)* | How messages and the agent consume the alias or bank details already issued | Issued and persisted by `payments` before they are shown; a retry reuses them and never rotates again (BR-SEN-06). Not a provider contract |
 | Payment gateway | Nothing | No provider in the MVP (BR-SEN-08, MVP §5.3). *Resolved 2026-11-10:* the rewritten [#12](https://github.com/nanonoir/Agendoxa/issues/12) removed Mercado Pago, gateways and bank APIs from its scope |
 
