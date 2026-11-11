@@ -140,8 +140,16 @@ Clients never compute availability, prices or deposits; they display what the AP
 | `bookings.correct_outcome` | Correct an outcome (BR-RES-12) |
 | `customers.manage` | Create and update customers; record incidents |
 | `customers.restrict` | Apply or remove restrictions (BR-CLI-08) |
+| `payments.view` | Reviews and their evidence files, payments, booking financial state, receiving accounts, cash sessions and movements *(added 2026-11-10)* |
+| `payments.record` | Upload and submit evidence from the CRM; record a cash payment ([matrix](../product-specs/uc-01/actors.md) "Record partial or mixed-method payment") |
+| `payments.verify` | Approve or reject a review; record a transfer whose credit was checked ("Verify bank-transfer receipt", BR-COB-05) |
+| `payments.allocate` | Allocate verified funds and reverse allocations (BR-COB-03, BR-COB-17) |
+| `cash.operate` | Open and close the cash session (BR-CAJA-02, BR-IAM-05) |
+| `cash.movements` | Record cash-in and cash-out with a reason (BR-CAJA-05) |
 
-**Admin-only, non-delegable (Defined: BR-IAM-04):** confirming a CRM booking without its required deposit (`depositException`, BR-SEN-09) and granting an exception to a late-change consequence or to the reschedule limit (`adminException`, BR-CAN-03, CU-09 A1b). A request that includes them from a non-Admin returns `403` with reason `admin_only`, even if the rest of the request is allowed; the API never silently drops the exception.
+**Admin-only, non-delegable (Defined: BR-IAM-04):** confirming a CRM booking without its required deposit (`depositException`, BR-SEN-09), granting an exception to a late-change consequence or to the reschedule limit (`adminException`, BR-CAN-03, CU-09 A1b), and *(added 2026-11-10)* adjusting a closed cash session (BR-CAJA-09, BR-COB-11). A request that includes them from a non-Admin returns `403` with reason `admin_only`, even if the rest of the request is allowed; the API never silently drops the exception.
+
+*Added 2026-11-10.* An optional input that performs another owner's operation also needs that operation's permission: `deposit.allocations` in `POST /bookings` needs `payments.allocate`, and `deposit.evidence` needs `payments.record`. `POST /payments` needs `payments.record` for cash and `payments.verify` for a transfer, because recording a transfer asserts that its credit was checked. Payment corrections and refunds keep their own boundaries in the later increment ([§11.2](#112-next-contract-increment)).
 
 ## 5. Errors
 
@@ -156,12 +164,12 @@ Clients never compute availability, prices or deposits; they display what the AP
 
 | `code` | HTTP | Use | Reasons in this increment |
 |---|---|---|---|
-| `validation` | 400 | The request does not match the schema or a cross-field rule; `errors[]` lists each `path` (JSON Pointer) and message | — (uses `errors`); `range_too_large` |
+| `validation` | 400 | The request does not match the schema or a cross-field rule; `errors[]` lists each `path` (JSON Pointer) and message | — (uses `errors`); `range_too_large`, `unsupported_media_type`, `file_too_large` |
 | `unauthorized` | 401 | No valid session, or wrong credentials | `session_required`, `invalid_credentials` |
 | `forbidden` | 403 | Valid membership, but the role lacks the permission or the operation is Admin-only | `missing_permission`, `admin_only`, `csrf_token_invalid` |
 | `not_found` | 404 | Does not exist, belongs to another tenant, or the caller has no active membership in the tenant | — |
-| `conflict` | 409 | Current state prevents it now; refreshing or choosing another slot may succeed | `slot_unavailable`, `state_changed`, `idempotency_key_reused`, `idempotency_request_in_progress`, `phone_already_registered`, `calendar_has_exceptions`, `opening_in_use`, `no_active_restriction` |
-| `rule_violation` | 422 | A business rule refuses the request as sent; it needs other input, an acceptance or an exception | `late_change_requires_acceptance`, `deposit_required`, `customer_blocked_requires_acknowledgement`, `future_booking_limit_reached`, `booking_lead_not_met`, `slot_in_past`, `outside_open_hours`, `incompatible_resource`, `inactive_service`, `inactive_resource`, `too_early_for_outcome`, `reschedule_limit_reached`, `not_in_private_remainder`, `phone_change_not_supported` |
+| `conflict` | 409 | Current state prevents it now; refreshing or choosing another slot may succeed | `slot_unavailable`, `state_changed`, `idempotency_key_reused`, `idempotency_request_in_progress`, `phone_already_registered`, `calendar_has_exceptions`, `opening_in_use`, `no_active_restriction`; money flows: `review_already_decided`, `upload_already_used`, `evidence_unavailable`, `allocation_already_reversed`, `cash_session_not_open`, `cash_session_already_open`, `cash_session_not_closed`, `stale_revision` |
+| `rule_violation` | 422 | A business rule refuses the request as sent; it needs other input, an acceptance or an exception | `late_change_requires_acceptance`, `deposit_required`, `customer_blocked_requires_acknowledgement`, `future_booking_limit_reached`, `booking_lead_not_met`, `slot_in_past`, `outside_open_hours`, `incompatible_resource`, `inactive_service`, `inactive_resource`, `too_early_for_outcome`, `reschedule_limit_reached`, `not_in_private_remainder`, `phone_change_not_supported`; money flows: `allocation_exceeds_charge_balance`, `allocation_exceeds_available_funds`, `evidence_upload_expired`, `hold_evidence_via_whatsapp`, `booking_released`, `receiving_account_required`, `opening_difference_requires_reason` |
 | `external_dependency` | 503 | A required external service failed. No operation in this increment depends on WhatsApp or the LLM (BR-CH-06) | — |
 | `internal` | 500 | Unexpected failure; the client may retry with the same idempotency key | — |
 
@@ -180,7 +188,8 @@ Clients never compute availability, prices or deposits; they display what the AP
   - The same key with the same body returns the stored response, status and body included, without running the operation again. The same key with a different body returns `409 idempotency_key_reused`. A key whose first request is still running returns `409 idempotency_request_in_progress`.
   - Completed responses, including `4xx`, are stored; `5xx` are not, so the client can retry.
 - **Example:** `POST …/bookings` times out on the client after the booking was created. The retry with the same key returns the original `201` and the same booking, not `409 slot_unavailable` for the slot the first request took.
-- **Open:** where idempotency records are stored, since they are not an ERD entity ([API-Q-06](#13-decisions-and-open-questions)). The payments increment maps this header to `Payment.idempotency_key` and `Refund.idempotency_key`.
+- **Money operations** *(added 2026-11-10)*: `POST /payments` maps the header to `Payment.idempotency_key` (ERD T-03), and a later refund endpoint will map it to `Refund.idempotency_key`. A review decision is also protected by the review itself: it can be decided once, so a repeated approval with a new key cannot create a second payment (INV-PAY-02). Two separate entries that may be the same money are kept and flagged, never merged (INV-PAY-08).
+- **Open:** where idempotency records are stored, since they are not an ERD entity ([API-Q-06](#13-decisions-and-open-questions)).
 
 ### API-DM-11: Commands are checked against current state; configuration is last-write-wins
 
@@ -188,6 +197,28 @@ Clients never compute availability, prices or deposits; they display what the AP
   - A command runs its checks against the current state inside one transaction ([modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction)). If the state no longer allows it, for example a booking cancelled by someone else a second earlier, it returns `409 state_changed` and the client reloads the booking.
   - Occupancy races end in exactly one winner: the database exclusion rejects the loser, which receives `409 slot_unavailable` (**Defined:** INV-DISP-01, EJ-08).
   - Configuration updates (`PATCH` of the profile, services and resources; `PUT` of policies and hours) are last-write-wins in this increment, without `ETag` or `If-Match`. Configuration is edited by few people and changes to it never rewrite agreed bookings (**Defined:** DM-06 snapshots, BR-DISP-08). Conditional requests can be added later as an additive change.
+  - Operations that move money follow [API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition) *(added 2026-11-10, confirmed by author decision D-5)*.
+
+### API-DM-18: Money operations rely on state guards and caps; the cash close and adjustments add a revision precondition
+
+> **Added 2026-11-10** by author decision D-5 ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)). Proposed for team review.
+
+- **What:** Last-write-wins stays for configuration, and commands keep rechecking current state ([API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins)). For the new operations that move money, the question is whether a client should also prove it saw the current version.
+- **Defined:** Every money writer runs inside the initiator's transaction and lock order of [modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction); this document does not restate that protocol (D-4). A review is decided once (INV-PAY-02, INV-PAY-10, EJ-20). Allocations are capped by charge balance and available funds (INV-PAY-07). A closed session is immutable and records expected cash, counted cash and the difference (INV-CAJA-03, INV-CAJA-05).
+- **Rule (Proposed):**
+
+| Operation | Precondition | Why it is enough |
+|---|---|---|
+| Approve or reject a review | The review is `PENDING`, checked in the transaction; otherwise `409 review_already_decided` | The decision is a one-way transition with no editable fields. A version would add nothing to the state guard |
+| Allocate, including allocations inside an approval, a payment or a booking creation | Each item within the current charge balance and available funds; otherwise `422` with `allocationLimit` holding the current figures | The invariant is an upper bound checked atomically. A stale screen can only produce a refusal, never excess money or a negative balance. A version would refuse unrelated allocations of the same payment and protect nothing more |
+| Reverse an allocation | The allocation is `ACTIVE`; otherwise `409 allocation_already_reversed` | Same as a review: one transition |
+| Record a payment, a cash-in or a cash-out | Idempotency key; cash needs an open session | Each one appends a new fact. Two separate entries are both kept and flagged (INV-PAY-08) |
+| Close the cash session | `expectedRevision` equal to the session's current `revision`; otherwise `409 stale_revision` with `currentRevision` | The close fixes forever the expected cash the person reviewed against the cash they counted. A payment that entered in between would leave an immutable difference computed against totals nobody saw |
+| Adjust a closed session (Admin) | `expectedRevision`, same check | An Admin decides the amount from the adjustments already shown. Without the check, two Admins correcting the same error would double-correct an immutable session |
+
+  - `revision` is an API value on `CashSession` that grows with every movement, adjustment and the close. How it is derived, for example from counts already stored, is implementation; it implies no new column.
+  - The precondition is a **body field**, not `If-Match`. It belongs to the meaning of the command and enters the idempotency fingerprint, so a retry with the same key replays the stored answer, while a new attempt after reviewing again uses a new key. It is typed in the shared Zod schemas the web already uses, and it needs no `412`/`428` status or `ETag` generation for a single resource. `If-Match` remains available later for configuration as an additive change.
+- **Residual risk accepted:** two people may each allocate a valid partial amount to the same charge at the same time; both allocations are real verified money within the caps and can be reversed with a reason.
 
 ## 7. Endpoints by owner module
 
@@ -213,8 +244,9 @@ Clients never compute availability, prices or deposits; they display what the AP
 | `catalog` | `/services…`, `/resources…`, `/booking-policies…`, `/calendars…`, `/resources/{resourceId}/calendar`, `/resources/{resourceId}/windows`, `/availability-exceptions…`; public `/public/businesses/{slug}/services` (tag `public`) | Removing an availability exception: `catalog`, `bookings` (reevaluation intent after a block is removed, [modules §6.3](./modules.md#63-events-and-durable-intents)) | — |
 | `bookings` | `/free-slots`, `/agenda`, `/bookings…` | Create, cancel, reschedule and remainder walk-in: `bookings` with `customers`, `payments` and `notifications` as each needs ([§7.5](#75-bookings-free-slots-agenda-and-lifecycle-commands)) | Agenda and booking reads: `bookings`, `catalog`, `payments` (for `depositState`) |
 | `customers` | `/customers…` | — | Customer list and detail: `customers`, `bookings` (derived indicators) |
+| `payments` *(added 2026-11-10)* | `/payment-evidence-uploads`, `/payment-reviews…`, `/bookings/{bookingId}/payment-reviews`, `/bookings/{bookingId}/financial-state`, `/receiving-accounts`, `/payments…`, `/payment-allocations…`, `/cash-sessions…` | Evidence submission (`payments`, `bookings`, `assets`); approval, rejection, payment recording and allocation (`payments`, `bookings`, `notifications`) | Review reads and booking financial state: `payments`, `bookings` |
 
-`bookings` may read `catalog` directly ([modules §5.1](./modules.md#51-dependency-diagram)); the agenda is a composition only because `depositState` needs `payments` facts. Outcome recording and correction stay `bookings` owner commands: they change only booking history and private remainder occupancy ([modules §6.2](./modules.md#62-transactions)).
+`bookings` may read `catalog` directly ([modules §5.1](./modules.md#51-dependency-diagram)); the agenda is a composition only because `depositState` needs `payments` facts. Outcome recording and correction stay `bookings` owner commands: they change only booking history and private remainder occupancy ([modules §6.2](./modules.md#62-transactions)). In `payments`, uploads, payment reads, allocation reversal and every cash operation are owner commands or queries; `payments` may use `assets` directly, but it cannot import `bookings`, so anything that needs booking facts or changes a booking goes through `workflows` ([modules §5.1](./modules.md#51-dependency-diagram)).
 
 Below, paths are relative to `/api/v1/tenants/{tenantId}` unless they start with `/api/v1`. Every operation is in the [OpenAPI file](./api-contracts.openapi.yaml) with its schemas and responses.
 
@@ -293,7 +325,7 @@ When the tenant field is `null`, the effective policy uses the product default a
 | `GET /free-slots?serviceId&resourceId&from&to` | `listFreeSlots` | `schedule.view` | Without `resourceId`, every compatible resource. Never reserves (BR-DISP-04) |
 | `GET /agenda?from&to&resourceId` | `getAgenda` | `schedule.view` | Resources, bookings and exceptions for up to 14 days (CU-21) |
 | `GET /bookings` | `listBookings` | `schedule.view` | Filters `customerId`, `status`, `from`, `to`; cursor pagination |
-| `POST /bookings` | `createCrmBooking` | `bookings.create` | Below; `workflows` with `bookings`, `customers`, `payments`, `notifications` |
+| `POST /bookings` | `createCrmBooking` | `bookings.create` | Below; `workflows` with `bookings`, `customers`, `payments`, `notifications`. A `deposit` input also needs its payments permission |
 | `GET /bookings/{bookingId}` | `getBooking` | `schedule.view` | `BookingDetail` |
 | `GET /bookings/{bookingId}/events` | `listBookingEvents` | `schedule.view` | `BookingEvent` history, with actor and reason |
 | `POST /bookings/{bookingId}/cancel` | `cancelBooking` | `bookings.cancel` | Below; `workflows` with `bookings`, `notifications` |
@@ -319,24 +351,26 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 | `depositState: AWAITING_EVIDENCE` | `HOLD` with a deposit and no evidence in human review yet: nothing received, a first clearly unrelated file awaiting its replacement, or a file still under preliminary screening | BR-RES-03, BR-RES-06, BR-SEN-14, BR-SEN-16 |
 | `depositState: UNDER_REVIEW` | Evidence in human review: a plausible file, a second clearly unrelated attempt, an uncertain or failed screening, or the text fallback. Occupies with no inactivity timeout. Arriving here is not a human finding | BR-RES-06, BR-SEN-12, BR-SEN-14–15 |
 | `depositState: CORRECTION_WINDOW` | First **human** rejection of initial evidence without verified funds; 15-minute window. A preliminary AI discard never opens it | BR-SEN-10, INV-SEN-12 |
-| `depositState: PARTIAL` | Verified funds below the threshold; occupies, unconfirmed | BR-SEN-11 |
+| `depositState: AWAITING_ALLOCATION` *(added 2026-11-10)* | Verified funds whose origin is this booking exist, but nobody has allocated them to its charge and no evidence is in human review; occupies, unconfirmed. Verification alone never confirms | BR-SEN-07, EJ-20; protection open in [API-Q-13](#13-decisions-and-open-questions) |
+| `depositState: PARTIAL` | Verified funds allocated below the threshold; occupies, unconfirmed | BR-SEN-11 |
 | `depositState: MET` | Verified funds allocated up to the threshold | BR-SEN-07 |
 | `depositState: ADMIN_EXCEPTION` | Confirmed by an Admin without the required deposit | BR-SEN-09 |
+| `supplementalDepositState` *(added 2026-11-10)* | `null`, `REQUESTED`, `UNDER_REVIEW` or `MET`: the additional deposit after a permitted reschedule of a `CONFIRMED` booking. Separate from `depositState`, which keeps describing the initial deposit ([API-DM-21](#api-dm-21-initial-deposit-supplemental-deposit-credit-outcome-and-cash-are-separate-fields)) | BR-CAN-10, CU-09 A3 |
 
   `bookings` alone knows the applied requirement and the booking status; the review, correction, partial and met conditions need `payments` facts. So `depositState` is produced by a read composition above `bookings` and `payments`, never by a finance port inside `bookings` *(reconciled 2026-11-10: CON-01 removed that port, [modules §6.4](./modules.md#64-queries-and-read-compositions))*. Until `payments` exists, the composition can only produce `NOT_REQUIRED`, `AWAITING_EVIDENCE` and `ADMIN_EXCEPTION`. Clients must treat an unknown `depositState` as "see booking detail" ([API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1)).
 
 **`POST /bookings` — create a CRM booking (CU-02 A7, CU-03 CRM, CU-04).**
 
-- **Input:** an existing `customerId` or a `newCustomer` (name required, phone optional, BR-CLI-04); optional attendee name and phone; `serviceId`; `resourceId`, or `null` to let the tenant's assignment mode choose a compatible one (BR-DISP-05); `startAt`. The end comes from the service duration.
-- **Result:** `201`, always `CONFIRMED`, origin `CRM`, without a HOLD.
+- **Input:** an existing `customerId` or a `newCustomer` (name required, phone optional, BR-CLI-04); optional attendee name and phone; `serviceId`; `resourceId`, or `null` to let the tenant's assignment mode choose a compatible one (BR-DISP-05); `startAt`. The end comes from the service duration. *Added 2026-11-10:* an optional `deposit` with `allocations` of existing verified payments, `evidence` (an upload ID or typed transfer details) for human review, or both ([§7.7](#77-payments-evidence-and-human-review), [§7.8](#78-payments-verified-payments-and-explicit-allocation)).
+- **Result:** `201`, origin `CRM`, without a HOLD (**Defined:** BR-SEN-09, CU-03 CRM step 2): `CONFIRMED` when no deposit applies, when `deposit.allocations` reach the threshold, or with the Admin exception; `PENDING_PAYMENT_REVIEW` when there is evidence (`depositState: UNDER_REVIEW`) or only verified funds below the threshold (`PARTIAL`). Both occupy. The allocations, the review and the booking commit together.
 - **Refusals, in the order they are checked:**
   1. The customer is `BLOCKED` and `acknowledgeBlockedCustomer` is not `true`: `422 customer_blocked_requires_acknowledgement`. With `true`, the booking is created with `blockedException` and the restriction stays (BR-CLI-09).
-  2. A deposit is required, including 100% for `FULL_PREPAYMENT` (BR-SEN-04), and there is no `depositException`: `422 deposit_required`, and nothing occupies the slot (BR-SEN-09). With `depositException` from an Admin, the booking is confirmed with `depositException: true` and the full balance due; from anyone else, `403 admin_only`.
+  2. A deposit is required, including 100% for `FULL_PREPAYMENT` (BR-SEN-04), and there is neither `deposit` nor `depositException`: `422 deposit_required`, and nothing occupies the slot (BR-SEN-09). With `depositException` from an Admin, the booking is confirmed with `depositException: true` and the full balance due; from anyone else, `403 admin_only`. Sending both `deposit` and `depositException` is `400`. *(Added 2026-11-10.)* An allocation above the payment's available funds, or above the new charge, returns `422 allocation_exceeds_available_funds` or `allocation_exceeds_charge_balance`; an expired or already used upload, `422 evidence_upload_expired` or `409 upload_already_used`.
   3. `startAt` has passed or is closer than the booking lead time: `422 slot_in_past` or `booking_lead_not_met`.
   4. Inactive service or resource, a resource incompatible with the service, or a slot outside the open windows: `422 inactive_service`, `inactive_resource`, `incompatible_resource` or `outside_open_hours`.
   5. The future-booking limit is reached: `422 future_booking_limit_reached` (BR-CLI-10).
   6. The slot is occupied when the claim is inserted: `409 slot_unavailable` (INV-DISP-01).
-- Recording a verified payment or a pending receipt during creation, which produces `PENDING_PAYMENT_REVIEW` or a partial deposit, belongs to the payments increment ([§11.2](#112-next-contract-increment)) as an additive input.
+- *(Updated 2026-11-10.)* The `deposit` input is the additive extension this section announced. A payment is recorded before the booking, with `POST /payments` and no allocation, because a verified payment may exist without allocations (BR-COB-02); the booking then allocates it explicitly.
 
 **`POST /bookings/{id}/cancel` — CU-08.**
 
@@ -350,14 +384,14 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 - **Input:** `cause`, new `startAt`, optional `resourceId` and `serviceId`, `acceptLateConsequence`, optional `adminException` for a late consequence or the reschedule limit.
 - **Allowed from** `CONFIRMED` only (CU-09 precondition); otherwise `409 state_changed`.
 - **Checks:** the target is checked without releasing the current slot; a failure leaves the booking intact (BR-CAN-08). The limit returns `422 reschedule_limit_reached` without an Admin exception. Late handling is the same as for cancellation and records a late reschedule.
-- **Result:** `200` with the moved booking, still `CONFIRMED`, the previous slot and `lateChange`. A deposit difference is requested afterwards and never undoes the move (BR-CAN-10); its contract belongs to the payments increment.
+- **Result:** `200` with the moved booking, still `CONFIRMED`, the previous slot, `lateChange` and *(added 2026-11-10)* `supplementalDeposit`: `null`, or the additional amount the destination requires beyond the verified deposit. It is requested afterwards and never undoes the move or cancels the booking (BR-CAN-10, CU-09 A3); evidence for it uses `POST /bookings/{bookingId}/payment-reviews` and its state is `supplementalDepositState` ([API-DM-21](#api-dm-21-initial-deposit-supplemental-deposit-credit-outcome-and-cash-are-separate-fields)).
 
 **`POST /bookings/{id}/outcome` and `/outcome-correction` — CU-10.**
 
 - `outcome` is `COMPLETED`, allowed from the start instant, or `NO_SHOW`, from start + 15 minutes; earlier returns `422 too_early_for_outcome` (BR-RES-10–11). Only from `CONFIRMED`.
-- A correction switches `COMPLETED` ↔ `NO_SHOW`, needs a `reason` and respects the destination's timing guard (BR-RES-12). Neither endpoint records or changes payments; "complete and collect" in the CRM is this call plus a payment in the next increment.
+- A correction switches `COMPLETED` ↔ `NO_SHOW`, needs a `reason` and respects the destination's timing guard (BR-RES-12). Neither endpoint records or changes payments; "complete and collect" in the CRM is this call plus `POST /payments` ([§7.8](#78-payments-verified-payments-and-explicit-allocation)). A `COMPLETED` booking may still have a balance due (INV-RES-05).
 
-**`POST /bookings/{id}/remainder-walk-ins` — CU-10 A5.** For a booking completed or marked no-show early, it creates a `CONFIRMED` CRM booking inside the private remainder of the same resource, adjusting the remainder atomically (BR-RES-17). A slot outside the remainder returns `422 not_in_private_remainder`. The same customer, deposit and policy checks as `POST /bookings` apply.
+**`POST /bookings/{id}/remainder-walk-ins` — CU-10 A5.** For a booking completed or marked no-show early, it creates a CRM booking inside the private remainder of the same resource, adjusting the remainder atomically (BR-RES-17). A slot outside the remainder returns `422 not_in_private_remainder`. The same customer, deposit and policy checks as `POST /bookings` apply; *(added 2026-11-10)* the request therefore accepts the same `acknowledgeBlockedCustomer`, `depositException` and `deposit` inputs, and the result is `CONFIRMED` or `PENDING_PAYMENT_REVIEW` under the same rules.
 
 ### 7.6 `customers`: customers, restrictions and incidents
 
@@ -375,6 +409,109 @@ HOLD creation, confirmation and expiry have no HTTP endpoint: a HOLD exists only
 - **Indicators are derived** (**Defined:** [ERD §6.4](./erd.md#64-module-2--customers), BR-CLI-06–07, BR-CLI-12): `noShowCount` counts the customer's current `NO_SHOW` bookings as requester; `lateCancellationCount` and `lateRescheduleCount` come from booking events; `problematic` is `true` from two no-shows and restricts nothing.
 - **Notice preferences are read-only here.** The customer changes them over WhatsApp (CU-19); recording consent given in person from the CRM is still a proposal in UC-02, so no endpoint changes them.
 - **Deletion:** a customer with `deletionStatus: REQUESTED` stays visible so personnel can resolve their bookings and money before `deletionDueAt` (BR-DAT-08). After execution, the name and phone may be `null` (BR-DAT-03).
+
+### 7.7 `payments`: evidence and human review
+
+> **Added 2026-11-10** by author decision D-1 ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)): the priority money operations are specified here, in §7.8–§7.10 and in the OpenAPI `payments` tag. Proposed for team review. There is no gateway or bank API: every verification is a person checking the account (BR-SEN-07, BR-SEN-08).
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `POST /payment-evidence-uploads` | `uploadPaymentEvidence` | `payments.record` | Multipart `file`; owner command of `payments`, stored through `assets`. Returns `EvidenceUpload` with `expiresAt` |
+| `POST /bookings/{bookingId}/payment-reviews` | `submitPaymentEvidence` | `payments.record` | `workflows` with `payments`, `bookings`, `assets`. An upload ID or typed transfer details; goes straight to human review |
+| `GET /payment-reviews?status&bookingId` | `listPaymentReviews` | `payments.view` | Queue, oldest first, `PENDING` by default; cursor pagination. Composition of `payments` and `bookings` |
+| `GET /payment-reviews/{reviewId}` | `getPaymentReview` | `payments.view` | Same composition |
+| `GET /payment-reviews/{reviewId}/evidence` | `getPaymentReviewEvidence` | `payments.view` | The file, with `Cache-Control: private, no-store`; `409 evidence_unavailable` for text evidence or a file deleted under retention (BR-DAT-03) |
+| `POST /payment-reviews/{reviewId}/approve` | `approvePaymentReview` | `payments.verify` | `workflows` with `payments`, `bookings`, `notifications` |
+| `POST /payment-reviews/{reviewId}/reject` | `rejectPaymentReview` | `payments.verify` | Same coordinator |
+
+### API-DM-19: Evidence reaches people through review; only a human decision approves or rejects
+
+- **Defined:** A `PaymentReview` is human evaluation of evidence; a `Payment` is verified money; rejected evidence creates no payment (BR-COB-04, INV-PAY-10). Credit needs human verification and explicit allocation (BR-SEN-07). The agent attaches evidence but never approves (BR-COB-07, INV-PAY-04). Screening only routes evidence (BR-SEN-14–16, [§10.1](#101-receipt-evidence-screening-is-not-human-review)). Only human rejections count for BR-SEN-10. The attempt boundary after a decision is pending (P-40).
+- **Rule (Proposed):**
+  - **Upload first, then reference.** Files enter only through `POST /payment-evidence-uploads`; a review or a CRM booking references the upload ID in JSON. Every command stays JSON with one idempotency fingerprint, and `POST /bookings` can attach evidence in the same transaction that creates the occupancy (BR-SEN-09). An upload is private, proves nothing and is not a review; one upload backs one review (`409 upload_already_used`). An upload not linked before `expiresAt`, proposed at 24 hours, is deleted ([API-Q-12](#13-decisions-and-open-questions)). Media types and size limits are the CON-03 storage contract (`400 unsupported_media_type`, `file_too_large`).
+  - **Evidence from the CRM.** Personnel attach what a customer gave them for a booking that still occupies or has a balance. The server derives `purpose`: `INITIAL_DEPOSIT` for an unconfirmed booking, `SUPPLEMENTAL_DEPOSIT` when a supplement is requested, otherwise `BALANCE`. It goes to human review without preliminary screening (`arrivedVia: CRM_SUBMISSION`), as CU-03 CRM step 2b describes the CRM receipt ([API-Q-17](#13-decisions-and-open-questions)). A `HOLD` receives evidence only over WhatsApp: `422 hold_evidence_via_whatsapp`, because [INV §2.1](../product-specs/uc-03/invariants.md#21-allowed-transitions) gives `HOLD → PENDING_PAYMENT_REVIEW` to the customer only. An `EXPIRED` or `CANCELLED` booking returns `422 booking_released`: verified late money is recorded as a payment without allocation and never revives the slot (BR-COB-12, BR-SEN-16).
+  - **`arrivedVia` is routing, not a verdict.** Values: `PLAUSIBLE_FILE`, `ESCALATED_AFTER_TWO_ATTEMPTS`, `SCREENING_INCONCLUSIVE` (an uncertain result and a technical failure, which BR-SEN-15 treats alike), `TEXT_FALLBACK` and `CRM_SUBMISSION`. They tell personnel what to look at; none says "rejected by AI" or "verified by AI". The screening result values themselves belong to CON-03.
+  - **P-40 is not assumed.** A review exposes no attempt counter, and neither decision says whether a next file would be a first or a second attempt.
+  - **Approval** records that a person checked the actual credit: `verifiedAmount` (what was credited, never `declaredAmount`), the account that received it (by default the expected one; `422 receiving_account_required` if the review has none), and explicit `allocations`, which may be `[]` with an `unallocatedReason`. It creates exactly one `TRANSFER` payment linked to the review. Only the listed allocations reduce balances; when they bring an unconfirmed booking's initial deposit to its threshold, the booking is confirmed once (`bookingEffect: CONFIRMED`). With no allocation, the booking shows `AWAITING_ALLOCATION` ([API-Q-13](#13-decisions-and-open-questions)).
+  - **Rejection** records a `reason` and creates no payment. For initial evidence without verified partial funds, the first distinct human rejection opens the 15-minute window (`CORRECTION_WINDOW_OPENED`), and a second may cancel before start after the rechecks of BR-SEN-10 (`CANCELLED`, with notices). A technical duplicate is not distinct. A supplemental or balance review, or a booking with verified partial funds, leaves the booking unchanged (`NONE`; BR-SEN-11, CU-09 A3).
+  - **Errors:** `409 review_already_decided` when the review is no longer pending, including the loser of two simultaneous approvals (EJ-20); `409 state_changed` when the booking changed and the decision cannot apply as sent; the allocation reasons of [§7.8](#78-payments-verified-payments-and-explicit-allocation).
+- **Example:** CU-03 A4 ending well. A second unrelated screenshot is escalated; Staff find $3,000 in the business account, approve with one allocation, and the booking is confirmed ([§8](#8-representative-examples)).
+
+### 7.8 `payments`: verified payments and explicit allocation
+
+> **Added 2026-11-10** by author decision D-1. Proposed for team review.
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /receiving-accounts` | `listReceivingAccounts` | `payments.view` | To choose the account that actually received a transfer. Managing accounts stays in [§11.2](#112-next-contract-increment) |
+| `GET /payments?customerId&bookingId&method&availableOnly&from&to` | `listPayments` | `payments.view` | Newest verification first; cursor pagination; `availableOnly` finds funds still to allocate |
+| `POST /payments` | `recordPayment` | `payments.record` for cash, `payments.verify` for a transfer | `workflows` with `payments`, `bookings`, `notifications` |
+| `GET /payments/{paymentId}` | `getPayment` | `payments.view` | With its allocations |
+| `POST /payments/{paymentId}/allocations` | `allocatePayment` | `payments.allocate` | Same coordinator |
+| `POST /payment-allocations/{allocationId}/reversal` | `reversePaymentAllocation` | `payments.allocate` | Owner command of `payments` |
+
+### API-DM-20: A payment is verified money; only listed allocations reduce a balance
+
+- **Defined:** A payment is verified commercial money with a known origin and may have no allocations (BR-COB-02, INV-PAY-05). Cash is verified when the person receiving it records it; a transfer, when someone checks the credit; neither needs an image (BR-COB-05, BR-COB-06, BR-COB-08). Allocations are explicit, atomic, idempotent and capped by charge balance and available funds (BR-COB-03, BR-COB-17, INV-PAY-07). Cash needs an open session, or the configured automatic opening (BR-CAJA-03, INV-CAJA-08). Possible manual duplicates are kept and flagged (INV-PAY-08, a proposal in UC-03).
+- **Rule (Proposed):**
+  - **`POST /payments`** takes `method`, `amount` (greater than zero), `commercialOrigin`, optional `bookingId` and `customerId`, `receivingAccountId` (required for a transfer and absent for cash, otherwise `400`), optional `allocations` and `unallocatedReason`. The payment, its cash movement and its allocations commit together; on any refusal nothing is recorded.
+  - **Cash.** With automatic opening configured, the first cash payment opens the session (`cashSession.openedByThisPayment: true`); otherwise `409 cash_session_not_open`. Collection and close are serialized: if the close commits first, the payment needs a new session (CU-13 A4). The payment links its movement once, so the same money is never counted twice.
+  - **Allocation** is always a list the person chose: `chargeId` and `amount`, up to 20 items, all or nothing, across bookings of the same tenant when needed. Each item is checked against the current balance and available funds (`422 allocation_exceeds_charge_balance` or `allocation_exceeds_available_funds`, with `allocationLimit`; [API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition)). When allocations to the service charge of an unconfirmed booking reach its initial-deposit threshold, the booking is confirmed in the same transaction; for a `HOLD` paid at the counter this follows the personnel row that [INV §2.1](../product-specs/uc-03/invariants.md#21-allowed-transitions) still marks as a proposal. The response returns the payment and every affected `BookingSummary`.
+  - **Reversal** marks an allocation `REVERSED` with a reason and frees its funds. It never changes a booking status: no automatic unconfirmation or cancellation ([API-Q-14](#13-decisions-and-open-questions)). A second reversal returns `409 allocation_already_reversed`.
+  - **Possible duplicates** appear in `possibleDuplicateOf` and never block the payment; the matching criterion is implementation.
+  - Recording corrections and refunds stay in [§11.2](#112-next-contract-increment). `refundedAmount` is already part of `Payment`, so `availableAmount` keeps its meaning when they arrive.
+
+### 7.9 `payments`: booking financial state
+
+> **Added 2026-11-10** by author decision D-2. Proposed for team review.
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /bookings/{bookingId}/financial-state` | `getBookingFinancialState` | `payments.view` | Composition of `payments` and `bookings`; tag `payments` because the state it shows is financial |
+
+### API-DM-21: Initial deposit, supplemental deposit, credit, outcome and cash are separate fields
+
+- **What:** The rewritten Issue asks to represent pending review, partial-deposit waiting and supplemental deposit separately from credit, service outcome and physical cash balance.
+- **Defined:** The booking, the charge and the payment are kept apart, and the register records where physical cash is (UC-03 §10). Booking and payment state are independent (INV-RES-05). A supplemental deposit after a reschedule is requested afterwards and never auto-cancels (BR-CAN-10, BR-SEN-10, CU-09 A3). Transfers are never added to physical cash (BR-CAJA-07). A price increase is a `SUPPLEMENT` charge linked to its change request ([ERD `Charge`](./erd.md#charge)).
+- **Rule (Proposed):** each concept has one place:
+
+| Concept | Field | Where | Why there |
+|---|---|---|---|
+| Service outcome | `status` (`COMPLETED`, `NO_SHOW`) | `BookingSummary` | Only `bookings` changes it, and it says nothing about money (BR-COB-09) |
+| Initial deposit: review, correction, awaiting allocation, partial, met | `depositState` | `BookingSummary`; amounts in `deposit` of the financial state | It governs confirmation and occupancy, so the agenda needs it on every booking |
+| Supplemental deposit after a reschedule | `supplementalDepositState` | `BookingSummary`; amounts in `supplementalDeposit` and in `RescheduleResult` | The booking is already `CONFIRMED`. Folding the supplement into `depositState` would show a confirmed booking as `UNDER_REVIEW` or `PARTIAL`, which the CRM reads as unconfirmed and BR-SEN-10 could treat as releasable. A separate field keeps both meanings and is additive (API-DM-16) |
+| Credit: verified money and its allocations | `charges`, `payments`, `balanceDue`, `unallocatedLinkedFunds`, `pendingReviewIds` | Financial state only | Several payments, methods and allocations per booking are too heavy for every agenda row; one read composition above `payments` and `bookings` serves the detail |
+| Physical cash balance | `totals.expectedCash` | `CashSession` only, never a booking | It belongs to the tenant's shared register. A booking's money may be a transfer, and a per-booking cash figure would mix where money is with what is owed (BR-CAJA-07, INV-CAJA-04) |
+
+  - `deposit.required` is the initial threshold; `supplementalDeposit.required` is the additional amount beyond the verified deposit; `BookingSummary.requiredDeposit` stays the requirement of the current conditions, which after a reschedule is their sum. How the supplemental requirement is stored stays ERD T-03/T-05.
+  - `supplementalDepositState` is `REQUESTED` (owed, no evidence in review), `UNDER_REVIEW` or `MET`. A rejected supplemental receipt returns to `REQUESTED`, with no correction window and no automatic cancellation. No operation closes an unpaid supplement without collecting it ([API-Q-16](#13-decisions-and-open-questions)).
+  - Every amount is computed by the backend (BR-SEN-05); clients only display it.
+
+### 7.10 `payments`: cash session
+
+> **Added 2026-11-10** by author decision D-1. Cash is a `payments` subfeature ([modules MOD-DM-01](./modules.md#mod-dm-01-nine-business-modules-and-two-platform-modules)); every operation below is an owner command or query. Proposed for team review.
+
+| Method and path | Operation | Permission | Notes |
+|---|---|---|---|
+| `GET /cash-sessions/current` | `getCurrentCashSession` | `payments.view` | The open session or `null`, the previous close and whether automatic opening is on |
+| `GET /cash-sessions` | `listCashSessions` | `payments.view` | Newest first; cursor pagination |
+| `GET /cash-sessions/{sessionId}` | `getCashSession` | `payments.view` | Totals, close and adjustments |
+| `GET /cash-sessions/{sessionId}/movements` | `listCashMovements` | `payments.view` | In order of occurrence; cursor pagination |
+| `POST /cash-sessions` | `openCashSession` | `cash.operate` | `409 cash_session_already_open` (INV-CAJA-01) |
+| `POST /cash-sessions/{sessionId}/movements` | `recordCashMovement` | `cash.movements` | `CASH_IN` or `CASH_OUT` with a reason; `409 cash_session_not_open` |
+| `POST /cash-sessions/{sessionId}/close` | `closeCashSession` | `cash.operate` | `expectedRevision` and `countedAmount`; `409 stale_revision` or `cash_session_not_open` |
+| `POST /cash-sessions/{sessionId}/adjustments` | `recordCashAdjustment` | Admin only | `expectedRevision`, a non-zero signed amount and a reason; `409 cash_session_not_closed` or `stale_revision` |
+
+### API-DM-22: One shared cash session with physical totals; transfers shown apart
+
+- **Defined:** BR-CAJA-01–11, INV-CAJA-01–09, BR-COB-11 and EJ-21, EJ-36–39.
+- **Rule (Proposed):**
+  - **Totals.** `cashPayments`, `cashRefunds`, `cashIn`, `cashOut` and `expectedCash`, which is opening cash plus signed physical movements, each cash payment counted once through its movement. `verifiedTransfers` while the session was open is shown apart and never added (EJ-37).
+  - **Opening.** The first session declares `openingAmount`. Later, `getCurrentCashSession` shows the previous counted cash; a different amount needs `reconciliationReason` (`422 opening_difference_requires_reason`) and is recorded in `openingReconciliation` without touching the closed session. Accepting a difference with a reason is a proposal ([API-Q-15](#13-decisions-and-open-questions)). Automatic opening takes the previous counted cash (EJ-39).
+  - **Close.** Manual, with `countedAmount` and the `expectedRevision` the person reviewed ([API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition)). It records who closed, when, expected and counted cash and the signed `difference`, which is allowed (BR-CAJA-06). Unpaid bookings never block it (BR-CAJA-08). The session survives midnight until then (BR-CAJA-11) and is immutable afterwards: no endpoint changes a closed session or its movements.
+  - **Movements.** `CASH_IN` and `CASH_OUT` carry a reason and the responsible person, only in the open session. `PAYMENT` and `REFUND` movements are created by those operations, never posted here.
+  - **Adjustments.** Admin only (`403 admin_only`), only on a closed session, with a non-zero signed amount, a reason and an optional link to the movement or payment. They append to `adjustments` and `adjustmentsTotal`; `close` stays as recorded (EJ-21). They are not a general financial log, a refund or a transfer correction (BR-COB-11).
+  - Cash settings, such as automatic opening, remain configuration in [§11.2](#112-next-contract-increment).
 
 ## 8. Representative examples
 
@@ -410,6 +547,7 @@ The same examples are under `components.examples` in the [OpenAPI file](./api-co
     "agreedPrice": "8000.00",
     "requiredDeposit": null,
     "depositState": "NOT_REQUIRED",
+    "supplementalDepositState": null,
     "pendingOperationalClose": false,
     "holdExpiresAt": null
   },
@@ -579,6 +717,303 @@ After the customer accepts, the CRM sends it again with a new idempotency key:
 }
 ```
 
+**Money flows** *(added 2026-11-10)*. One WhatsApp booking for a $10,000 service with a $3,000 deposit, created at 15:00 with a HOLD until 15:10.
+
+**A second clearly unrelated screenshot, escalated to human review** — `GET …/payment-reviews/{reviewId}`. It is not a rejection; nothing says what the AI thought of the file (BR-SEN-14):
+
+<!-- example: PaymentReview -->
+```json
+{
+  "id": "9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a",
+  "status": "PENDING",
+  "purpose": "INITIAL_DEPOSIT",
+  "arrivedVia": "ESCALATED_AFTER_TWO_ATTEMPTS",
+  "booking": {
+    "id": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+    "status": "PENDING_PAYMENT_REVIEW",
+    "startAt": "2026-11-12T14:00:00Z",
+    "customer": { "id": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d", "fullName": "Lucía Fernández" },
+    "service": { "id": "3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d", "name": "Color" }
+  },
+  "changeRequestId": null,
+  "evidence": { "kind": "FILE", "mediaType": "image/jpeg", "text": null, "receivedAt": "2026-11-10T15:08:12Z" },
+  "declaredAmount": null,
+  "expectedReceivingAccount": {
+    "id": "5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b",
+    "label": "Cuenta del negocio",
+    "holderName": "Barbería Centro"
+  },
+  "submittedAt": "2026-11-10T15:08:19Z",
+  "decision": null
+}
+```
+
+**Staff find the credit in the account and allocate it** — `POST …/payment-reviews/{reviewId}/approve`:
+
+<!-- example: ApprovePaymentReviewRequest -->
+```json
+{
+  "verifiedAmount": "3000.00",
+  "receivingAccountId": null,
+  "allocations": [{ "chargeId": "6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b", "amount": "3000.00" }]
+}
+```
+
+`200 OK`: one verified payment, one allocation, and the booking confirmed in the same transaction (BR-SEN-07, EJ-20):
+
+<!-- example: PaymentReviewDecisionResult -->
+```json
+{
+  "review": {
+    "id": "9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a",
+    "status": "APPROVED",
+    "purpose": "INITIAL_DEPOSIT",
+    "arrivedVia": "ESCALATED_AFTER_TWO_ATTEMPTS",
+    "booking": {
+      "id": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+      "status": "CONFIRMED",
+      "startAt": "2026-11-12T14:00:00Z",
+      "customer": { "id": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d", "fullName": "Lucía Fernández" },
+      "service": { "id": "3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d", "name": "Color" }
+    },
+    "changeRequestId": null,
+    "evidence": { "kind": "FILE", "mediaType": "image/jpeg", "text": null, "receivedAt": "2026-11-10T15:08:12Z" },
+    "declaredAmount": null,
+    "expectedReceivingAccount": {
+      "id": "5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b",
+      "label": "Cuenta del negocio",
+      "holderName": "Barbería Centro"
+    },
+    "submittedAt": "2026-11-10T15:08:19Z",
+    "decision": {
+      "decidedByMembershipId": "4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b",
+      "decidedAt": "2026-11-10T15:31:05Z",
+      "paymentId": "2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f",
+      "rejectionReason": null
+    }
+  },
+  "payment": {
+    "id": "2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f",
+    "method": "TRANSFER",
+    "amount": "3000.00",
+    "commercialOrigin": "Seña de la reserva del 12/11",
+    "bookingId": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+    "customerId": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d",
+    "receivingAccountId": "5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b",
+    "paymentReviewId": "9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a",
+    "verifiedByMembershipId": "4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b",
+    "verifiedAt": "2026-11-10T15:31:05Z",
+    "allocatedAmount": "3000.00",
+    "refundedAmount": "0.00",
+    "availableAmount": "0.00",
+    "unallocatedReason": null,
+    "cashMovementId": null,
+    "possibleDuplicateOf": [],
+    "allocations": [
+      {
+        "id": "8e0a2c4e-6a8b-4e0a-9c4e-6a8b0d2f4a6c",
+        "paymentId": "2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f",
+        "chargeId": "6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b",
+        "bookingId": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+        "amount": "3000.00",
+        "status": "ACTIVE",
+        "createdByMembershipId": "4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b",
+        "createdAt": "2026-11-10T15:31:05Z",
+        "reversedByMembershipId": null,
+        "reversedAt": null,
+        "reversalReason": null
+      }
+    ]
+  },
+  "booking": {
+    "id": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+    "status": "CONFIRMED",
+    "origin": "WHATSAPP",
+    "customer": { "id": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d", "fullName": "Lucía Fernández" },
+    "attendeeName": null,
+    "service": { "id": "3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d", "name": "Color" },
+    "resource": { "id": "1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f", "name": "Martín" },
+    "startAt": "2026-11-12T14:00:00Z",
+    "endAt": "2026-11-12T15:30:00Z",
+    "agreedPrice": "10000.00",
+    "requiredDeposit": "3000.00",
+    "depositState": "MET",
+    "supplementalDepositState": null,
+    "pendingOperationalClose": false,
+    "holdExpiresAt": null
+  },
+  "bookingEffect": "CONFIRMED"
+}
+```
+
+**A second member approves the same review at the same moment** — `409 Conflict`; there is still one payment (EJ-20):
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:conflict",
+  "title": "The review was already decided",
+  "status": 409,
+  "code": "conflict",
+  "reason": "review_already_decided",
+  "detail": "Another member decided this review. Reload it to see the result.",
+  "requestId": "req_01JC8Q7A1C2"
+}
+```
+
+**A rejection when no credit is found** — `POST …/payment-reviews/{reviewId}/reject`:
+
+<!-- example: RejectPaymentReviewRequest -->
+```json
+{ "reason": "No credit for this amount in the business account" }
+```
+
+**The rest of the price in cash at the counter** — `POST …/payments`, in an open session or with automatic opening (EJ-19):
+
+<!-- example: RecordPaymentRequest -->
+```json
+{
+  "method": "CASH",
+  "amount": "7000.00",
+  "commercialOrigin": "Saldo del servicio",
+  "bookingId": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+  "customerId": "e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d",
+  "receivingAccountId": null,
+  "allocations": [{ "chargeId": "6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b", "amount": "7000.00" }]
+}
+```
+
+If another member already allocated $3,000 of a different payment to that charge, the request fails as a whole, with the current caps — `422`:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:rule-violation",
+  "title": "The allocation exceeds the charge balance",
+  "status": 422,
+  "code": "rule_violation",
+  "reason": "allocation_exceeds_charge_balance",
+  "detail": "The charge has 4000.00 left to cover. Nothing was recorded or allocated.",
+  "requestId": "req_01JC8Q8F4D6",
+  "allocationLimit": { "index": 0, "chargeBalance": "4000.00", "availableFunds": "7000.00" }
+}
+```
+
+**After a reschedule to a dearer service** — `GET …/bookings/{bookingId}/financial-state`. The booking stays `CONFIRMED`, the initial deposit stays `MET` and the supplement is separate (BR-CAN-10, API-DM-21). The summary's `requiredDeposit` would now be `"4200.00"`, the sum of both:
+
+<!-- example: BookingFinancialState -->
+```json
+{
+  "bookingId": "7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e",
+  "bookingStatus": "CONFIRMED",
+  "agreedPrice": "14000.00",
+  "charges": [
+    {
+      "id": "6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b",
+      "kind": "SERVICE",
+      "changeRequestId": null,
+      "netAmount": "10000.00",
+      "allocatedAmount": "3000.00",
+      "balance": "7000.00"
+    },
+    {
+      "id": "0d2f4a6c-8e0a-4d2f-9a6c-8e0a2c4e6a8b",
+      "kind": "SUPPLEMENT",
+      "changeRequestId": "b3d5f7a9-1c3e-4b5d-9f7a-1c3e5b7d9f1a",
+      "netAmount": "4000.00",
+      "allocatedAmount": "0.00",
+      "balance": "4000.00"
+    }
+  ],
+  "balanceDue": "11000.00",
+  "deposit": {
+    "required": "3000.00",
+    "allocated": "3000.00",
+    "missing": "0.00",
+    "state": "MET",
+    "exception": false,
+    "correctionDeadlineAt": null
+  },
+  "supplementalDeposit": {
+    "changeRequestId": "b3d5f7a9-1c3e-4b5d-9f7a-1c3e5b7d9f1a",
+    "required": "1200.00",
+    "allocated": "0.00",
+    "missing": "1200.00",
+    "state": "REQUESTED",
+    "requestedAt": "2026-11-11T13:02:00Z"
+  },
+  "payments": [
+    {
+      "paymentId": "2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f",
+      "method": "TRANSFER",
+      "amount": "3000.00",
+      "allocatedHere": "3000.00",
+      "verifiedAt": "2026-11-10T15:31:05Z"
+    }
+  ],
+  "unallocatedLinkedFunds": "0.00",
+  "pendingReviewIds": []
+}
+```
+
+**Close the cash session** — `POST …/cash-sessions/{sessionId}/close`, with the revision of the totals the person reviewed (API-DM-18):
+
+<!-- example: CloseCashSessionRequest -->
+```json
+{ "expectedRevision": 14, "countedAmount": "17000.00", "note": null }
+```
+
+`200 OK` for EJ-36 and EJ-37: $2,000 opening, $15,000 in cash payments, $1,000 other cash-in and $500 cash-out make $17,500 expected; $17,000 counted records −$500. The $20,000 in transfers are shown apart:
+
+<!-- example: CashSession -->
+```json
+{
+  "id": "a1c3e5f7-9b1d-4c3e-8f7a-9b1d3f5a7c9e",
+  "status": "CLOSED",
+  "openMode": "MANUAL",
+  "openedAt": "2026-11-10T11:00:00Z",
+  "openedByMembershipId": "0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f",
+  "openingAmount": "2000.00",
+  "previousSessionId": "f7a9c1e3-5b7d-4f9a-8c1e-3b5d7f9a1c3e",
+  "openingReconciliation": { "previousCountedAmount": "2000.00", "difference": "0.00", "reason": null },
+  "revision": 15,
+  "totals": {
+    "cashPayments": "15000.00",
+    "cashRefunds": "0.00",
+    "cashIn": "1000.00",
+    "cashOut": "500.00",
+    "expectedCash": "17500.00",
+    "verifiedTransfers": "20000.00"
+  },
+  "close": {
+    "closedAt": "2026-11-10T23:10:00Z",
+    "closedByMembershipId": "0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f",
+    "countedAmount": "17000.00",
+    "expectedAmount": "17500.00",
+    "difference": "-500.00",
+    "note": null
+  },
+  "adjustments": [],
+  "adjustmentsTotal": "0.00"
+}
+```
+
+**A cash payment entered after the person reviewed the totals** — `409 Conflict`; nothing is closed, and the person reviews again before closing with a new idempotency key:
+
+<!-- example: Problem -->
+```json
+{
+  "type": "urn:agendoxa:problem:conflict",
+  "title": "The cash session changed",
+  "status": 409,
+  "code": "conflict",
+  "reason": "stale_revision",
+  "detail": "A movement was recorded after you reviewed the totals. Review the expected cash again before closing.",
+  "requestId": "req_01JC8Q9K2M8",
+  "currentRevision": 15
+}
+```
+
 ## 9. Shared schemas in `packages/shared`
 
 ### API-DM-14: `packages/shared` holds the HTTP contracts, as Zod schemas, and nothing else
@@ -593,15 +1028,16 @@ After the customer accepts, the CRM sends it again with a new idempotency key:
 
 | File (proposed) | Schemas | Used by |
 |---|---|---|
-| `src/contracts/common.ts` | `Uuid`, `Instant`, `LocalDate`, `LocalTime`, `Money`, `Minutes`, `PhoneE164`, `Weekday`, `Reason`, `Page`, `TimeRange`, `NamedRef` | All of the below |
-| `src/contracts/problem.ts` | `Problem`, `LateChangeNotice` | Web error handling; API error filter |
+| `src/contracts/common.ts` | `Uuid`, `Instant`, `LocalDate`, `LocalTime`, `Money`, `PositiveMoney`, `SignedMoney`, `NonZeroSignedMoney`, `Minutes`, `PhoneE164`, `Weekday`, `Reason`, `Page`, `TimeRange`, `NamedRef` | All of the below |
+| `src/contracts/problem.ts` | `Problem`, `LateChangeNotice`, `AllocationLimit` | Web error handling; API error filter |
 | `src/contracts/session.ts` | `SignInRequest`, `SessionView`, `MembershipSummary`, `TenantContextView` | Web sign-in and business selector |
 | `src/contracts/tenants.ts` | `TenantProfile`, `UpdateTenantProfileRequest`, `PublicBusinessProfile`, `WeeklyHours` | CRM settings; landing |
 | `src/contracts/catalog.ts` | `Service`, `Resource`, their create and update requests, `PublicService`, `DepositRule`, `TenantPolicyFields`, `OverridePolicyFields`, `BookingPolicy`, `EffectiveBookingPolicy`, `PolicySource`; calendars: `Calendar`, `WeeklyRules`, `AvailabilityException`, `CreateAvailabilityExceptionRequest`, `ResourceWindows` | CRM configuration, hours and blocks; landing |
-| `src/contracts/bookings.ts` | `BookingStatus`, `DepositState`, `BookingSummary`, `BookingDetail`, `BookingEvent`, `FreeSlot`, `AgendaView`, `CustomerInput`, `AdminException`, the command requests, `RescheduleResult` | CRM agenda and booking actions |
+| `src/contracts/bookings.ts` | `BookingStatus`, `DepositState`, `SupplementalDepositState`, `BookingSummary`, `BookingDetail`, `BookingEvent`, `FreeSlot`, `AgendaView`, `CustomerInput`, `AdminException`, `DepositInput`, `DepositAllocationItem`, the command requests, `RescheduleResult` | CRM agenda and booking actions |
 | `src/contracts/customers.ts` | `CustomerSummary`, `CustomerDetail`, `CustomerIndicators`, `CreateCustomerRequest`, `UpdateCustomerRequest`, `Restriction`, `RestrictionKind`, the restriction requests, `Incident`, `CreateIncidentRequest` | CRM customers |
+| `src/contracts/payments.ts` *(added 2026-11-10)* | Evidence: `EvidenceUpload`, `EvidenceInput`, `SubmitPaymentEvidenceRequest`, `PaymentReview`, `PaymentReviewStatus`, `ReviewArrival`, `ApprovePaymentReviewRequest`, `RejectPaymentReviewRequest`, `PaymentReviewDecisionResult`. Money: `PaymentMethod`, `Payment`, `PaymentAllocation`, `AllocationItem`, `RecordPaymentRequest`, `PaymentResult`, `AllocatePaymentRequest`, `ReverseAllocationRequest`, `AllocationResult`, `ReceivingAccount`. Financial state: `BookingFinancialState`, `ChargeView`, `InitialDeposit`, `SupplementalDeposit`. Cash: `CashSession`, `CashTotals`, `CashMovement`, `CashAdjustment`, `CurrentCashSessionView` and the cash requests | CRM review queue, collection and cash register |
 
-Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nine-business-modules-and-two-platform-modules); calendar schemas live in `catalog.ts` because calendars belong to `catalog` *(reconciled 2026-11-10; the earlier `availability.ts` is merged)*. Adding these schemas is a [shared change](./modules.md#9-technical-autonomy-and-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
+Files follow the owner modules of [modules MOD-DM-01](./modules.md#mod-dm-01-nine-business-modules-and-two-platform-modules); calendar schemas live in `catalog.ts` because calendars belong to `catalog` *(reconciled 2026-11-10; the earlier `availability.ts` is merged)*, and cash schemas live in `payments.ts` for the same reason. The multipart `EvidenceUploadForm` is not a Zod schema: the API validates the file with the CON-03 storage rules. Adding these schemas is a [shared change](./modules.md#9-technical-autonomy-and-shared-changes) for `apps/web` and `apps/api`. They are created with the first endpoint that uses them, not all at once.
 
 ## 10. Internal consumers: the agent
 
