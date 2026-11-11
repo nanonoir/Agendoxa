@@ -64,8 +64,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         : {}),
     };
 
+    // Overrides any cache header a handler set before failing: errors are
+    // never cached by shared caches.
     response
       .status(problem.status)
+      .setHeader('Cache-Control', 'no-store')
       .setHeader('X-Request-Id', requestId)
       .type('application/problem+json')
       .send(JSON.stringify(problem));
