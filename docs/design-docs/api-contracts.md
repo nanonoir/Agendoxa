@@ -6,6 +6,7 @@
 > **Files:** this document and the [OpenAPI 3.1 specification](./api-contracts.openapi.yaml) it explains.
 > **Out of scope:** Controllers, endpoints, business logic, authentication, frontend or provider integrations as code; provider contracts ([CON-03 #12](https://github.com/nanonoir/Agendoxa/issues/12)); contracts for features outside the MVP.
 > **Reconciled:** 2026-11-10, with CON-01 as consolidated at `5f31914` (nine functional modules plus `audit` and `assets`, `workflows` coordinators), UC-03 BR-SEN-14–16 and INV-SEN-12–13, and Issues [#11](https://github.com/nanonoir/Agendoxa/issues/11) and [#12](https://github.com/nanonoir/Agendoxa/issues/12) as rewritten on 2026-11-09. Changed sections carry a *Reconciled 2026-11-10* note and are listed in [§16](#16-reconciliation-log).
+> **Author decisions:** 2026-11-10, D-1, D-2, D-3 and D-5 of [§14.1](#141-scope-differences-with-the-rewritten-issue-11), applied in API-DM-18 to API-DM-23 and the `payments` contracts of §7.7–§7.10; listed in [§16](#16-reconciliation-log). They are proposals for team review, not ratification.
 > **Next step:** Team review. Decisions are `API-DM-XX`, all **Proposed for team review**; open questions are `API-Q-XX` in [§13](#13-decisions-and-open-questions); scope differences with the rewritten Issue are in [§14.1](#141-scope-differences-with-the-rewritten-issue-11).
 
 ## 1. How to use this document
@@ -40,23 +41,26 @@
   No public endpoint returns free slots, resources' occupancy or anything about customers or bookings. The slug only selects the business to display ([TEN-DM-07](./tenancy.md#ten-dm-07-every-entry-point-has-one-source-of-tenant-context)). Location is missing from the data model ([API-Q-01](#13-decisions-and-open-questions)). The weekly hours come from `catalog` and the WhatsApp link from `messaging`; CON-01 §8.1 names only `tenants` information and `catalog` services, so the team should confirm these two projections ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)).
 - **Recorded:** [§14](#14-reconciliation-with-sources) marks the former difference with the Issue as resolved. [UC-03 §17](../product-specs/uc-03/business-rules.md#17-differences-with-earlier-documents) still describes the Issue's earlier text; that product document is not edited here.
 
-### API-DM-02: Full contracts for context and five areas; the rest of the CRM is identified
+### API-DM-02: Full contracts for context, five areas and the priority money flows; the rest of the CRM is identified
 
-- **What:** The Issue asks for initial contracts for services, resources, hours, internal availability, customers and bookings, while the MVP's CRM also covers payments, cash, conversations, roles, the WhatsApp channel and audit. *Reconciled 2026-11-10: the rewritten Issue also asks for the priority receipt/review, allocation, financial-state and cash operations those flows need, and for typed internal contracts. This increment does not yet cover them; the difference is listed for the team in [§14.1](#141-scope-differences-with-the-rewritten-issue-11) instead of being decided here.*
-- **Rule (Proposed):** This increment specifies, with schemas and OpenAPI, the session and tenant context, the business profile, catalog, availability, customers, bookings and the public endpoints. The remaining CRM operations are identified with method, path, owner and use case in [§11.2](#112-next-contract-increment), so that their later contracts keep the same conventions.
+- **What:** The Issue asks for initial contracts for services, resources, hours, internal availability, customers and bookings, while the MVP's CRM also covers payments, cash, conversations, roles, the WhatsApp channel and audit. *Reconciled 2026-11-10: the rewritten Issue also asks for the priority receipt/review, allocation, financial-state and cash operations those flows need, and for typed internal contracts. Updated the same day by author decisions D-1 and D-3 ([§14.1](#141-scope-differences-with-the-rewritten-issue-11)): the money operations are specified here, and the typed tool contracts go to CON-03.*
+- **Rule (Proposed):** This increment specifies, with schemas and OpenAPI, the session and tenant context, the business profile, catalog, availability, customers, bookings and the public endpoints, and *(since D-1)* the payment operations the deposit, collection and cash flows need: evidence upload and human review, verified payments, explicit allocation and its reversal, the booking financial state, receiving-account reads and the cash session ([§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session)). The remaining CRM operations, including payment corrections, refunds and collection settings, are identified with method, path, owner and use case in [§11.2](#112-next-contract-increment), so that their later contracts keep the same conventions.
 - **Coverage of the [UC-02 use cases](../product-specs/uc-02/use-cases.md#3-prioritized-catalog):**
 
 | Use case | Where it is served |
 |---|---|
 | CU-01, CU-04 to CU-07, CU-19, CU-23 (customer side) | WhatsApp through the agent and module facades; not HTTP ([§10](#10-internal-consumers-the-agent)) |
-| CU-02, CU-03 CRM booking, CU-04 CRM | `POST /bookings`; deposit payment and receipt recording in the next increment |
-| CU-08, CU-09 | `POST /bookings/{id}/cancel`, `POST /bookings/{id}/reschedule` (CRM) |
+| CU-02, CU-03 CRM booking, CU-04 CRM | `POST /bookings`, with the `deposit` input for verified funds or evidence (§7.5, §7.7, §7.8) |
+| CU-03 steps 6–7, A3–A5 (human side) | Review queue, approval and rejection ([§7.7](#77-payments-evidence-and-human-review)) |
+| CU-08, CU-09 | `POST /bookings/{id}/cancel`, `POST /bookings/{id}/reschedule` (CRM); the supplemental deposit in [§7.9](#79-payments-booking-financial-state) |
 | CU-10 | `POST /bookings/{id}/outcome`, `/outcome-correction`, `/remainder-walk-ins` |
+| CU-11 main flow, A1, A2, A7–A9 | Payments, allocations and financial state ([§7.8](#78-payments-verified-payments-and-explicit-allocation), §7.9); A3–A6 corrections, refunds and agreed price in the next increment |
 | CU-12 | Customer restrictions and incidents |
+| CU-13 | Cash session ([§7.10](#710-payments-cash-session)) |
 | CU-15 | Catalog, booking policies, calendars, hours, blocks and openings; roles, accounts and AI in the next increment |
 | CU-17 | Session and tenant context |
-| CU-21 | `GET /agenda`, `GET /free-slots`, `GET /bookings` |
-| CU-11, CU-13, CU-14, CU-18 | Next increment ([§11.2](#112-next-contract-increment)) |
+| CU-21 | `GET /agenda`, `GET /free-slots`, `GET /bookings`; A1 review queue in §7.7 |
+| CU-14, CU-18 | Next increment ([§11.2](#112-next-contract-increment)) |
 | CU-16, CU-22 | System jobs; no HTTP ([modules §6.6](./modules.md#66-jobs)) |
 | CU-20 | Operational tooling, a script or seed in the MVP ([CU-20](../product-specs/uc-02/use-cases.md#cu-20)); no HTTP endpoint is proposed |
 
@@ -1134,18 +1138,14 @@ CON-03 ([#12](https://github.com/nanonoir/Agendoxa/issues/12)) defines these con
 These CRM operations are needed by the MVP and identified here so that their contracts follow the same conventions. Paths are relative to `/api/v1/tenants/{tenantId}` and are **Proposed**; schemas come in the next increment.
 
 > **Reconciled 2026-11-10:** the former `cash-register` rows belong to `payments`; the "Through" column names the `workflows` coordinator where an operation changes several owners ([API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation)). Paths are unchanged.
+>
+> **Updated 2026-11-10** by author decision D-1: the review queue, evidence submission and download, approval and rejection, payments, allocations and their reversal, the cash session, its movements and adjustments are now specified in [§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session), and their rows are removed here. `GET /receiving-accounts` moved too; creating and editing accounts stays.
 
 | Owner (tag) | Method and path | Through | Use case | Note |
 |---|---|---|---|---|
-| `payments` | `GET /payment-reviews?status=PENDING` | Owner | CU-11 A1, CU-21 A1 | Review queue. Shows how each review arrived (plausible file, second clearly unrelated attempt, uncertain or failed screening, text fallback), never as a human or AI verdict ([§10.1](#101-receipt-evidence-screening-is-not-human-review)) |
-| `payments` | `POST /bookings/{bookingId}/payment-reviews` | `workflows` (`payments`, `bookings`) | CU-03 CRM 2b | Pending receipt recorded from the CRM; the booking occupies under review (BR-SEN-09) |
-| `payments` | `POST /payment-reviews/{reviewId}/approve`, `/reject` | `workflows` (`payments`, `bookings`, `notifications`) | CU-11 A1, CU-03 A3 | Human verification; only a human rejection drives BR-SEN-10 in `bookings`, never a screening discard |
-| `payments` | `POST /payments`; `POST /payments/{paymentId}/allocations`; `POST /payment-allocations/{allocationId}/reversal` | `workflows` when an allocation can confirm a booking | CU-11 | Cash requires an open session; explicit manual allocation |
-| `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | Owner | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only |
-| `payments` | `GET`, `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | Owner; `tenants` stores the field ([modules MOD-DM-06](./modules.md#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) | CU-15 | Collection mode and rotation (BR-COB-19) |
-| `payments` | `GET /payment-reviews/{reviewId}/evidence` | Owner, with `assets` | CU-11 | Authorized receipt download |
-| `payments` | `GET /cash-sessions/current`; `POST /cash-sessions`; `POST /cash-sessions/{sessionId}/close` | Owner | CU-13 | Cash subfeature; one open session per tenant |
-| `payments` | `POST /cash-sessions/{sessionId}/movements`; `POST /cash-sessions/{sessionId}/adjustments`; `PUT /settings/cash` | Owner | CU-13, CU-11 A4 | Adjustments after close are Admin-only |
+| `payments` | `POST /payments/{paymentId}/corrections`; `POST /payments/{paymentId}/refunds` | Owner; `workflows` if a correction changes a booking's deposit state | CU-11 A3, A6 | Corrections append history (T-03); refunds Admin-only. They reuse the `allocationLimit` caps and the `refundedAmount` of [§7.8](#78-payments-verified-payments-and-explicit-allocation) |
+| `payments` | `POST`, `PATCH /receiving-accounts`; `PUT /settings/collection` | Owner; `tenants` stores the field ([modules MOD-DM-06](./modules.md#mod-dm-06-shared-rows-have-one-row-owner-and-named-field-owners)) | CU-15 | Collection mode and rotation (BR-COB-19) |
+| `payments` | `PUT /settings/cash` | Owner; `tenants` stores `cash_auto_open` | CU-13, CU-15 | Automatic opening (BR-CAJA-03); configuration, last-write-wins |
 | `bookings` | `POST /bookings/{bookingId}/agreed-price` | `workflows` (`bookings`, `payments`) | CU-11 A5, BR-COB-13 | Admin-only; customer acceptance when it increases |
 | `bookings` | `PUT /settings/resource-assignment` | Owner; `tenants` stores the field | CU-15 | Preference order or rotation (BR-DISP-05) |
 | `messaging` | `GET /conversations`; `GET /conversations/{conversationId}/messages` | Owner | CU-14 | Shared inbox |
@@ -1182,7 +1182,7 @@ Every decision is **Proposed for team review**.
 | ID | Decision |
 |---|---|
 | [API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information) | No public booking; two read-only public endpoints for the landing |
-| [API-DM-02](#api-dm-02-full-contracts-for-context-and-five-areas-the-rest-of-the-crm-is-identified) | Full contracts for context and five areas; other CRM operations identified |
+| [API-DM-02](#api-dm-02-full-contracts-for-context-five-areas-and-the-priority-money-flows-the-rest-of-the-crm-is-identified) | Full contracts for context, five areas and the priority money flows; other CRM operations identified *(updated 2026-11-10, D-1)* |
 | [API-DM-03](#api-dm-03-one-versioned-base-path-reads-on-resources-transitions-as-commands) | `/api/v1`, resource reads and command endpoints; no endpoint writes `status` |
 | [API-DM-04](#api-dm-04-data-representations) | UUIDs, UTC instants, local dates and times, decimal-string money, minutes, E.164 |
 | [API-DM-05](#api-dm-05-pagination-filtering-and-sorting-only-where-lists-grow) | Cursor pagination for bookings and customers; capped ranges; explicit filters |
@@ -1198,6 +1198,12 @@ Every decision is **Proposed for team review**.
 | [API-DM-15](#api-dm-15-the-agent-reuses-module-use-cases-in-process-not-the-http-api) | The agent uses facades in-process, with customer-facing results |
 | [API-DM-16](#api-dm-16-contracts-evolve-additively-within-v1) | Additive evolution within `v1`, deprecation before removal |
 | [API-DM-17](#api-dm-17-the-openapi-file-lives-in-the-design-catalog-until-code-exists) | OpenAPI in the design catalog until generated from code |
+| [API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition) | Money operations: state guards and caps; `expectedRevision` for cash close and adjustments *(2026-11-10, D-5)* |
+| [API-DM-19](#api-dm-19-evidence-reaches-people-through-review-only-a-human-decision-approves-or-rejects) | Uploads, CRM evidence and human review; `arrivedVia` is routing, not a verdict *(2026-11-10, D-1)* |
+| [API-DM-20](#api-dm-20-a-payment-is-verified-money-only-listed-allocations-reduce-a-balance) | Verified payments and explicit, capped allocation; reversal never changes a booking status *(2026-11-10, D-1)* |
+| [API-DM-21](#api-dm-21-initial-deposit-supplemental-deposit-credit-outcome-and-cash-are-separate-fields) | Initial deposit, supplemental deposit, credit, outcome and cash in separate fields *(2026-11-10, D-2)* |
+| [API-DM-22](#api-dm-22-one-shared-cash-session-with-physical-totals-transfers-shown-apart) | One shared cash session with physical totals; transfers apart; Admin-only adjustments *(2026-11-10, D-1)* |
+| [API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes) | Typed agent tool contracts in CON-03; operations and refusal codes here *(2026-11-10, D-3)* |
 
 These questions are flagged, not resolved here.
 
@@ -1214,6 +1220,12 @@ These questions are flagged, not resolved here.
 | `API-Q-09` | Should the architecture proposal add `rule_violation` to its error categories? | API-DM-09 uses it | Team, in the architecture review | Nothing |
 | `API-Q-10` | Where do cross-owner read compositions live (public profile, agenda and booking reads with `depositState`, customer indicators, overview)? CON-01 requires them above the owners ([modules §6.4](./modules.md#64-queries-and-read-compositions)) but names no folder, and `workflows` is defined for multi-owner business operations | `tenants` and `customers` cannot import the owners they would compose ([modules MOD-DM-07](./modules.md#mod-dm-07-dependencies-only-point-to-lower-levels)) | Team, with CON-01 | The first composed endpoint |
 | `API-Q-11` | Should the CRM see a distinct condition while timely evidence is under preliminary screening? Today it shows `AWAITING_EVIDENCE` and a `holdExpiresAt` that may already have passed ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)) | A new `depositState` value would be additive (API-DM-16), but depends on how CON-03 represents screening and its failures | Team, with CON-03 | Nothing in this increment |
+| `API-Q-12` | How long is an evidence upload kept before it is linked to a review or a booking? Proposal: 24 hours, then deleted ([API-DM-19](#api-dm-19-evidence-reaches-people-through-review-only-a-human-decision-approves-or-rejects)) | It is personal data with no review yet; BR-DAT-03 covers receipts of reviews only | Product, with CON-03 storage | `uploadPaymentEvidence` |
+| `API-Q-13` | Do verified funds linked to a booking but not yet allocated (`AWAITING_ALLOCATION`) protect occupancy as a verified partial deposit does (BR-SEN-11), or does BR-SEN-10 treat the booking as having no verified partial funds? | The ERD derives partial-deposit waiting from allocations above zero, while BR-SEN-11 speaks of funds "associated with the booking" | Product | Correction-window expiry after an approval with no allocation |
+| `API-Q-14` | When an allocation that met the initial-deposit threshold is reversed, does the booking stay `CONFIRMED`? Proposal: yes; nothing unconfirms automatically ([API-DM-20](#api-dm-20-a-payment-is-verified-money-only-listed-allocations-reduce-a-balance)) | No rule covers it; INV §2.1 lists no `CONFIRMED` → unconfirmed transition | Product | Nothing; the proposal adds no transition |
+| `API-Q-15` | When declared opening cash differs from the previous counted cash, is the opening accepted with a reason? Proposal: yes, recorded in `openingReconciliation` ([API-DM-22](#api-dm-22-one-shared-cash-session-with-physical-totals-transfers-shown-apart)) | BR-CAJA-03 asks to reconcile with the previous close but not what happens with a difference | Product | `openCashSession` |
+| `API-Q-16` | How do personnel close a supplemental-deposit request they decide not to collect, for example after a late reschedule whose deposit was lost (BR-CAN-14, P-28)? | Without an operation, the supplement stays `REQUESTED` forever | Product | Nothing; the booking stays `CONFIRMED` |
+| `API-Q-17` | Does evidence attached by personnel from the CRM skip preliminary screening? Proposal: yes, as CU-03 CRM step 2b records it as pending review | BR-SEN-14 speaks of submitted evidence without naming the channel | Product | `submitPaymentEvidence` |
 
 ## 14. Reconciliation with sources
 
@@ -1233,20 +1245,22 @@ These questions are flagged, not resolved here.
 | Landing location | MVP §5.1 and §7.2 and the rewritten #11 show location | Not in the ERD | Open (API-Q-01) |
 | Weekly hours | The schema stores `weekday` 0–6 without a convention | Names in the API | Open (API-Q-07) |
 | Agreed-price change | CU-11 A5 is a payment case | `agreed_price` is a `Booking` field, so its endpoint is tagged `bookings` and goes through `workflows` because it changes the charge ([§11.2](#112-next-contract-increment)) | Proposed |
+| Money flows *(2026-11-10)* | BR-SEN-07–16, BR-COB-02–17, BR-CAJA-01–11, INV-PAY, INV-CAJA, ERD module 5, CU-03, CU-11, CU-13 | [§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session), API-DM-18 to API-DM-22 | Proposed by author decisions D-1, D-2, D-5; API-Q-12 to API-Q-17 open; P-40 not assumed |
+| Typed agent contracts *(2026-11-10)* | The rewritten #11 and #12 both ask for them | CON-03 writes them; operations and refusal codes here ([API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes)) | Proposed by author decision D-3 |
 
 ### 14.1 Scope differences with the rewritten Issue #11
 
-> **Added 2026-11-10.** These are differences between the rewritten Issue and this proposal that the documents do not settle. They are listed for the team, **not decided here**.
+> **Added 2026-11-10.** These are differences between the rewritten Issue and this proposal that the documents do not settle. *Updated the same day:* the author decided D-1, D-2, D-3 and D-5; their resolutions are **proposals for team review**, not ratified. D-4, D-6 and D-7 stay open, **not decided here**.
 
-| # | The rewritten Issue asks | This proposal today | Decision needed |
-|---|---|---|---|
-| D-1 | Priority CRM operations for receipts and human review, explicit allocation, financial states and cash "needed for those flows" | Only identified, with path, owner and coordinator, in [§11.2](#112-next-contract-increment); no schemas | Which of them are priority for CON-02, and whether they are specified in this PR or in a follow-up CON-02 increment |
-| D-2 | Represent pending review, partial-deposit waiting and **supplemental** deposit separately from credit, service outcome and physical cash balance | `depositState` covers the initial deposit (API-DM-13); `status` covers the outcome. Nothing represents the supplemental collection after a reschedule (BR-CAN-10) or the cash balance | Whether `BookingSummary` gets a separate supplemental field now, or with D-1 |
-| D-3 | Typed contracts for internal consumers that are not HTTP (agent tools) | [§10](#10-internal-consumers-the-agent) lists the operations and refusal codes; tool input and output schemas are left to CON-03, whose rewritten #12 also asks for "typed contracts" for the agent | Which ticket owns the typed tool contracts, or how CON-02 and CON-03 split them |
-| D-4 | Minimum contracts for transactional participation between owners: results and required locks or preconditions, without ORM types | API-DM-12 names each coordinator and its participants; the protocol itself is CON-01 MOD-DM-08. No participant signature or per-operation lock order is written here | Whether CON-02 specifies those application contracts or CON-01 / implementation ([#31](https://github.com/nanonoir/Agendoxa/issues/31)) does |
-| D-5 | Versions and preconditions for concurrency | Commands recheck current state; configuration is last-write-wins without `ETag` ([API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins)) | Confirm that this answers the Issue, or require conditional requests now |
-| D-6 | Public informational hours and the WhatsApp link | Included in the public profile (API-DM-01), composed from `catalog` and `messaging` | CON-01 §8.1 allows only `tenants` information and `catalog` services; confirm the two projections in the CON-01 review |
-| D-7 | Public location | Not in the ERD | API-Q-01, unchanged |
+| # | The rewritten Issue asks | This proposal before the decision | Decision needed | Status |
+|---|---|---|---|---|
+| D-1 | Priority CRM operations for receipts and human review, explicit allocation, financial states and cash "needed for those flows" | Only identified, with path, owner and coordinator, in [§11.2](#112-next-contract-increment); no schemas | Which of them are priority for CON-02, and whether they are specified in this PR or in a follow-up CON-02 increment | **Resolved 2026-11-10 by author decision, proposed for review:** specified in this document with endpoint, permission, schemas, errors, idempotency, examples, owner and coordinator ([§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session), API-DM-19, API-DM-20, API-DM-22). Corrections, refunds and collection settings stay in §11.2 |
+| D-2 | Represent pending review, partial-deposit waiting and **supplemental** deposit separately from credit, service outcome and physical cash balance | `depositState` covers the initial deposit (API-DM-13); `status` covers the outcome. Nothing represents the supplemental collection after a reschedule (BR-CAN-10) or the cash balance | Whether `BookingSummary` gets a separate supplemental field now, or with D-1 | **Resolved 2026-11-10 by author decision, proposed for review:** `supplementalDepositState` on `BookingSummary`, amounts in the financial state and `RescheduleResult`, cash balance only on `CashSession` ([API-DM-21](#api-dm-21-initial-deposit-supplemental-deposit-credit-outcome-and-cash-are-separate-fields)) |
+| D-3 | Typed contracts for internal consumers that are not HTTP (agent tools) | [§10](#10-internal-consumers-the-agent) lists the operations and refusal codes; tool input and output schemas are left to CON-03, whose rewritten #12 also asks for "typed contracts" for the agent | Which ticket owns the typed tool contracts, or how CON-02 and CON-03 split them | **Resolved 2026-11-10 by author decision, proposed for review:** CON-03 writes them; §10 keeps allowed and prohibited operations and refusal codes ([API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes), §11.1) |
+| D-4 | Minimum contracts for transactional participation between owners: results and required locks or preconditions, without ORM types | API-DM-12 names each coordinator and its participants; the protocol itself is CON-01 MOD-DM-08. No participant signature or per-operation lock order is written here | Whether CON-02 specifies those application contracts or CON-01 / implementation ([#31](https://github.com/nanonoir/Agendoxa/issues/31)) does | Open. The new money operations also reference [MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction) without defining the protocol |
+| D-5 | Versions and preconditions for concurrency | Commands recheck current state; configuration is last-write-wins without `ETag` ([API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins)) | Confirm that this answers the Issue, or require conditional requests now | **Resolved 2026-11-10 by author decision, proposed for review:** last-write-wins for configuration and recheck for commands are kept; money operations use state guards and caps, and cash close and adjustments require `expectedRevision` ([API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition)) |
+| D-6 | Public informational hours and the WhatsApp link | Included in the public profile (API-DM-01), composed from `catalog` and `messaging` | CON-01 §8.1 allows only `tenants` information and `catalog` services; confirm the two projections in the CON-01 review | Open |
+| D-7 | Public location | Not in the ERD | API-Q-01, unchanged | Open |
 
 **CON-01 constraints for CON-02** ([modules §8.1](./modules.md#81-for-con-02-api-contracts)):
 
@@ -1259,23 +1273,23 @@ These questions are flagged, not resolved here.
 | `packages/shared` only for HTTP contracts, never entities or rows | API-DM-03, API-DM-14 |
 | Money as decimal strings, UTC instants, local times with the tenant timezone, UUIDs | API-DM-04 |
 | Seven statuses; derived conditions as separate fields | API-DM-13 |
-| Idempotency for payments, refunds and booking creation retries | API-DM-10 |
-| Agent tools call facades, not HTTP | API-DM-15 |
+| Idempotency for payments, refunds and booking creation retries | API-DM-10; payments in API-DM-18 and API-DM-20 |
+| Agent tools call facades, not HTTP | API-DM-15, API-DM-23 |
 
 ## 15. Traceability
 
-**[CON-02 (#11)](https://github.com/nanonoir/Agendoxa/issues/11)**, acceptance criteria as rewritten on 2026-11-09 *(table reconciled 2026-11-10)*:
+**[CON-02 (#11)](https://github.com/nanonoir/Agendoxa/issues/11)**, acceptance criteria as rewritten on 2026-11-09 *(table reconciled 2026-11-10 and updated the same day for decisions D-1, D-2, D-3 and D-5)*:
 
 | Criterion | Where | Coverage |
 |---|---|---|
-| Priority operations, owners and consumers identified | §2 (API-DM-02), §7 (API-DM-12), §10, §11.2 | Covered; payments and cash only identified (D-1) |
-| Endpoints, methods and needed internal contracts defined, distinguishing landing, CRM and WhatsApp tools | API-DM-01, §7, §10 and the OpenAPI file | Partial: typed internal contracts (D-3) |
-| Inputs, outputs, validation and a consistent error format | §5, §7, §9 and the OpenAPI schemas | Covered for the specified areas |
-| Authentication, capabilities, requester authority and tenant context, including other tenants' IDs and revoked permissions | §4 (API-DM-06–08), §10 | Covered |
-| Dates, times, amounts and identifiers | §3 (API-DM-04) | Covered |
-| Idempotency and conflicts or preconditions of sensitive operations; duplicates create no extra bookings or money | §6 | Partial: money operations are not specified yet (D-1); preconditions (D-5) |
-| Transactional collaborations and participant limits consistent with CON-01, without ORM in application code | API-DM-12, §7.5, [modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction) | Partial (D-4) |
-| Receipt screening results and human review or credit kept apart, per UC-03, coordinated with CON-03 | §10.1, API-DM-13, §11.1 | Covered for this increment; review endpoints with D-1; P-40 and API-Q-11 open |
+| Priority operations, owners and consumers identified | §2 (API-DM-02), §7 (API-DM-12), §7.7–§7.10, §10, §11.2 | Covered; corrections, refunds and collection settings identified only |
+| Endpoints, methods and needed internal contracts defined, distinguishing landing, CRM and WhatsApp tools | API-DM-01, §7, §10 (API-DM-23) and the OpenAPI file | Covered by decision D-3: typed tool contracts assigned to CON-03; operations and refusal codes here |
+| Inputs, outputs, validation and a consistent error format | §5, §7, §9 and the OpenAPI schemas | Covered for the specified areas, money flows included |
+| Authentication, capabilities, requester authority and tenant context, including other tenants' IDs and revoked permissions | §4 (API-DM-06–08), §10 | Covered; payments and cash permission placeholders added (API-Q-02) |
+| Dates, times, amounts and identifiers | §3 (API-DM-04); signed and positive money in §9 | Covered |
+| Idempotency and conflicts or preconditions of sensitive operations; duplicates create no extra bookings or money | §6 (API-DM-10, API-DM-11, API-DM-18), §7.7, §7.8 | Covered: one decision per review, capped allocations, idempotent payments, revision preconditions for cash close and adjustments |
+| Transactional collaborations and participant limits consistent with CON-01, without ORM in application code | API-DM-12, §7.5, §7.7–§7.10, [modules MOD-DM-08](./modules.md#mod-dm-08-the-initiating-use-case-owns-the-transaction) | Partial (D-4): coordinators and participants named; the protocol stays in CON-01 |
+| Receipt screening results and human review or credit kept apart, per UC-03, coordinated with CON-03 | §10.1, API-DM-13, API-DM-19, API-DM-21, §11.1 | Covered: `arrivedVia` is routing only; review decisions are human; P-40 not assumed; API-Q-11 open |
 | Compatible with use cases, domain model and the exclusion of public web booking | §2, §7, §14 | Covered |
 | Evolution, projections and shared schemas documented | API-DM-03, §9, §12 | Covered |
 | Reviewed and approved by the team | — | **Pending** |
@@ -1283,7 +1297,7 @@ These questions are flagged, not resolved here.
 | Deliverable in the Issue | Where |
 |---|---|
 | `docs/design-docs/api-contracts.md`, registered in the design index | This file; [index](./index.md) |
-| Initial OpenAPI for the included endpoints, and typed contracts for non-HTTP internal consumers | [api-contracts.openapi.yaml](./api-contracts.openapi.yaml) (API-DM-17); internal contracts pending D-3 |
+| Initial OpenAPI for the included endpoints, and typed contracts for non-HTTP internal consumers | [api-contracts.openapi.yaml](./api-contracts.openapi.yaml) (API-DM-17), 77 operations in `0.3.0-proposal`; typed tool contracts in CON-03 by decision D-3 (API-DM-23) |
 | Schemas and types for `packages/shared` | §9 |
 | Representative requests, responses, errors and conflicts, with authorized context and no sensitive data | §8 and `components.examples` in the OpenAPI file |
 
@@ -1293,6 +1307,13 @@ These questions are flagged, not resolved here.
 - Every example in §8 validates against its OpenAPI schema with Ajv (JSON Schema 2020-12) and is identical to an example of the same schema in the file. Every example the file attaches to an operation validates too, and every component example is used. A copy with a wrong enum value and a numeric amount fails, so the checks are effective.
 - Relative links and anchors of this document and the catalog resolve, including the CON-01 anchors renamed by its consolidation, and `git diff --check` reports nothing.
 
+**Verification repeated on 2026-11-10 after the author decisions** (77 operations, 23 component examples, 22 examples in §8):
+
+- Every component example validates against each schema it is attached to with Ajv (JSON Schema 2020-12, `ajv-formats`), and every component example is used by an operation or a reusable response. Every example in §8 validates and is identical to a component example of the same schema. Negative controls (a wrong `bookingEffect`, a numeric amount, a numeric `expectedCash`) fail.
+- Structural checks on the OpenAPI file: every `$ref` resolves, `operationId`s are unique, every path template parameter is declared, every tag is declared, every module named in `x-agendoxa-invokes` exists in CON-01, and every non-safe operation except `signIn` declares the CSRF token, and every `POST` the `Idempotency-Key`.
+- **Not repeated:** the Redocly CLI lint. It was not available offline in this environment, so the file has not been linted with the recommended rules since `0.2.0-proposal`; run it again before review.
+- Relative links and anchors of this document and the [catalog](./index.md) resolve, and `git diff --check` reports nothing.
+
 ## 16. Reconciliation log
 
 **2026-11-10**, against CON-01 at `5f31914`, UC-03 BR-SEN-14–16 and INV-SEN-12–13, and Issues #11 and #12 as rewritten on 2026-11-09. No schema, path or example changed shape; the OpenAPI `info.version` moved to `0.2.0-proposal`.
@@ -1301,7 +1322,7 @@ These questions are flagged, not resolved here.
 |---|---|
 | Header, [§1](#1-how-to-use-this-document) | Reconciliation note; endpoints invoke an owner use case or the `workflows` coordinator |
 | [API-DM-01](#api-dm-01-no-public-booking-the-public-api-is-read-only-landing-information) | Contradiction with the Issue resolved; hours and WhatsApp link flagged against CON-01 §8.1 (D-6) |
-| [API-DM-02](#api-dm-02-full-contracts-for-context-and-five-areas-the-rest-of-the-crm-is-identified) | Notes the wider scope of the rewritten Issue and points to §14.1 |
+| [API-DM-02](#api-dm-02-full-contracts-for-context-five-areas-and-the-priority-money-flows-the-rest-of-the-crm-is-identified) | Notes the wider scope of the rewritten Issue and points to §14.1 |
 | [API-DM-07](#api-dm-07-the-tenant-is-a-path-segment-revalidated-on-every-request) | Revocation of memberships and permissions made explicit |
 | [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Rewritten: owner tags, `workflows` coordinators, read compositions, `x-agendoxa-invokes` |
 | [§7.4](#74-catalog-calendars-hours-blocks-and-openings) | Calendar endpoints owned by `catalog`; block removal through `workflows` |
@@ -1314,3 +1335,23 @@ These questions are flagged, not resolved here.
 | [§15](#15-traceability) | Criteria and deliverables of the rewritten #11, with coverage |
 | [API-DM-17](#api-dm-17-the-openapi-file-lives-in-the-design-catalog-until-code-exists) | Issue path wording updated |
 | OpenAPI | `availability` tag removed; `x-agendoxa-invokes` on 11 operations; `DepositState` and `holdExpiresAt` descriptions; version `0.2.0-proposal` |
+
+**2026-11-10, author decisions D-1, D-2, D-3 and D-5** of [§14.1](#141-scope-differences-with-the-rewritten-issue-11), applied as proposals for team review. D-4, D-6 and D-7 are unchanged. No product or CON-01 document was edited. The OpenAPI `info.version` moved to `0.3.0-proposal`.
+
+| Section | What changed |
+|---|---|
+| Header, [API-DM-02](#api-dm-02-full-contracts-for-context-five-areas-and-the-priority-money-flows-the-rest-of-the-crm-is-identified) | Scope now includes the priority money flows; heading and use-case coverage updated (D-1) |
+| [API-DM-08](#api-dm-08-permissions-are-checked-per-operation-admin-only-operations-stay-admin-only) | Placeholder keys `payments.*` and `cash.*`; cash adjustments Admin-only; permissions for optional inputs of another owner |
+| [API-DM-09](#api-dm-09-one-problem-format-with-stable-codes-and-reasons) | New `conflict`, `rule_violation` and `validation` reasons for money flows |
+| [API-DM-10](#api-dm-10-state-changing-posts-require-an-idempotency-key), [API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins), new [API-DM-18](#api-dm-18-money-operations-rely-on-state-guards-and-caps-the-cash-close-and-adjustments-add-a-revision-precondition) | Idempotency of payments and reviews; last-write-wins and recheck kept; money preconditions and `expectedRevision` (D-5) |
+| [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | `payments` row with its coordinators and compositions |
+| [§7.5](#75-bookings-free-slots-agenda-and-lifecycle-commands), [API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields) | `deposit` input of CRM bookings and remainder walk-ins (which also gain `acknowledgeBlockedCustomer` and `depositException`, as their "same checks" text implied); `supplementalDeposit` in the reschedule result; `AWAITING_ALLOCATION` and `supplementalDepositState` |
+| New [§7.7](#77-payments-evidence-and-human-review) to [§7.10](#710-payments-cash-session), API-DM-19 to API-DM-22 | Evidence and human review, payments and allocation, booking financial state, cash session (D-1, D-2) |
+| [§8](#8-representative-examples) | `supplementalDepositState` in the walk-in example; eleven money-flow examples |
+| [API-DM-14](#api-dm-14-packagesshared-holds-the-http-contracts-as-zod-schemas-and-nothing-else) | `payments.ts` and the new money primitives |
+| [§10](#10-internal-consumers-the-agent), new [API-DM-23](#api-dm-23-typed-agent-tool-contracts-belong-to-con-03-this-document-fixes-operations-and-refusal-codes), [§10.1](#101-receipt-evidence-screening-is-not-human-review), [§11.1](#111-for-con-03-external-integrations) | Typed tool contracts assigned to CON-03, refusal codes per operation, three agent-only reasons; CRM equivalents of the agent's payment operations; storage row (D-3) |
+| [§11.2](#112-next-contract-increment) | Specified rows removed; corrections, refunds, account management and cash settings remain |
+| [§13](#13-decisions-and-open-questions) | API-DM-18 to API-DM-23; API-Q-12 to API-Q-17 |
+| [§14](#14-reconciliation-with-sources), [§14.1](#141-scope-differences-with-the-rewritten-issue-11) | Money flows and typed contracts rows; status column, with D-1, D-2, D-3 and D-5 resolved as proposals |
+| [§15](#15-traceability) | Coverage per criterion; verification repeated, Redocly lint not repeated |
+| OpenAPI | `payments` tag with 22 operations; `DepositInput`, `SupplementalDepositState`, `AWAITING_ALLOCATION`, `AllocationLimit`, `currentRevision` and money schemas; 11 new component examples |
