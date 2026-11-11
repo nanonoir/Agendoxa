@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agendoxa API — initial MVP contracts (CON-02)
-  version: 0.2.0-proposal
+  version: 0.3.0-proposal
   summary: Proposal for team review; no endpoint is implemented.
   description: |
     Design contract for the authenticated CRM and the read-only public landing.
@@ -14,12 +14,15 @@ info:
     cross-owner read combines. Without it, the operation is one use case of the tagged owner.
     The extension documents ownership only; it does not change the HTTP contract.
 
-    WhatsApp self-service and agent tools are not HTTP and are not described here.
-    Payments (including cash), conversations, roles, channel connection and audit
-    operations are identified in the document but specified in a later increment.
+    WhatsApp self-service and agent tools are not HTTP and are not described here; their typed
+    contracts belong to CON-03 (API-DM-23). Receipt upload, human review, verified payments,
+    explicit allocation, booking financial state and the cash session are specified (`payments`
+    tag). Payment corrections, refunds, collection settings, conversations, roles, channel
+    connection and audit operations are identified in the document for a later increment.
 
     Reconciled 2026-11-10 with the consolidated CON-01 module catalog: calendars, hours,
     blocks and openings are tagged `catalog`; the former `availability` tag is removed.
+    Version 0.3.0 adds the priority money flows (API-DM-18 to API-DM-22).
 servers:
   - url: /api/v1
     description: Relative to the API origin of each installation.
@@ -36,6 +39,8 @@ tags:
     description: Free slots, agenda and booking lifecycle commands. Multi-owner commands go through workflows.
   - name: customers
     description: Customers, restrictions and incidents.
+  - name: payments
+    description: Receipt evidence and human review, verified payments, explicit allocations, booking financial state and the shared cash session. No gateway or bank API.
 security:
   - sessionCookie: []
 paths:
@@ -1029,9 +1034,10 @@ paths:
         participants: [bookings, customers, payments, notifications]
       summary: Create a CRM booking (walk-in or on behalf of a customer)
       description: |
-        Confirmed directly, with no HOLD, when no deposit is required or an Admin grants the
-        existing deposit exception (BR-RES-09, BR-SEN-09). Recording payments or receipts
-        for a deposit belongs to the payments increment.
+        No HOLD. Confirmed directly when no deposit is required, when `deposit.allocations` reach
+        the threshold, or when an Admin grants the existing deposit exception (BR-RES-09,
+        BR-SEN-09). With deposit evidence, or verified funds below the threshold, the booking
+        occupies as PENDING_PAYMENT_REVIEW. With none of them, nothing occupies.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1049,7 +1055,7 @@ paths:
                 $ref: '#/components/examples/CreateCrmBookingRequest'
       responses:
         '201':
-          description: Booking created and confirmed.
+          description: Booking created, CONFIRMED or PENDING_PAYMENT_REVIEW.
           headers:
             Location:
               description: URL of the new booking.
@@ -1166,7 +1172,10 @@ paths:
         coordinator: workflows
         participants: [bookings, payments, notifications]
       summary: Move a confirmed booking to a new slot, service or resource
-      description: Checks the target without releasing the current slot; the move and release are atomic (BR-CAN-08, BR-CAN-12).
+      description: |
+        Checks the target without releasing the current slot; the move and release are atomic
+        (BR-CAN-08, BR-CAN-12). A deposit difference is returned as `supplementalDeposit` and
+        requested afterwards; it never undoes the move (BR-CAN-10).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1298,7 +1307,7 @@ paths:
               $ref: '#/components/schemas/RemainderWalkInRequest'
       responses:
         '201':
-          description: Walk-in booking created and confirmed.
+          description: Walk-in booking created, CONFIRMED or PENDING_PAYMENT_REVIEW as in POST /bookings.
           content:
             application/json:
               schema:
@@ -1576,6 +1585,797 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/payment-evidence-uploads:
+    post:
+      tags: [payments]
+      operationId: uploadPaymentEvidence
+      summary: Store a receipt file before it is linked to a review or a CRM booking
+      description: |
+        Stored privately through assets, with no public link (DM-14). An upload proves nothing:
+        it becomes evidence only when a review or a CRM booking references it. Accepted media
+        types and size limits come from the CON-03 storage contract. An upload that is not linked
+        before `expiresAt` is deleted (API-DM-19, API-Q-12).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EvidenceUploadForm'
+            encoding:
+              file:
+                contentType: application/pdf, image/jpeg, image/png
+      responses:
+        '201':
+          description: Stored, not yet linked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceUpload'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/payment-reviews:
+    get:
+      tags: [payments]
+      operationId: listPaymentReviews
+      x-agendoxa-invokes:
+        composition: [payments, bookings]
+      summary: Human review queue and history
+      description: Oldest first. `arrivedVia` says how evidence reached review; it is never a verdict (API-DM-19).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: status
+          in: query
+          required: false
+          description: Repeat to select several; omit for PENDING only.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/PaymentReviewStatus'
+        - name: bookingId
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of reviews.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReviewPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/payment-reviews/{reviewId}:
+    get:
+      tags: [payments]
+      operationId: getPaymentReview
+      x-agendoxa-invokes:
+        composition: [payments, bookings]
+      summary: Get a review
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: Review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReview'
+              examples:
+                escalatedAfterTwoAttempts:
+                  $ref: '#/components/examples/PaymentReviewPending'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/payment-reviews/{reviewId}/evidence:
+    get:
+      tags: [payments]
+      operationId: getPaymentReviewEvidence
+      summary: Download the receipt file of a review
+      description: Authorized read through assets; never a public or cacheable link (DM-14). Text evidence is in the review itself.
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ReviewId'
+      responses:
+        '200':
+          description: The stored file.
+          headers:
+            Content-Disposition:
+              description: '`attachment`, with a generated file name.'
+              schema:
+                type: string
+            Cache-Control:
+              description: '`private, no-store`.'
+              schema:
+                type: string
+          content:
+            application/pdf: {}
+            image/jpeg: {}
+            image/png: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/payment-reviews/{reviewId}/approve:
+    post:
+      tags: [payments]
+      operationId: approvePaymentReview
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, notifications]
+      summary: Record that a person verified the actual credit
+      description: |
+        Creates exactly one verified TRANSFER payment linked to the review (INV-PAY-10) and the
+        allocations listed, never others. Verification alone does not reduce a balance or confirm
+        a booking; only the listed allocations can reach the threshold (BR-SEN-07, EJ-20).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ReviewId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovePaymentReviewRequest'
+            examples:
+              verifiedAndAllocated:
+                $ref: '#/components/examples/ApprovePaymentReviewRequest'
+      responses:
+        '200':
+          description: Approved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReviewDecisionResult'
+              examples:
+                depositMet:
+                  $ref: '#/components/examples/PaymentReviewApproved'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The review is no longer pending, or another state changed first.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                alreadyDecided:
+                  $ref: '#/components/examples/ProblemReviewAlreadyDecided'
+        '422':
+          $ref: '#/components/responses/AllocationRuleViolation'
+  /tenants/{tenantId}/payment-reviews/{reviewId}/reject:
+    post:
+      tags: [payments]
+      operationId: rejectPaymentReview
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, notifications]
+      summary: Record that a person found no matching credit
+      description: |
+        A human rejection, the only kind BR-SEN-10 counts. For initial evidence without verified
+        partial funds, the first distinct rejection opens the 15-minute correction window and a
+        second may cancel before start after rechecks; otherwise the booking does not change.
+        Creates no payment.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/ReviewId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectPaymentReviewRequest'
+            examples:
+              noCredit:
+                $ref: '#/components/examples/RejectPaymentReviewRequest'
+      responses:
+        '200':
+          description: Rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReviewDecisionResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/bookings/{bookingId}/payment-reviews:
+    post:
+      tags: [payments]
+      operationId: submitPaymentEvidence
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, assets]
+      summary: Submit evidence from the CRM for human review
+      description: |
+        Personnel attach a receipt they received. It goes to human review without preliminary
+        screening (`arrivedVia: CRM_SUBMISSION`). Not for a HOLD, which receives evidence only
+        over WhatsApp, nor for a released booking.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPaymentEvidenceRequest'
+      responses:
+        '201':
+          description: Review created, pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentReview'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/bookings/{bookingId}/financial-state:
+    get:
+      tags: [payments]
+      operationId: getBookingFinancialState
+      x-agendoxa-invokes:
+        composition: [payments, bookings]
+      summary: Charges, initial and supplemental deposit, verified funds and pending reviews of a booking
+      description: Kept apart from the booking status and outcome, and from cash; it never includes a cash balance (API-DM-21).
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Financial state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingFinancialState'
+              examples:
+                supplementAfterReschedule:
+                  $ref: '#/components/examples/BookingFinancialStateSupplement'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/receiving-accounts:
+    get:
+      tags: [payments]
+      operationId: listReceivingAccounts
+      summary: Receiving accounts, to pick the account that actually received a transfer
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IncludeInactive'
+      responses:
+        '200':
+          description: Accounts; inactive ones only on request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceivingAccountList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/payments:
+    get:
+      tags: [payments]
+      operationId: listPayments
+      summary: Search verified payments, including funds still available to allocate
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - name: customerId
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: bookingId
+          in: query
+          required: false
+          description: Payments whose known origin is this booking, or allocated to its charges.
+          schema:
+            $ref: '#/components/schemas/Uuid'
+        - name: method
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/PaymentMethod'
+        - name: availableOnly
+          in: query
+          required: false
+          description: Only payments with verified, unrefunded and unallocated funds.
+          schema:
+            type: boolean
+            default: false
+        - name: from
+          in: query
+          required: false
+          description: Verified at or after this instant.
+          schema:
+            $ref: '#/components/schemas/Instant'
+        - name: to
+          in: query
+          required: false
+          description: Verified before this instant.
+          schema:
+            $ref: '#/components/schemas/Instant'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of payments, newest verification first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [payments]
+      operationId: recordPayment
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, notifications]
+      summary: Record verified money received in cash, or a transfer whose credit was checked
+      description: |
+        No review is needed when personnel verify directly (BR-COB-04, BR-COB-08). Cash needs an
+        open session, or opens one automatically when the tenant configured it (BR-CAJA-03); the
+        payment and its cash movement are the same money. Allocations are only those listed.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentRequest'
+            examples:
+              cashBalance:
+                $ref: '#/components/examples/RecordPaymentRequestCash'
+      responses:
+        '201':
+          description: Recorded.
+          headers:
+            Location:
+              description: URL of the new payment.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/AllocationRuleViolation'
+  /tenants/{tenantId}/payments/{paymentId}:
+    get:
+      tags: [payments]
+      operationId: getPayment
+      summary: Get a payment with its allocations
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/payments/{paymentId}/allocations:
+    post:
+      tags: [payments]
+      operationId: allocatePayment
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, notifications]
+      summary: Explicitly allocate verified funds of one payment to one or more charges
+      description: |
+        All items apply together or none does. Each is capped by the charge balance and the
+        payment's available funds, checked against current state (INV-PAY-07, API-DM-18). An
+        allocation that reaches the initial-deposit threshold confirms the booking once.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/PaymentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocatePaymentRequest'
+      responses:
+        '201':
+          description: Allocated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/AllocationRuleViolation'
+  /tenants/{tenantId}/payment-allocations/{allocationId}/reversal:
+    post:
+      tags: [payments]
+      operationId: reversePaymentAllocation
+      summary: Reverse an allocation, keeping it in history
+      description: The allocation becomes REVERSED and its funds available again. It never changes a booking status (API-Q-14).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AllocationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseAllocationRequest'
+      responses:
+        '200':
+          description: Reversed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllocationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/cash-sessions:
+    get:
+      tags: [payments]
+      operationId: listCashSessions
+      summary: Cash session history, newest first
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashSessionPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [payments]
+      operationId: openCashSession
+      summary: Open the shared cash session manually
+      description: At most one open session per tenant (INV-CAJA-01). Opening cash is declared the first time and reconciled with the previous close afterwards (BR-CAJA-03).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenCashSessionRequest'
+      responses:
+        '201':
+          description: Opened.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashSession'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+  /tenants/{tenantId}/cash-sessions/current:
+    get:
+      tags: [payments]
+      operationId: getCurrentCashSession
+      summary: The open session, if any, and the previous close to reconcile with
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Current cash context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentCashSessionView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/cash-sessions/{sessionId}:
+    get:
+      tags: [payments]
+      operationId: getCashSession
+      summary: Get a cash session with its totals and adjustments
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CashSessionId'
+      responses:
+        '200':
+          description: Session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/cash-sessions/{sessionId}/close:
+    post:
+      tags: [payments]
+      operationId: closeCashSession
+      summary: Close the session manually with the counted cash
+      description: |
+        Records counted cash, expected cash and the difference, which is allowed (BR-CAJA-04,
+        BR-CAJA-06). `expectedRevision` must match the session the person reviewed (API-DM-18).
+        Unpaid bookings never block the close. The closed session is immutable.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CashSessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseCashSessionRequest'
+            examples:
+              countedWithDifference:
+                $ref: '#/components/examples/CloseCashSessionRequest'
+      responses:
+        '200':
+          description: Closed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashSession'
+              examples:
+                closedWithDifference:
+                  $ref: '#/components/examples/CashSessionClosed'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StaleRevision'
+  /tenants/{tenantId}/cash-sessions/{sessionId}/movements:
+    get:
+      tags: [payments]
+      operationId: listCashMovements
+      summary: Physical cash movements of a session, in order of occurrence
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CashSessionId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of movements.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashMovementPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [payments]
+      operationId: recordCashMovement
+      summary: Record a cash-in or cash-out with a reason
+      description: Only in the open session. Cash payments and refunds create their own movements; they are not recorded here (BR-CAJA-05).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CashSessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCashMovementRequest'
+      responses:
+        '201':
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashMovement'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /tenants/{tenantId}/cash-sessions/{sessionId}/adjustments:
+    post:
+      tags: [payments]
+      operationId: recordCashAdjustment
+      summary: Admin-only audited adjustment to a closed cash session
+      description: |
+        Appended to a closed session for a physical-cash correction; the close and the original
+        payment stay unchanged (BR-CAJA-09, BR-COB-11, EJ-21). Not a general financial log or a
+        refund. `expectedRevision` must match the session the Admin reviewed (API-DM-18).
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/CashSessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCashAdjustmentRequest'
+      responses:
+        '201':
+          description: Adjustment appended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashAdjustment'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StaleRevision'
 components:
   securitySchemes:
     sessionCookie:
@@ -1636,6 +2436,30 @@ components:
         $ref: '#/components/schemas/Uuid'
     CustomerId:
       name: customerId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    ReviewId:
+      name: reviewId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    AllocationId:
+      name: allocationId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    CashSessionId:
+      name: sessionId
       in: path
       required: true
       schema:
@@ -1752,6 +2576,24 @@ components:
           examples:
             lateCancellation:
               $ref: '#/components/examples/ProblemLateChange'
+    AllocationRuleViolation:
+      description: An allocation exceeds the charge balance or the payment's available funds, or another business rule rejects the request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            exceedsBalance:
+              $ref: '#/components/examples/ProblemAllocationExceeds'
+    StaleRevision:
+      description: The cash session changed after the caller reviewed it, or its status does not allow the operation.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            sessionChanged:
+              $ref: '#/components/examples/ProblemStaleRevision'
   schemas:
     Uuid:
       type: string
@@ -1774,6 +2616,17 @@ components:
       description: Exact non-negative decimal with two places in the tenant currency.
       type: string
       pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+    PositiveMoney:
+      description: Money greater than zero, for payments, allocations and movements.
+      type: string
+      pattern: '^(0\.(0[1-9]|[1-9][0-9])|[1-9][0-9]{0,9}\.[0-9]{2})$'
+    SignedMoney:
+      description: Exact signed decimal with two places, for differences and signed cash amounts.
+      type: string
+      pattern: '^-?(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+    NonZeroSignedMoney:
+      type: string
+      pattern: '^-?(0\.(0[1-9]|[1-9][0-9])|[1-9][0-9]{0,9}\.[0-9]{2})$'
     Minutes:
       type: integer
       minimum: 0
@@ -1797,9 +2650,18 @@ components:
         AWAITING_EVIDENCE also covers a first clearly unrelated file and evidence still under
         preliminary screening. UNDER_REVIEW means human review, whatever routed the evidence
         there; CORRECTION_WINDOW follows a human rejection only. No value is a screening verdict
-        (BR-SEN-14–16).
+        (BR-SEN-14–16). AWAITING_ALLOCATION means verified funds linked to the booking that no
+        one has allocated yet (API-Q-13). It describes the initial deposit only; a supplement
+        after a reschedule is `supplementalDepositState` (API-DM-21).
       type: string
-      enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, PARTIAL, MET, ADMIN_EXCEPTION]
+      enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, AWAITING_ALLOCATION, PARTIAL, MET, ADMIN_EXCEPTION]
+    SupplementalDepositState:
+      description: |
+        Additional deposit requested after a permitted reschedule of a CONFIRMED booking
+        (BR-CAN-10). Never confirms, unconfirms or cancels; a rejected supplemental receipt
+        returns to REQUESTED without a correction window (BR-SEN-10, CU-09 A3).
+      type: string
+      enum: [REQUESTED, UNDER_REVIEW, MET]
     RestrictionKind:
       type: string
       enum: [FULL_PREPAYMENT, BLOCKED]
@@ -1840,6 +2702,26 @@ components:
                 type: string
         lateChange:
           $ref: '#/components/schemas/LateChangeNotice'
+        currentRevision:
+          description: With reason `stale_revision`, the revision the session has now (API-DM-18).
+          type: integer
+          minimum: 0
+        allocationLimit:
+          $ref: '#/components/schemas/AllocationLimit'
+      additionalProperties: false
+    AllocationLimit:
+      description: With an allocation reason, the current caps of the first item that fails.
+      type: object
+      required: [index, chargeBalance, availableFunds]
+      properties:
+        index:
+          description: Position of the item in the request's `allocations`.
+          type: integer
+          minimum: 0
+        chargeBalance:
+          $ref: '#/components/schemas/Money'
+        availableFunds:
+          $ref: '#/components/schemas/Money'
       additionalProperties: false
     LateChangeNotice:
       description: Returned with reason `late_change_requires_acceptance` so the CRM can show the consequence.
@@ -2426,7 +3308,7 @@ components:
       additionalProperties: false
     BookingSummary:
       type: object
-      required: [id, status, origin, customer, attendeeName, service, resource, startAt, endAt, agreedPrice, requiredDeposit, depositState, pendingOperationalClose, holdExpiresAt]
+      required: [id, status, origin, customer, attendeeName, service, resource, startAt, endAt, agreedPrice, requiredDeposit, depositState, supplementalDepositState, pendingOperationalClose, holdExpiresAt]
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -2459,11 +3341,17 @@ components:
         agreedPrice:
           $ref: '#/components/schemas/Money'
         requiredDeposit:
+          description: Deposit required by the booking's current conditions; after a reschedule, the initial deposit plus any supplement (API-DM-21).
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
         depositState:
           $ref: '#/components/schemas/DepositState'
+        supplementalDepositState:
+          description: Null when no supplement is requested. Separate from depositState so a supplement never reads as an unconfirmed booking.
+          oneOf:
+            - $ref: '#/components/schemas/SupplementalDepositState'
+            - type: 'null'
         pendingOperationalClose:
           description: CONFIRMED and already ended; derived, not a status (BR-RES-13).
           type: boolean
@@ -2632,13 +3520,48 @@ components:
           type: boolean
           default: false
         depositException:
-          description: Admin confirms without the required deposit; the reason is optional (BR-SEN-09).
+          description: Admin confirms without the required deposit; the reason is optional (BR-SEN-09). Not combinable with `deposit`.
           type: object
           properties:
             reason:
               type: [string, 'null']
               maxLength: 500
           additionalProperties: false
+        deposit:
+          $ref: '#/components/schemas/DepositInput'
+      additionalProperties: false
+    DepositInput:
+      description: |
+        Verified funds explicitly allocated to the new booking's charge, evidence for human review,
+        or both (BR-SEN-09). Threshold met: CONFIRMED. Evidence, or verified funds below the
+        threshold: PENDING_PAYMENT_REVIEW, occupying (UNDER_REVIEW or PARTIAL). Allocations need
+        `payments.allocate`, evidence `payments.record` (API-DM-08).
+      type: object
+      minProperties: 1
+      properties:
+        allocations:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/DepositAllocationItem'
+        evidence:
+          $ref: '#/components/schemas/EvidenceInput'
+        declaredAmount:
+          description: Amount the customer says they transferred; never proof of credit. Only with `evidence`.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+      additionalProperties: false
+    DepositAllocationItem:
+      description: Allocates part of an existing verified payment to the charge the booking creates.
+      type: object
+      required: [paymentId, amount]
+      properties:
+        paymentId:
+          $ref: '#/components/schemas/Uuid'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
       additionalProperties: false
     CancelBookingRequest:
       type: object
@@ -2700,6 +3623,11 @@ components:
           additionalProperties: false
         lateChange:
           type: boolean
+        supplementalDeposit:
+          description: Additional deposit requested because the destination requires more than the verified deposit covers (BR-CAN-10); null otherwise. The booking stays CONFIRMED either way.
+          oneOf:
+            - $ref: '#/components/schemas/SupplementalDeposit'
+            - type: 'null'
       additionalProperties: false
     RecordOutcomeRequest:
       type: object
@@ -2735,6 +3663,19 @@ components:
           description: Must fit inside the private remainder of the original booking's resource.
           allOf:
             - $ref: '#/components/schemas/Instant'
+        acknowledgeBlockedCustomer:
+          type: boolean
+          default: false
+        depositException:
+          description: As in CreateCrmBookingRequest; Admin only.
+          type: object
+          properties:
+            reason:
+              type: [string, 'null']
+              maxLength: 500
+          additionalProperties: false
+        deposit:
+          $ref: '#/components/schemas/DepositInput'
       additionalProperties: false
     CustomerIndicators:
       description: Derived from current bookings and their events, never stored on the customer.
@@ -2935,6 +3876,856 @@ components:
         occurredAt:
           $ref: '#/components/schemas/Instant'
       additionalProperties: false
+    PaymentMethod:
+      type: string
+      enum: [CASH, TRANSFER]
+    PaymentReviewStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED]
+    ReviewArrival:
+      description: |
+        How evidence reached human review (API-DM-19). Routing only, never a verdict on the
+        payment: CRM_SUBMISSION had no screening; SCREENING_INCONCLUSIVE covers an uncertain
+        result and a technical failure alike (BR-SEN-15). The screening result values themselves
+        belong to CON-03.
+      type: string
+      enum: [PLAUSIBLE_FILE, ESCALATED_AFTER_TWO_ATTEMPTS, SCREENING_INCONCLUSIVE, TEXT_FALLBACK, CRM_SUBMISSION]
+    EvidenceUploadForm:
+      type: object
+      required: [file]
+      properties:
+        file:
+          description: One PDF or image file.
+          type: string
+          contentMediaType: application/octet-stream
+      additionalProperties: false
+    EvidenceUpload:
+      type: object
+      required: [id, mediaType, sizeBytes, uploadedAt, expiresAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        mediaType:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        uploadedAt:
+          $ref: '#/components/schemas/Instant'
+        expiresAt:
+          description: Deleted if not linked by then (API-Q-12).
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    EvidenceInput:
+      description: An uploaded file, or transfer details typed by personnel.
+      oneOf:
+        - type: object
+          required: [uploadId]
+          properties:
+            uploadId:
+              $ref: '#/components/schemas/Uuid'
+          additionalProperties: false
+        - type: object
+          required: [text]
+          properties:
+            text:
+              type: string
+              minLength: 1
+              maxLength: 2000
+          additionalProperties: false
+    SubmitPaymentEvidenceRequest:
+      type: object
+      required: [evidence]
+      properties:
+        evidence:
+          $ref: '#/components/schemas/EvidenceInput'
+        declaredAmount:
+          description: Amount the customer says they transferred; never proof of credit.
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+      additionalProperties: false
+    AccountRef:
+      type: object
+      required: [id, label, holderName]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        label:
+          type: string
+        holderName:
+          type: string
+      additionalProperties: false
+    ReviewBookingRef:
+      type: object
+      required: [id, status, startAt, customer, service]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        startAt:
+          $ref: '#/components/schemas/Instant'
+        customer:
+          type: object
+          required: [id, fullName]
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            fullName:
+              type: [string, 'null']
+          additionalProperties: false
+        service:
+          $ref: '#/components/schemas/NamedRef'
+      additionalProperties: false
+    PaymentReview:
+      description: Human evaluation of evidence. Exposes no screening result and no attempt counter (P-40).
+      type: object
+      required: [id, status, purpose, arrivedVia, booking, changeRequestId, evidence, declaredAmount, expectedReceivingAccount, submittedAt, decision]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/PaymentReviewStatus'
+        purpose:
+          description: Derived by the server from the booking when the review is created.
+          type: string
+          enum: [INITIAL_DEPOSIT, SUPPLEMENTAL_DEPOSIT, BALANCE]
+        arrivedVia:
+          $ref: '#/components/schemas/ReviewArrival'
+        booking:
+          oneOf:
+            - $ref: '#/components/schemas/ReviewBookingRef'
+            - type: 'null'
+        changeRequestId:
+          description: The reschedule a supplemental review belongs to.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        evidence:
+          type: object
+          required: [kind, mediaType, text, receivedAt]
+          properties:
+            kind:
+              type: string
+              enum: [FILE, TEXT]
+            mediaType:
+              type: [string, 'null']
+            text:
+              type: [string, 'null']
+            receivedAt:
+              description: When the evidence was received; timeliness is judged by it (BR-SEN-16).
+              allOf:
+                - $ref: '#/components/schemas/Instant'
+          additionalProperties: false
+        declaredAmount:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        expectedReceivingAccount:
+          description: The account in the instruction issued to the customer, if any.
+          oneOf:
+            - $ref: '#/components/schemas/AccountRef'
+            - type: 'null'
+        submittedAt:
+          description: When the review entered the human queue.
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+        decision:
+          oneOf:
+            - type: object
+              required: [decidedByMembershipId, decidedAt, paymentId, rejectionReason]
+              properties:
+                decidedByMembershipId:
+                  $ref: '#/components/schemas/Uuid'
+                decidedAt:
+                  $ref: '#/components/schemas/Instant'
+                paymentId:
+                  oneOf:
+                    - $ref: '#/components/schemas/Uuid'
+                    - type: 'null'
+                rejectionReason:
+                  type: [string, 'null']
+              additionalProperties: false
+            - type: 'null'
+      additionalProperties: false
+    PaymentReviewPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentReview'
+    AllocationItem:
+      type: object
+      required: [chargeId, amount]
+      properties:
+        chargeId:
+          $ref: '#/components/schemas/Uuid'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+      additionalProperties: false
+    ApprovePaymentReviewRequest:
+      type: object
+      required: [verifiedAmount, allocations]
+      properties:
+        verifiedAmount:
+          description: The amount actually credited, as checked by the person; not the declared amount.
+          allOf:
+            - $ref: '#/components/schemas/PositiveMoney'
+        receivingAccountId:
+          description: The account that actually received the funds; null keeps the expected one, required when the review has none.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        allocations:
+          description: Explicit allocations of the new payment; an empty array leaves it unallocated.
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+        unallocatedReason:
+          description: Why the payment stays unallocated (BR-COB-02); only when `allocations` is empty.
+          type: [string, 'null']
+          maxLength: 500
+      additionalProperties: false
+    RejectPaymentReviewRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    PaymentReviewDecisionResult:
+      type: object
+      required: [review, payment, booking, bookingEffect]
+      properties:
+        review:
+          $ref: '#/components/schemas/PaymentReview'
+        payment:
+          description: The payment created by an approval; null on rejection.
+          oneOf:
+            - $ref: '#/components/schemas/Payment'
+            - type: 'null'
+        booking:
+          oneOf:
+            - $ref: '#/components/schemas/BookingSummary'
+            - type: 'null'
+        bookingEffect:
+          description: What the decision did to the booking in the same transaction.
+          type: string
+          enum: [NONE, CONFIRMED, CORRECTION_WINDOW_OPENED, CANCELLED]
+      additionalProperties: false
+    PaymentAllocation:
+      type: object
+      required: [id, paymentId, chargeId, bookingId, amount, status, createdByMembershipId, createdAt, reversedByMembershipId, reversedAt, reversalReason]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        paymentId:
+          $ref: '#/components/schemas/Uuid'
+        chargeId:
+          $ref: '#/components/schemas/Uuid'
+        bookingId:
+          $ref: '#/components/schemas/Uuid'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+        status:
+          type: string
+          enum: [ACTIVE, REVERSED]
+        createdByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        createdAt:
+          $ref: '#/components/schemas/Instant'
+        reversedByMembershipId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        reversedAt:
+          oneOf:
+            - $ref: '#/components/schemas/Instant'
+            - type: 'null'
+        reversalReason:
+          type: [string, 'null']
+      additionalProperties: false
+    Payment:
+      description: Verified commercial money; immutable once recorded (BR-COB-11).
+      type: object
+      required: [id, method, amount, commercialOrigin, bookingId, customerId, receivingAccountId, paymentReviewId, verifiedByMembershipId, verifiedAt, allocatedAmount, refundedAmount, availableAmount, unallocatedReason, cashMovementId, possibleDuplicateOf, allocations]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+        commercialOrigin:
+          type: string
+        bookingId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        customerId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        receivingAccountId:
+          description: Set for TRANSFER, null for CASH.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        paymentReviewId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        verifiedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        verifiedAt:
+          $ref: '#/components/schemas/Instant'
+        allocatedAmount:
+          description: Sum of active allocations.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        refundedAmount:
+          description: Executed refunds only; refunds are specified in a later increment.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        availableAmount:
+          description: amount − refundedAmount − allocatedAmount; never negative (INV-PAY-07).
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        unallocatedReason:
+          type: [string, 'null']
+        cashMovementId:
+          description: The physical movement of a CASH payment; the same money, never counted twice.
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        possibleDuplicateOf:
+          description: Other separate entries that may be the same money; both are kept and flagged for human review, never blocked (INV-PAY-08, proposal).
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentAllocation'
+      additionalProperties: false
+    PaymentPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Payment'
+    RecordPaymentRequest:
+      description: TRANSFER requires `receivingAccountId`; CASH must not send one.
+      type: object
+      required: [method, amount, commercialOrigin]
+      properties:
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+        commercialOrigin:
+          description: The known commercial operation the money belongs to (BR-COB-02).
+          type: string
+          minLength: 1
+          maxLength: 500
+        bookingId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        customerId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        receivingAccountId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        allocations:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+        unallocatedReason:
+          type: [string, 'null']
+          maxLength: 500
+      additionalProperties: false
+    CashSessionRef:
+      type: object
+      required: [id, openMode, openedByThisPayment]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        openMode:
+          type: string
+          enum: [MANUAL, AUTOMATIC]
+        openedByThisPayment:
+          description: True when the tenant's automatic opening opened the session for this payment.
+          type: boolean
+      additionalProperties: false
+    PaymentResult:
+      type: object
+      required: [payment, cashSession, affectedBookings]
+      properties:
+        payment:
+          $ref: '#/components/schemas/Payment'
+        cashSession:
+          description: The session of a CASH payment; null for TRANSFER.
+          oneOf:
+            - $ref: '#/components/schemas/CashSessionRef'
+            - type: 'null'
+        affectedBookings:
+          description: Bookings whose charges received allocations, after any confirmation.
+          type: array
+          items:
+            $ref: '#/components/schemas/BookingSummary'
+      additionalProperties: false
+    AllocatePaymentRequest:
+      type: object
+      required: [allocations]
+      properties:
+        allocations:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+      additionalProperties: false
+    ReverseAllocationRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    AllocationResult:
+      type: object
+      required: [payment, affectedBookings]
+      properties:
+        payment:
+          $ref: '#/components/schemas/Payment'
+        affectedBookings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookingSummary'
+      additionalProperties: false
+    ReceivingAccount:
+      type: object
+      required: [id, label, beneficiaryKind, holderName, aliasOrNumber, isDefault, isActive]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        label:
+          type: string
+        beneficiaryKind:
+          type: string
+          enum: [BUSINESS, PROFESSIONAL]
+        holderName:
+          type: string
+        aliasOrNumber:
+          type: string
+        isDefault:
+          type: boolean
+        isActive:
+          type: boolean
+      additionalProperties: false
+    ReceivingAccountList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceivingAccount'
+      additionalProperties: false
+    ChargeView:
+      type: object
+      required: [id, kind, changeRequestId, netAmount, allocatedAmount, balance]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [SERVICE, SUPPLEMENT]
+        changeRequestId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        netAmount:
+          $ref: '#/components/schemas/Money'
+        allocatedAmount:
+          $ref: '#/components/schemas/Money'
+        balance:
+          description: max(0, netAmount − allocatedAmount) (BR-COB-03).
+          allOf:
+            - $ref: '#/components/schemas/Money'
+      additionalProperties: false
+    InitialDeposit:
+      description: The deposit that governs confirmation (BR-SEN-07, BR-SEN-09–11).
+      type: object
+      required: [required, allocated, missing, state, exception, correctionDeadlineAt]
+      properties:
+        required:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        allocated:
+          $ref: '#/components/schemas/Money'
+        missing:
+          $ref: '#/components/schemas/Money'
+        state:
+          $ref: '#/components/schemas/DepositState'
+        exception:
+          description: Confirmed by an Admin without the deposit (BR-SEN-09).
+          type: boolean
+        correctionDeadlineAt:
+          description: End of the 15-minute window after a first human rejection; never renewed (INV-SEN-13).
+          oneOf:
+            - $ref: '#/components/schemas/Instant'
+            - type: 'null'
+      additionalProperties: false
+    SupplementalDeposit:
+      description: Additional deposit after a permitted reschedule (BR-CAN-10). How it is stored is ERD T-03/T-05.
+      type: object
+      required: [changeRequestId, required, allocated, missing, state, requestedAt]
+      properties:
+        changeRequestId:
+          $ref: '#/components/schemas/Uuid'
+        required:
+          description: Additional amount, beyond the initial deposit already verified.
+          allOf:
+            - $ref: '#/components/schemas/PositiveMoney'
+        allocated:
+          $ref: '#/components/schemas/Money'
+        missing:
+          $ref: '#/components/schemas/Money'
+        state:
+          $ref: '#/components/schemas/SupplementalDepositState'
+        requestedAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    FinancialPaymentLine:
+      type: object
+      required: [paymentId, method, amount, allocatedHere, verifiedAt]
+      properties:
+        paymentId:
+          $ref: '#/components/schemas/Uuid'
+        method:
+          $ref: '#/components/schemas/PaymentMethod'
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+        allocatedHere:
+          description: Active allocations of this payment to this booking's charges.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        verifiedAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    BookingFinancialState:
+      description: |
+        What is owed and what verified money covers it, apart from the booking status and the
+        service outcome (INV-RES-05) and from physical cash (API-DM-21). Never a cash balance.
+      type: object
+      required: [bookingId, bookingStatus, agreedPrice, charges, balanceDue, deposit, supplementalDeposit, payments, unallocatedLinkedFunds, pendingReviewIds]
+      properties:
+        bookingId:
+          $ref: '#/components/schemas/Uuid'
+        bookingStatus:
+          $ref: '#/components/schemas/BookingStatus'
+        agreedPrice:
+          $ref: '#/components/schemas/Money'
+        charges:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChargeView'
+        balanceDue:
+          description: Sum of the charge balances.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        deposit:
+          $ref: '#/components/schemas/InitialDeposit'
+        supplementalDeposit:
+          oneOf:
+            - $ref: '#/components/schemas/SupplementalDeposit'
+            - type: 'null'
+        payments:
+          description: Payments allocated to this booking or whose known origin is it.
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialPaymentLine'
+        unallocatedLinkedFunds:
+          description: Available funds of payments whose origin is this booking, not yet allocated anywhere.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+        pendingReviewIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Uuid'
+      additionalProperties: false
+    CashTotals:
+      description: Expected cash counts physical movements only; verified transfers are shown apart and never added (BR-CAJA-07, INV-CAJA-04).
+      type: object
+      required: [cashPayments, cashRefunds, cashIn, cashOut, expectedCash, verifiedTransfers]
+      properties:
+        cashPayments:
+          $ref: '#/components/schemas/Money'
+        cashRefunds:
+          $ref: '#/components/schemas/Money'
+        cashIn:
+          $ref: '#/components/schemas/Money'
+        cashOut:
+          $ref: '#/components/schemas/Money'
+        expectedCash:
+          description: Opening cash plus signed physical movements.
+          allOf:
+            - $ref: '#/components/schemas/SignedMoney'
+        verifiedTransfers:
+          description: Transfers verified while the session was open; informational, not cash.
+          allOf:
+            - $ref: '#/components/schemas/Money'
+      additionalProperties: false
+    CashAdjustment:
+      type: object
+      required: [id, sessionId, signedAmount, reason, adjustedByMembershipId, cashMovementId, paymentId, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        sessionId:
+          $ref: '#/components/schemas/Uuid'
+        signedAmount:
+          $ref: '#/components/schemas/NonZeroSignedMoney'
+        reason:
+          type: string
+        adjustedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        cashMovementId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        paymentId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        createdAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    CashSession:
+      type: object
+      required: [id, status, openMode, openedAt, openedByMembershipId, openingAmount, previousSessionId, openingReconciliation, revision, totals, close, adjustments, adjustmentsTotal]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: string
+          enum: [OPEN, CLOSED]
+        openMode:
+          type: string
+          enum: [MANUAL, AUTOMATIC]
+        openedAt:
+          description: A session survives midnight until its manual close (BR-CAJA-11).
+          allOf:
+            - $ref: '#/components/schemas/Instant'
+        openedByMembershipId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        openingAmount:
+          $ref: '#/components/schemas/Money'
+        previousSessionId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        openingReconciliation:
+          description: Null for the first session of the tenant.
+          oneOf:
+            - type: object
+              required: [previousCountedAmount, difference, reason]
+              properties:
+                previousCountedAmount:
+                  $ref: '#/components/schemas/Money'
+                difference:
+                  $ref: '#/components/schemas/SignedMoney'
+                reason:
+                  type: [string, 'null']
+              additionalProperties: false
+            - type: 'null'
+        revision:
+          description: Increases with every movement, adjustment and the close; used as a precondition (API-DM-18). It implies no new column.
+          type: integer
+          minimum: 0
+        totals:
+          $ref: '#/components/schemas/CashTotals'
+        close:
+          oneOf:
+            - type: object
+              required: [closedAt, closedByMembershipId, countedAmount, expectedAmount, difference, note]
+              properties:
+                closedAt:
+                  $ref: '#/components/schemas/Instant'
+                closedByMembershipId:
+                  $ref: '#/components/schemas/Uuid'
+                countedAmount:
+                  $ref: '#/components/schemas/Money'
+                expectedAmount:
+                  $ref: '#/components/schemas/SignedMoney'
+                difference:
+                  description: countedAmount − expectedAmount; allowed and recorded (BR-CAJA-06).
+                  allOf:
+                    - $ref: '#/components/schemas/SignedMoney'
+                note:
+                  type: [string, 'null']
+              additionalProperties: false
+            - type: 'null'
+        adjustments:
+          description: Admin adjustments appended after the close; they never change `close`.
+          type: array
+          items:
+            $ref: '#/components/schemas/CashAdjustment'
+        adjustmentsTotal:
+          $ref: '#/components/schemas/SignedMoney'
+      additionalProperties: false
+    CashSessionPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CashSession'
+    CurrentCashSessionView:
+      type: object
+      required: [session, previousClose, automaticOpening]
+      properties:
+        session:
+          description: The open session, or null.
+          oneOf:
+            - $ref: '#/components/schemas/CashSession'
+            - type: 'null'
+        previousClose:
+          oneOf:
+            - type: object
+              required: [sessionId, closedAt, countedAmount]
+              properties:
+                sessionId:
+                  $ref: '#/components/schemas/Uuid'
+                closedAt:
+                  $ref: '#/components/schemas/Instant'
+                countedAmount:
+                  $ref: '#/components/schemas/Money'
+              additionalProperties: false
+            - type: 'null'
+        automaticOpening:
+          description: Whether the first cash payment opens a session (BR-CAJA-03); configured in a later increment.
+          type: boolean
+      additionalProperties: false
+    OpenCashSessionRequest:
+      type: object
+      required: [openingAmount]
+      properties:
+        openingAmount:
+          $ref: '#/components/schemas/Money'
+        reconciliationReason:
+          description: Required when openingAmount differs from the previous counted cash (proposal, API-Q-15).
+          oneOf:
+            - $ref: '#/components/schemas/Reason'
+            - type: 'null'
+      additionalProperties: false
+    CloseCashSessionRequest:
+      type: object
+      required: [expectedRevision, countedAmount]
+      properties:
+        expectedRevision:
+          description: The `revision` of the session the person reviewed.
+          type: integer
+          minimum: 0
+        countedAmount:
+          $ref: '#/components/schemas/Money'
+        note:
+          type: [string, 'null']
+          maxLength: 500
+      additionalProperties: false
+    CashMovement:
+      type: object
+      required: [id, sessionId, kind, signedAmount, paymentId, refundId, reason, recordedByMembershipId, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        sessionId:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+          enum: [PAYMENT, REFUND, CASH_IN, CASH_OUT]
+        signedAmount:
+          $ref: '#/components/schemas/NonZeroSignedMoney'
+        paymentId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        refundId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        reason:
+          type: [string, 'null']
+        recordedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        occurredAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    CashMovementPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CashMovement'
+    RecordCashMovementRequest:
+      type: object
+      required: [kind, amount, reason]
+      properties:
+        kind:
+          type: string
+          enum: [CASH_IN, CASH_OUT]
+        amount:
+          $ref: '#/components/schemas/PositiveMoney'
+        reason:
+          $ref: '#/components/schemas/Reason'
+      additionalProperties: false
+    RecordCashAdjustmentRequest:
+      type: object
+      required: [expectedRevision, signedAmount, reason]
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 0
+        signedAmount:
+          $ref: '#/components/schemas/NonZeroSignedMoney'
+        reason:
+          $ref: '#/components/schemas/Reason'
+        cashMovementId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        paymentId:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+      additionalProperties: false
   examples:
     PublicBusinessProfile:
       summary: Barbershop landing data
@@ -3024,6 +4815,7 @@ components:
           agreedPrice: '8000.00'
           requiredDeposit: null
           depositState: NOT_REQUIRED
+          supplementalDepositState: null
           pendingOperationalClose: false
           holdExpiresAt: null
         attendeePhone: null
@@ -3109,3 +4901,258 @@ components:
           noticeMinutes: 600
           startAt: '2026-11-10T21:00:00Z'
           depositRefundPolicy: NO_MONEY_BACK
+    PaymentReviewPending:
+      summary: Second clearly unrelated attempt, escalated to human review
+      value:
+        id: 9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a
+        status: PENDING
+        purpose: INITIAL_DEPOSIT
+        arrivedVia: ESCALATED_AFTER_TWO_ATTEMPTS
+        booking:
+          id: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+          status: PENDING_PAYMENT_REVIEW
+          startAt: '2026-11-12T14:00:00Z'
+          customer:
+            id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+            fullName: Lucía Fernández
+          service:
+            id: 3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d
+            name: Color
+        changeRequestId: null
+        evidence:
+          kind: FILE
+          mediaType: image/jpeg
+          text: null
+          receivedAt: '2026-11-10T15:08:12Z'
+        declaredAmount: null
+        expectedReceivingAccount:
+          id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+          label: Cuenta del negocio
+          holderName: Barbería Centro
+        submittedAt: '2026-11-10T15:08:19Z'
+        decision: null
+    ApprovePaymentReviewRequest:
+      summary: Credit found in the business account and allocated to the deposit
+      value:
+        verifiedAmount: '3000.00'
+        receivingAccountId: null
+        allocations:
+          - chargeId: 6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b
+            amount: '3000.00'
+    PaymentReviewApproved:
+      summary: The allocation meets the deposit threshold and confirms the booking
+      value:
+        review:
+          id: 9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a
+          status: APPROVED
+          purpose: INITIAL_DEPOSIT
+          arrivedVia: ESCALATED_AFTER_TWO_ATTEMPTS
+          booking:
+            id: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+            status: CONFIRMED
+            startAt: '2026-11-12T14:00:00Z'
+            customer:
+              id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+              fullName: Lucía Fernández
+            service:
+              id: 3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d
+              name: Color
+          changeRequestId: null
+          evidence:
+            kind: FILE
+            mediaType: image/jpeg
+            text: null
+            receivedAt: '2026-11-10T15:08:12Z'
+          declaredAmount: null
+          expectedReceivingAccount:
+            id: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+            label: Cuenta del negocio
+            holderName: Barbería Centro
+          submittedAt: '2026-11-10T15:08:19Z'
+          decision:
+            decidedByMembershipId: 4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b
+            decidedAt: '2026-11-10T15:31:05Z'
+            paymentId: 2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f
+            rejectionReason: null
+        payment:
+          id: 2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f
+          method: TRANSFER
+          amount: '3000.00'
+          commercialOrigin: Seña de la reserva del 12/11
+          bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+          customerId: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+          receivingAccountId: 5a7c9e1b-3d5f-4a7c-9e1b-3d5f7a9c1e3b
+          paymentReviewId: 9d1f3a5c-7e9b-4d2f-8a4c-6e8a0b2d4f6a
+          verifiedByMembershipId: 4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b
+          verifiedAt: '2026-11-10T15:31:05Z'
+          allocatedAmount: '3000.00'
+          refundedAmount: '0.00'
+          availableAmount: '0.00'
+          unallocatedReason: null
+          cashMovementId: null
+          possibleDuplicateOf: []
+          allocations:
+            - id: 8e0a2c4e-6a8b-4e0a-9c4e-6a8b0d2f4a6c
+              paymentId: 2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f
+              chargeId: 6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b
+              bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+              amount: '3000.00'
+              status: ACTIVE
+              createdByMembershipId: 4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b
+              createdAt: '2026-11-10T15:31:05Z'
+              reversedByMembershipId: null
+              reversedAt: null
+              reversalReason: null
+        booking:
+          id: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+          status: CONFIRMED
+          origin: WHATSAPP
+          customer:
+            id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+            fullName: Lucía Fernández
+          attendeeName: null
+          service:
+            id: 3c5e7a9b-1d3f-4b5a-9c7e-1f3a5c7e9b2d
+            name: Color
+          resource:
+            id: 1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f
+            name: Martín
+          startAt: '2026-11-12T14:00:00Z'
+          endAt: '2026-11-12T15:30:00Z'
+          agreedPrice: '10000.00'
+          requiredDeposit: '3000.00'
+          depositState: MET
+          supplementalDepositState: null
+          pendingOperationalClose: false
+          holdExpiresAt: null
+        bookingEffect: CONFIRMED
+    ProblemReviewAlreadyDecided:
+      summary: Two members approve the same review at the same moment
+      value:
+        type: urn:agendoxa:problem:conflict
+        title: The review was already decided
+        status: 409
+        code: conflict
+        reason: review_already_decided
+        detail: Another member decided this review. Reload it to see the result.
+        requestId: req_01JC8Q7A1C2
+    RejectPaymentReviewRequest:
+      summary: No matching credit in the account
+      value:
+        reason: No credit for this amount in the business account
+    RecordPaymentRequestCash:
+      summary: Remaining balance received in cash at the counter
+      value:
+        method: CASH
+        amount: '7000.00'
+        commercialOrigin: Saldo del servicio
+        bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+        customerId: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+        receivingAccountId: null
+        allocations:
+          - chargeId: 6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b
+            amount: '7000.00'
+    ProblemAllocationExceeds:
+      summary: Allocation above the current charge balance
+      value:
+        type: urn:agendoxa:problem:rule-violation
+        title: The allocation exceeds the charge balance
+        status: 422
+        code: rule_violation
+        reason: allocation_exceeds_charge_balance
+        detail: The charge has 4000.00 left to cover. Nothing was recorded or allocated.
+        requestId: req_01JC8Q8F4D6
+        allocationLimit:
+          index: 0
+          chargeBalance: '4000.00'
+          availableFunds: '7000.00'
+    BookingFinancialStateSupplement:
+      summary: Confirmed booking moved to a dearer service, with a supplemental deposit requested
+      value:
+        bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+        bookingStatus: CONFIRMED
+        agreedPrice: '14000.00'
+        charges:
+          - id: 6c8e0a2b-4d6f-4c8e-8a2b-4d6f8a0c2e4b
+            kind: SERVICE
+            changeRequestId: null
+            netAmount: '10000.00'
+            allocatedAmount: '3000.00'
+            balance: '7000.00'
+          - id: 0d2f4a6c-8e0a-4d2f-9a6c-8e0a2c4e6a8b
+            kind: SUPPLEMENT
+            changeRequestId: b3d5f7a9-1c3e-4b5d-9f7a-1c3e5b7d9f1a
+            netAmount: '4000.00'
+            allocatedAmount: '0.00'
+            balance: '4000.00'
+        balanceDue: '11000.00'
+        deposit:
+          required: '3000.00'
+          allocated: '3000.00'
+          missing: '0.00'
+          state: MET
+          exception: false
+          correctionDeadlineAt: null
+        supplementalDeposit:
+          changeRequestId: b3d5f7a9-1c3e-4b5d-9f7a-1c3e5b7d9f1a
+          required: '1200.00'
+          allocated: '0.00'
+          missing: '1200.00'
+          state: REQUESTED
+          requestedAt: '2026-11-11T13:02:00Z'
+        payments:
+          - paymentId: 2b4d6f8a-0c2e-4b6d-8f0a-2c4e6a8b0d1f
+            method: TRANSFER
+            amount: '3000.00'
+            allocatedHere: '3000.00'
+            verifiedAt: '2026-11-10T15:31:05Z'
+        unallocatedLinkedFunds: '0.00'
+        pendingReviewIds: []
+    CloseCashSessionRequest:
+      summary: Counted cash below the expected amount
+      value:
+        expectedRevision: 14
+        countedAmount: '17000.00'
+        note: null
+    CashSessionClosed:
+      summary: Closed with a recorded difference; transfers shown apart (EJ-36, EJ-37)
+      value:
+        id: a1c3e5f7-9b1d-4c3e-8f7a-9b1d3f5a7c9e
+        status: CLOSED
+        openMode: MANUAL
+        openedAt: '2026-11-10T11:00:00Z'
+        openedByMembershipId: 0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f
+        openingAmount: '2000.00'
+        previousSessionId: f7a9c1e3-5b7d-4f9a-8c1e-3b5d7f9a1c3e
+        openingReconciliation:
+          previousCountedAmount: '2000.00'
+          difference: '0.00'
+          reason: null
+        revision: 15
+        totals:
+          cashPayments: '15000.00'
+          cashRefunds: '0.00'
+          cashIn: '1000.00'
+          cashOut: '500.00'
+          expectedCash: '17500.00'
+          verifiedTransfers: '20000.00'
+        close:
+          closedAt: '2026-11-10T23:10:00Z'
+          closedByMembershipId: 0b6f1e3c-2a9d-4c51-8e3f-7a1b2c3d4e5f
+          countedAmount: '17000.00'
+          expectedAmount: '17500.00'
+          difference: '-500.00'
+          note: null
+        adjustments: []
+        adjustmentsTotal: '0.00'
+    ProblemStaleRevision:
+      summary: A cash payment entered after the totals were reviewed
+      value:
+        type: urn:agendoxa:problem:conflict
+        title: The cash session changed
+        status: 409
+        code: conflict
+        reason: stale_revision
+        detail: A movement was recorded after you reviewed the totals. Review the expected cash again before closing.
+        requestId: req_01JC8Q9K2M8
+        currentRevision: 15
