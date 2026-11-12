@@ -18,8 +18,6 @@ Complete when every root command passes locally, each check fails on an intentio
 
 **Excluded:** enabling GitHub Actions in repository settings, the test PR to `main`, branch protection, merges, deployments, E2E/browser tests, coverage gates, product code and dependency upgrades.
 
-**Owner-led after this PR:** enable/configure GitHub Actions, then coordinate a test PR to `main` to observe `quality` and `database-integration`, confirm a failing check is visible, and protect `main`.
-
 ## Execution plan
 
 1. Audit configuration and baseline commands.
@@ -39,17 +37,17 @@ Complete when every root command passes locally, each check fails on an intentio
 - [x] 4. PostgreSQL integration — database and API suites pass through `pnpm test:integration`.
 - [x] 5. Workflow — `.github/workflows/ci.yml` with `quality` and `database-integration`.
 - [x] 6. Docs — README, CONTRIBUTING, AGENTS, ARCHITECTURE and design index.
-- [x] 7. Verification and review — independent review: one blocking finding (below), plan evidence updated.
-- [ ] 8. Delivery — PR to `develop`; GitHub run and plan closure pending.
+- [x] 7. Verification and review — the first review's font-download blocker was resolved with D6; the second confirmed the fix and identified plan closure as its only blocker.
+- [x] 8. Plan closure — PR #35 is open to `develop`; the implementation and lifecycle rule are ready for team review, with delivery updates pending.
 
 ## Decisions
 
-- Lint, formatting, line-ending, Turbo and CI decisions: [design D1–D5](../../design-docs/doc-02-quality-ci.md#decisions).
+- Lint, formatting, line-ending, Turbo, CI and font decisions: [design D1–D6](../../design-docs/doc-02-quality-ci.md#decisions).
 - Owner decisions (2026-11-12): ESLint for web and oxlint for the TypeScript packages; the PRD file stays out of the repository; the agent prepares everything, the owner enables Actions, and the test PR to `main` is coordinated afterwards.
 - Full root suites run locally because the root commands are this task's deliverable; the owner explicitly requested local verification including PostgreSQL.
 - Audit finding: oxlint and ESLint exit 0 on warning-level violations, so the lint scripts now deny warnings ([design D1](../../design-docs/doc-02-quality-ci.md#d1--lint-policy-keep-eslint-for-web-and-oxlint-for-the-typescript-packages)).
-
-**Pending owner decision:** the independent review flagged as blocking that `pnpm build` downloads the Geist fonts from Google Fonts (`next/font/google` in `apps/web/src/app/layout.tsx`), so a Google outage can fail the `quality` job. Removing that network access means self-hosting the font files or adding a dependency, which changes web presentation assets beyond this task's agreed scope. It is not resolved here; the PR reports it.
+- Review finding resolved (owner decision 2026-11-12): `pnpm build` downloaded the Geist fonts from Google Fonts (`next/font/google`), so a Google outage could fail `quality`. The web now uses the official `geist` package with the same fonts and CSS variables ([design D6](../../design-docs/doc-02-quality-ci.md#d6--web-builds-do-not-download-fonts)).
+- Plan closure follows the new [ExecPlan lifecycle rule](../../PLANS.md#location-and-lifecycle); owner-led and post-merge steps are tracked in Issue #19.
 
 ## Validation
 
@@ -66,10 +64,26 @@ Local environment: Windows 11, Node 24, pnpm 12.16.1, Docker Desktop 29.6.1, `po
 | Intentional failures (probe files removed afterwards): `debugger` in shared, database and API; conditional hook in web; `const  x` format drift; string assigned to `number`; failing unit spec; failing integration spec | Each command exits non-zero (lint 1, format:check 1, typecheck 2, test 1, test:integration 1) |
 | `actionlint` (`rhysd/actionlint` Docker image) | 0 errors |
 | `git diff --cached --check` | Pass |
-| Lockfile | Only importer entries added; resolved versions unchanged (prettier 3.9.10, oxlint 1.90.0, oxlint-tsgolint 7.0.2005) |
+| Lockfile | Tooling: only importer entries added; resolved versions unchanged (prettier 3.9.10, oxlint 1.90.0, oxlint-tsgolint 7.0.2005). Fonts: one new package, `geist@1.9.2` (peer `next` resolves to the existing 16.4.3) |
+| Font fix: web `lint`, `typecheck`, `format:check`, root `pnpm build` | Pass (exit 0) |
+| Font fix: `pnpm build` with `HTTP(S)_PROXY` set to a dead address for that process only | Pass; `.next` contains no `fonts.googleapis.com`/`fonts.gstatic.com` references and no `next/font/google` import remains in source |
 
-Not checked: a GitHub-hosted run, because Actions is not enabled yet; the owner will enable it and coordinate a test PR to `main`.
+Not checked: a GitHub-hosted run, because Actions is not enabled yet.
 
 ## Final implementation outcome
 
-Pending.
+### Implemented
+
+Root formatting, warning-strict lint, LF normalization and uncached PostgreSQL integration checks are in place, along with the two-job PR-to-`main` workflow and updated project documentation. Web builds use locally packaged Geist fonts rather than downloading them from Google.
+
+### Deviations from Design
+
+The original plan was extended after review to remove the build-time Google Fonts dependency (D6), and the lint audit required warning-strict scripts because warnings otherwise exited successfully. The lifecycle rule now closes this plan before team review rather than waiting for downstream delivery steps.
+
+### Validation
+
+The checks and failure probes listed above passed, including PostgreSQL integration (API 1/1, database 90/90), actionlint and a build with a dead proxy. The first independent review's font blocker was fixed; the second confirmed the fix and identified only plan closure as blocking, addressed here. Team review remains pending, and no GitHub-hosted run has been verified.
+
+### Follow-up
+
+PR #35's description still needs a delivery update covering the font fix, the lifecycle rule and Agus's frontend shared impact. Owner-led operational steps are tracked in Issue #19. No new technical debt was identified.

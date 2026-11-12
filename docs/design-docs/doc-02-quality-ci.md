@@ -6,7 +6,7 @@
 
 REP-01 and REP-02 already delivered working ESLint (web), type-aware oxlint (API and database), API Prettier configuration, Vitest 4 unit/E2E/integration configurations and an isolated PostgreSQL 18 test service. DOC-02 makes these checks repeatable from the repository root and enforces them on pull requests to `main`, without replacing functional tools or adding a second test framework.
 
-Audit baseline on `develop` `af1da44` (2026-11-12): `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` passed. Gaps: no root formatter or `format:check`, no lint in `packages/shared`, no `.gitattributes` while Windows checkouts use `core.autocrlf=true`, no root command running both PostgreSQL suites and no workflow.
+Audit baseline on `develop` `af1da44` (2026-11-12): `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` passed. Gaps: no root formatter or `format:check`, no lint in `packages/shared`, no `.gitattributes` while Windows checkouts use `core.autocrlf=true`, no root command running both PostgreSQL suites, a web build that downloaded fonts from Google, and no workflow.
 
 ## Decisions
 
@@ -56,6 +56,12 @@ oxlint configuration stays per workspace. Only the API customizes rules, so a sh
 - The service mirrors the local `postgres-test` service (`agendoxa_test` user, password and database on port 5433), so `DATABASE_URL_TEST` is identical locally and in CI. The database suite applies the versioned migrations inside a uniquely named child database; the API suite only connects. No repository secrets are required.
 - PRs to `develop` and `staging` do not trigger CI. Contributors run focused local checks there ([CONTRIBUTING](../../CONTRIBUTING.md)); extending triggers needs a separate decision.
 - E2E (`test:e2e`), browser suites, coverage thresholds and deployments are excluded.
+
+### D6 — Web builds do not download fonts
+
+The starter layout loaded Geist and Geist Mono through `next/font/google`, which downloads font files from Google during `next build`, so an unreachable Google Fonts endpoint could fail the `quality` job. The web now imports the same fonts from Vercel's official `geist` package (OFL), which serves them through `next/font/local` with the same `--font-geist-sans` and `--font-geist-mono` variables. Fonts arrive with `pnpm install`, which already depends on the package registry. The font families, CSS variables and weight range are preserved; the package's own fallback stack may differ slightly while fonts load.
+
+**Alternatives rejected:** copying `.woff2` files into the repository (binary assets, manual license and update tracking); switching to system fonts (changes presentation, a frontend decision outside DOC-02); accepting the risk (leaves a required `main` check exposed to an external outage).
 
 ## Consequences
 

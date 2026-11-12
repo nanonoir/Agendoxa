@@ -18,7 +18,7 @@ apps/api  ---> packages/database ---> PostgreSQL
 - **Persistence:** `packages/database` exports the Drizzle/node-postgres connection and 17-entity core schema. Versioned migrations enforce same-tenant references, scope uniqueness, monetary/range checks, active-occupancy GiST exclusion and history safeguards. Migration/seed scripts are explicit. [The increment design](docs/design-docs/rep-02-core-persistence.md) lists deferred fields, partial T-01/T-05 coverage and the RLS evaluation. Repositories, authorization, policy resolution and full lifecycle use cases are not implemented.
 - **Local PostgreSQL:** Compose provides a persistent development service and a separate tmpfs integration profile, with loopback ports. Database integration tests create unique child databases, not development tables.
 
-There are no implemented booking use cases, tenant authorization, messaging/AI integrations, payment processing or background jobs. Database integrity is not authorization or RLS; constraints do not filter reads. The starter page's external links and Google fonts are not product integrations.
+There are no implemented booking use cases, tenant authorization, messaging/AI integrations, payment processing or background jobs. Database integrity is not authorization or RLS; constraints do not filter reads. The starter page's external links are not product integrations; its Geist fonts are bundled from the `geist` package, so the web build does not download fonts.
 
 ## Build and verification boundaries
 
