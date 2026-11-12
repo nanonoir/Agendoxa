@@ -1686,8 +1686,10 @@ paths:
       description: |
         Stored privately through assets, with no public link (DM-14). An upload proves nothing:
         it becomes evidence only when a review or a CRM booking references it. Accepted media
-        types and size limits come from the CON-03 storage contract. An upload that is not linked
-        before `expiresAt` is deleted (API-DM-19, API-Q-12).
+        types and size limits come from the CON-03 storage contract. `expiresAt` limits use of
+        an unlinked upload, not physical retention; no age-only automatic deletion is agreed.
+        Retention and deletion policy require product/legal resolution before deployment (API-Q-12,
+        INV-DAT-03).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -2277,9 +2279,12 @@ paths:
         The allocation becomes REVERSED and its funds available again; it never cancels a booking.
         If it leaves a CONFIRMED booking that has not started below its initial-deposit threshold
         (fully or partially), the same transaction returns the booking to PENDING_PAYMENT_REVIEW
-        (unconfirmed, occupying) and queues a notice asking the customer to send the receipt again
-        (BR-SEN-18, INV-SEN-15; API-Q-14 closed). There is no correction window, expiry or
-        automatic release. A started or completed booking, an Admin exception and the
+        (unconfirmed, occupying). Invalid-verification reversal queues a resend notice in the
+        same transaction; reassignment of valid funds never requests another receipt from the
+        payer, even for the same customer. The backend uses the trusted persisted correction
+        cause; private staff reasons are not exposed to the agent (BR-SEN-18, INV-SEN-15).
+        There is no correction window, expiry or automatic release, even after rejection of
+        resent evidence. A started or completed booking gets no resend notice; an Admin exception and the
         supplemental deposit are not changed. Multi-owner command of `workflows`; the response
         is assembled in the transaction (API-DM-24, API-DM-25). 409 `state_changed` when the
         booking changed meanwhile, `allocation_already_reversed` when already reversed.
@@ -2854,8 +2859,8 @@ components:
         (allocated above zero and below the threshold); 7 UNALLOCATED (a personnel reversal,
         BR-SEN-18, API-Q-14 closed, left none); 8 AWAITING_EVIDENCE (everything else with a
         deposit, including evidence still under preliminary screening). The allocated amount
-        stays visible in `deposit.allocated` whichever value is selected. A not-yet-started booking so returned to PENDING_PAYMENT_REVIEW has had its
-        customer asked to resend the receipt, with no window, expiry or automatic release; a
+        stays visible in `deposit.allocated` whichever value is selected. A not-yet-started booking so returned to PENDING_PAYMENT_REVIEW has no window, expiry or automatic release;
+        only invalid verification requests another receipt, not reassignment of valid funds. A
         started or completed booking keeps its status, is not asked to resend, and shows PARTIAL
         or UNALLOCATED rather than a stale MET.
       type: string
@@ -4209,7 +4214,7 @@ components:
         uploadedAt:
           $ref: '#/components/schemas/Instant'
         expiresAt:
-          description: Deleted if not linked by then (API-Q-12).
+          description: Last instant for using the unlinked upload; physical retention is separate and subject to API-Q-12 and INV-DAT-03.
           allOf:
             - $ref: '#/components/schemas/Instant'
       additionalProperties: false
