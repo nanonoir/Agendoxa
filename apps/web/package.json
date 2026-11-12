@@ -6,11 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@agendoxa/shared": "workspace:*",
+    "geist": "^1.9.2",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"

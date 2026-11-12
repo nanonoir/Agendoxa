@@ -109,6 +109,18 @@ Fifteen regressions reproduced before migration 0004. The read-only review ident
 
 ## Final implementation outcome
 
-The bounded persistence implementation and reproducibility checks are delivered on feat/REP-02-postgres-drizzle in [PR #29](https://github.com/nanonoir/Agendoxa/pull/29), using Refs #15. Local development PostgreSQL is migrated and seeded; the test service remains available for the next focused checks. The parent remains open: the team must review the schema cut, partial T-01/T-05 treatment and RLS deferral, then distribute the remaining persistence increments. REP-03 still depends on CON-01/CON-02. Keep this plan active until that review is resolved; do not report REP-02 as completed.
+### Implemented
 
-For the next session: read #29 reviews and #15 scope discussion before changing this branch. Address review observations and repeat only affected checks. Do not add deferred tables/workflows or merge without the required human approval. Once the scope is agreed, record which issue owns each remaining persistence increment so that the next assignee can continue from this schema.
+The bounded 17-entity persistence increment, PostgreSQL/Drizzle infrastructure, NestJS connection lifecycle and reproducibility checks were delivered in [PR #29](https://github.com/nanonoir/Agendoxa/pull/29), merged into `develop` on 2026-11-08 at 00:06:01 UTC. The PR used `Refs #15`; [#15](https://github.com/nanonoir/Agendoxa/issues/15) was manually closed at 00:06:10 UTC, without a closing comment recording a scope agreement. These statuses were verified on 2026-11-12.
+
+### Deviations from Design
+
+The original plan expected #15 to remain open and this plan to stay active until scope review. The issue was instead closed manually, and the owner approved closing this plan under the current lifecycle rule. Neither event establishes team ratification of the ERD or deferred decisions.
+
+### Validation
+
+The maintainer review validation above records 90 PostgreSQL tests passing, database and API lint/typecheck/build, migration checks, API unit/E2E/integration tests and an isolated legacy upgrade. Independent review identified issues that were addressed; its results do not replace human approval or ratify the broader design.
+
+### Follow-up
+
+Open follow-ups are [#16 REP-03](https://github.com/nanonoir/Agendoxa/issues/16), dependent on CON-01/CON-02; [#30 IAM](https://github.com/nanonoir/Agendoxa/issues/30), for first Admin and memberships; and [#31 RES](https://github.com/nanonoir/Agendoxa/issues/31), for atomic booking writes and catalog compatibility. Deferred tables are listed in the [design's explicit schema boundaries](../../design-docs/rep-02-core-persistence.md#explicit-schema-boundaries) and are introduced with the feature work that needs them. This plan's closure does not complete those dependencies or deferred decisions.
