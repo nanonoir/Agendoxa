@@ -472,7 +472,7 @@ interface CustomerToolExecutor {
 
 | Tools | Facade / composition | Required checks and refusal vocabulary |
 |---|---|---|
-| Information and services | Read composition above `tenants` and `catalog` | Deliberately public fields; location/source of WhatsApp link remain CON-02 questions |
+| Information and services | Read composition above `tenants` and `catalog` | Deliberately public fields. Product-owner agreement of 2026-11-12, pending reflection in PR #33: location comes from a public business address field (proposed DOM-01 addition) and the WhatsApp link from the tenant's connected number |
 | Free slots and own bookings | `bookings` queries | Same tenant, current catalog, requester-owned future records; `not_found`, `range_too_large`, `inactive_service` |
 | HOLD and no-deposit confirmation | `workflows` | Recheck restrictions, policy, limits and occupancy; confirm explicit current terms while valid; `slot_unavailable`, `state_changed`, slot/policy refusal reasons |
 | Preparation and own cancellation/rescheduling | `workflows` | Requester ownership, current confirmation and any accepted late consequence; `not_found`, `late_change_requires_acceptance`, `reschedule_limit_reached`, `state_changed` |
@@ -795,7 +795,7 @@ All INT-DM decisions are proposed for team review.
 | INT-Q-04 | Exact physical metadata/constraints for intake protection, operation dedupe, screening generations, dispatch states, confirmation and batch leases | T-04/T-05, API-Q-06 and affected owners; corresponding adapters/workers |
 | INT-Q-05 | Verify Evolution 2.3.7 sender/LID variants, status mapping, recovery limits, custom headers and image digest; qualify any version change | T-04 pilot; enabling each real provider path |
 | INT-Q-06 | Private storage implementation/location, provider-account data handling and approved retention/cleanup for external copies | Deployment/Product/legal under P-32; real personal-data processing |
-| INT-Q-07 | Reconcile this proposal with PR #33, including tool projections/errors, composed ingress, API-Q-11 screening display, API-Q-12 unlinked uploads and any new shared refusal | CON-02/CON-03 team review; incompatible contract implementation |
+| INT-Q-07 | Reconcile this proposal with PR #33, including tool projections/errors, composed ingress, API-Q-11 screening display, API-Q-12 unlinked uploads, any new shared refusal, the landing location/WhatsApp-link sources, allocation on human verification (closing API-Q-13) and the proposed non-collected supplemental-deposit state; then repin the CON-02 references to its final revision | CON-02/CON-03 team review; incompatible contract implementation |
 | Existing P-40 | Counter continuation across later human-review/correction rounds | Product; later-round unrelated-file counting |
 | Existing T-01–T-05 / TEN-Q | Occupancy, money, actors, consent, schema and provider gates remain in their sources | Existing owners; affected implementations |
 
