@@ -228,9 +228,17 @@ interface SendTextCommand {
   authorizationRevision: string;
 }
 
+type SendRejectionCode =
+  | 'invalid_recipient' | 'connection_not_ready' | 'rate_limited' | 'invalid_request';
+
+interface SendRejection {
+  code: SendRejectionCode;
+  retryAfterMs?: number;
+}
+
 type SendOutcome =
   | { kind: 'accepted'; providerMessageId: string }
-  | { kind: 'failed'; failure: IntegrationFailure }
+  | { kind: 'rejected'; rejection: SendRejection }
   | { kind: 'unknown'; correlationRef: UUID };
 
 type DeliveryState = 'ACCEPTED' | 'DELIVERED' | 'READ' | 'FAILED' | 'UNKNOWN';
@@ -283,9 +291,21 @@ Instance/QR operations are server-only capabilities of the channel-management us
 
 Before dispatch, the owner rechecks tenant, recipient, connection, notice validity, consent where applicable, and the routing generation for an AI reply. Persist the attempt and dispatch authorization before submitting to Evolution. Request submission is the linearization point for an in-flight send. Takeover invalidates queued/unsubmitted AI work; the UI must expose an already submitted attempt while its outcome is reconciled. An already submitted message may be delivered later by the provider. The exact handoff acknowledgement/send reservation protocol is INT-Q-03 and must satisfy INV-MSG-04 in implementation.
 
-After provider acceptance, store its message reference and correlate later status events. An older ACCEPTED event cannot downgrade READ/DELIVERED. Contradictory or unmapped statuses require reconciliation. `NotificationAttempt` maps provider acceptance to its existing SENT outcome and retains delivery/read updates. HTTP success proves acceptance only. Timeouts, broken connections after submission and process death before result persistence are UNKNOWN unless provider evidence establishes a definitive outcome.
+After provider acceptance, store its message reference and correlate later status events. An older ACCEPTED event cannot downgrade READ/DELIVERED. Contradictory or unmapped statuses require reconciliation. `NotificationAttempt` maps `accepted` to its existing SENT outcome and retains delivery/read updates. HTTP success proves acceptance only, never delivery or reading.
 
-A confirmed failed notification permits one still-valid new attempt, retaining the logical notice. UNKNOWN invokes `recoverStatus`; if the provider cannot establish the result, show personnel attention and do not automatically resend. Never enable a generic HTTP retry around an uncertain send. The adapter's recovery method may legitimately return `unresolved`; no provider idempotency header or lookup-by-client-key support is assumed. The versioned send route and DTO use `/message/sendText/{instance}` with `text` and `number` inside the provider adapter. [Send route](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/routes/sendMessage.router.ts) · [Send DTO](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/dto/sendMessage.dto.ts)
+`SendOutcome` has three results, split at the submission boundary:
+
+| Outcome | Meaning | `NotificationAttempt` outcome and next step |
+|---|---|---|
+| `accepted` | The provider explicitly accepted the request and returned `providerMessageId` | SENT; correlate later status events |
+| `rejected` | The provider explicitly refused the request before acceptance, with a `SendRejectionCode` | Confirmed failure (BR-NOT-10); the only outcome that authorizes the single retry below |
+| `unknown` | The result cannot be established; carries the `correlationRef` persisted with the attempt | Unknown outcome (BR-NOT-10); `recoverStatus`, never automatic resend |
+
+`SendRejectionCode` is deliberately narrow: it lists only refusals the provider can make before it accepts a message (invalid or unreachable recipient, instance not connected, rate limiting, a request the provider validates and refuses). The adapter maps a provider response to a code only when that response proves the message was not accepted. A response it cannot classify, a 5xx whose effect is unclear or an unrecognized body is `unknown`, not a rejection. The general `IntegrationFailure`, including `timeout`, is not accepted by `SendOutcome`; screening and `readMessageMedia` keep it because repeating those reads cannot duplicate a customer message.
+
+Submission boundary: a failure before the request leaves the adapter (for example the persisted dispatch authorization is stale or a local precondition fails) never reached the provider and is safe to retry or suppress as unsubmitted work. Once the request may have been submitted, or the adapter cannot exclude that it was, the result is `unknown` until correlated evidence says otherwise. A timeout, a broken connection or stream after submission, process death before the result is persisted, and a missing or unmatched correlation are all `unknown`.
+
+Only `rejected` permits one still-valid new attempt, retaining the logical notice, after the owner rechecks consent, connection state and notice validity. `unknown` invokes `recoverStatus`; if the provider cannot establish the result, `unresolved` shows personnel attention, and the system does not automatically resend, including when a job is redelivered. Never enable a generic HTTP retry around a send. The adapter's recovery method may legitimately return `unresolved`; no provider idempotency header or lookup-by-client-key support is assumed, and these contracts make no exactly-once claim: at most one actual provider submission is attempted per `attemptId`, and a message submitted before the result was lost may still be delivered later. `dispatchId` and `attemptId` remain stable across retries and recovery, and the attempt's persisted state is what recovery and redelivery read. The versioned send route and DTO use `/message/sendText/{instance}` with `text` and `number` inside the provider adapter. [Send route](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/routes/sendMessage.router.ts) · [Send DTO](https://github.com/evolution-foundation/evolution-api/blob/2.3.7/src/api/dto/sendMessage.dto.ts)
 
 ## 5. Conversation runtime and handoff
 
@@ -624,7 +644,7 @@ type JobKind =
 | `booking.correction-expiry.v1` | `workflows` / `bookings`, with `payments` | Current correction deadline, distinct human-rejection sequence, timely intake/review, partial funds, start and supplemental safeguard |
 | Priority/progression/entry-expiry | `bookings` | Current round/generation, original priority schedule, eligibility/range/start; priority expiry preserves otherwise valid late invitations |
 | Capacity reevaluation | `bookings`, initiated by release or a catalog workflow | Actual resource/range availability after removal of a block or release, even without an earlier booking/round; exclude private remainders |
-| Notification dispatch/status recovery | `notifications` / `messaging` transport | Current kind-specific audience, consent, lifecycle, slot and validity; confirmed failure vs unknown outcome |
+| Notification dispatch/status recovery | `notifications` / `messaging` transport | Current kind-specific audience, consent, lifecycle, slot and validity; `rejected` (confirmed failure) vs `unknown` outcome |
 | Invitation dispatch | `workflows` / `notifications` and `bookings` | Persist outcome plus second-confirmed-failure advancement or its durable intent together; no priority extension or entry removal |
 | Group / batch-ready | `messaging` producer; `agent` consumes batch-ready | Latest message generation and five-second quiet window; original unprocessed IDs; live run/routing authorization |
 | AI return | `messaging` | Last genuine human reply plus 60 minutes, control generation, lifecycle and global AI state |
@@ -635,7 +655,7 @@ type JobKind =
 
 Proposed infrastructure policy for safe, idempotent database-only handlers is five retries with exponential backoff from one second, capped at 30 seconds, then visible failed work plus periodic owner reconciliation. These are technical retry settings, not additional business time. Handler runtime is bounded. Queue defaults cannot delete the only recoverable business intention. Due-state reconciliation runs on startup and every 60 seconds as an initial operational proposal, with capacity measurement before production.
 
-External-send jobs override blind infrastructure retries. Once a dispatch is admitted, worker failure enters status recovery using the existing attempt. It must not submit another provider request because a queue redelivered it. The business's single confirmed-failure retry creates the second actual attempt. A delayed valid action runs after current-state rechecks; an expired opportunity is suppressed. Screening timeout/recovery preserves its original cutoff and routes conservatively.
+External-send jobs override blind infrastructure retries. Once a dispatch is admitted, worker failure enters status recovery using the existing attempt. A redelivered job reads the persisted attempt: if it may have been submitted, the outcome is `unknown` and the job runs `recoverStatus` without submitting another provider request. The business's single retry after an explicit `rejected` outcome creates the second actual attempt. A delayed valid action runs after current-state rechecks; an expired opportunity is suppressed. Screening timeout/recovery preserves its original cutoff and routes conservatively.
 
 ## 10. Correlation and failure matrix
 
@@ -652,8 +672,9 @@ The following are logical responsibilities for implementation under the existing
 | Business mutation commits before graph checkpoint | Operation identity, fingerprint and result committed with business state | Replayed tool returns the original effect and reads its current condition |
 | Enqueue fails inside business transaction | Same database transaction | Both writes roll back; retry the whole operation |
 | Worker commit before queue acknowledgement | Authoritative state/generation and effect identity | Redelivery observes completion and causes no second effect |
-| Send accepted, result not persisted | Persisted DISPATCHING attempt and available provider correlation | UNKNOWN, recover status or alert personnel; no automatic resend |
-| Confirmed failure on invitation retry | Attempt and round facts | Workflow records terminal outcome and progression/intent in one transaction |
+| Send submitted, result not persisted (accepted or not, timeout, broken stream, crash or missing correlation) | Persisted DISPATCHING attempt and available provider correlation | `unknown`: recover status or alert personnel on `unresolved`; no automatic resend, including on job redelivery |
+| Provider explicitly rejects a send before acceptance | Attempt and `SendRejectionCode` | `rejected`: confirmed failure; one still-valid retry after rechecking consent, connection and notice validity |
+| Confirmed (`rejected`) failure on invitation retry | Attempt and round facts | Workflow records terminal outcome and progression/intent in one transaction |
 | Global disable/takeover while a response is prepared | Routing generation and dispatch state | Discard unsubmitted stale draft; reconcile already submitted work as in §4.3 |
 | Consent revoked / deletion requested before queued send | Current preferences/deletion and notice validity | Suppress dispatch; immediate consent/deletion effects remain transactional |
 | Blob written before SQL references | Tenant/intake object identity and checksum | Reconcile attachment or owner-approved removal; no unbounded orphan loss |
@@ -667,7 +688,7 @@ Observability records tenant, request/operation, connection/conversation/message
 
 | Double | Scripted behavior | Required assertions |
 |---|---|---|
-| Messaging provider | Repeat/reorder webhook fixtures; accepted, failed, timed-out and late status outcomes | Tenant resolution, direction/authorship, intake dedupe, one confirmed-failure retry, UNKNOWN recovery |
+| Messaging provider | Repeat/reorder webhook fixtures; `accepted`, each `rejected` code, `unknown` (timeout, broken stream, missing correlation) and late status outcomes | Tenant resolution, direction/authorship, intake dedupe, one retry only after `rejected`, `unknown` recovery without resend, no resend on job redelivery |
 | Conversation runtime | Scripted permitted tool calls, repeated calls, interruption and stale generation | Same operation identity on replay, customer projection, actual results, takeover/global-disable suppression |
 | Receipt analyzer | Every ScreeningOutcome, malformed response, timeout and reversed completion order | Initial attempt sequence, original receipt time, conservative human routing and no financial approval |
 | Scheduler/clock | Explicit due work, duplicate delivery, crash before/after commit | Rollback with enqueue, stale-generation no-op, business idempotency and startup reconciliation |
@@ -711,6 +732,8 @@ Illustrative identities below are synthetic. These JSON examples must conform to
 }
 ```
 
+This `SendOutcome` example is an interrupted send: the request may have been submitted but its result was lost, so it is `unknown` and goes to status recovery, never to automatic resend.
+
 <!-- contract-example: SendOutcome -->
 ```json
 {
@@ -751,8 +774,8 @@ The following scenarios are requirements for implementation tests. Their presenc
 | INT-E05 | Analyzer fails, crashes or exceeds five seconds | Same intake routes conservatively once; no indefinitely unresolved analysis or verified payment |
 | INT-E06 | Explicit inability to attach and timely text evidence | Direct human review through the authorized fallback |
 | INT-E07 | Evidence arrives after release, or a cancelled booking later receives verified money | Financial handling continues; released occupancy and another customer's booking remain intact |
-| INT-E08 | Provider accepts a send, then the client/worker loses the result | UNKNOWN with recovery or personnel attention, no automatic retransmission |
-| INT-E09 | First and second confirmed invitation-send failures | At most two actual attempts; atomic progression/intent, preserved entry and original priority |
+| INT-E08 | A send times out, its stream breaks after submission, or the worker dies before persisting the result (the provider may or may not have accepted it); also a redelivered dispatch job | `unknown`: `recoverStatus`, personnel attention if `unresolved`; no automatic retransmission, no second submission on redelivery and no retry authorized |
+| INT-E09 | First and second explicitly `rejected` invitation sends | At most two actual attempts; atomic progression/intent, preserved entry and original priority |
 | INT-E10 | Job runs with old booking, reminder, grouping, return or deletion generation | Recheck current state and no-op when obsolete |
 | INT-E11 | Failure after owner writes but before transactional enqueue/commit | Complete rollback; a later successful transaction has recoverable work |
 | INT-E12 | Tool commits a HOLD, then LangGraph restarts before checkpointing | Same operation returns its recorded effect; no second HOLD |
