@@ -3,7 +3,7 @@
 > **Status** — In Review, proposed for team review. Runtime implementation and provider acceptance remain pending.
 > **Prepared** — 2026-11-11 for [CON-03 #12](https://github.com/nanonoir/Agendoxa/issues/12), on `develop` `af1da44`.
 > **Scope** — Evolution intake and sending, LangGraph and typed agent tools, preliminary receipt screening, private assets, durable scheduling, correlation, retries, recovery and test doubles.
-> **Dependencies** — [CON-01](./modules.md), [DOM-01](./erd.md), [DOM-02](./tenancy.md), [UC-03 rules](../product-specs/uc-03/business-rules.md) and [invariants](../product-specs/uc-03/invariants.md). CON-02 is the open [PR #33](https://github.com/nanonoir/Agendoxa/pull/33), read at [`d2b7d77`](https://github.com/nanonoir/Agendoxa/blob/d2b7d77769738b118b09241808bfd1edc50cfbcf/docs/design-docs/api-contracts.md).
+> **Dependencies** — [CON-01](./modules.md), [DOM-01](./erd.md), [DOM-02](./tenancy.md), [UC-03 rules](../product-specs/uc-03/business-rules.md) and [invariants](../product-specs/uc-03/invariants.md). CON-02 is the open [PR #33](https://github.com/nanonoir/Agendoxa/pull/33), read at [`f3d06e2774cc129aab0503ed3aac67710d727257`](https://github.com/nanonoir/Agendoxa/blob/f3d06e2774cc129aab0503ed3aac67710d727257/docs/design-docs/api-contracts.md).
 > **Delivery boundary** — This document specifies contracts. Provider accounts, installed packages, adapters, workers, physical schema and product-policy changes require their implementation increments.
 
 ## 1. Sources, ownership and decisions
@@ -31,7 +31,7 @@ This specifies the composite HTTP ingress placement needed by [§4.2](#42-intake
 
 ### INT-DM-02 — Inject authority outside model-generated arguments
 
-UUIDs identify application records. UTC RFC 3339 strings identify instants. Recurring local dates/times use the tenant's IANA timezone. Money is an exact decimal string in the tenant currency. Phone numbers use E.164. The [CON-02 representations](https://github.com/nanonoir/Agendoxa/blob/d2b7d77769738b118b09241808bfd1edc50cfbcf/docs/design-docs/api-contracts.md#3-general-conventions) supply the corresponding wire conventions.
+UUIDs identify application records. UTC RFC 3339 strings identify instants. Recurring local dates/times use the tenant's IANA timezone. Money is an exact decimal string in the tenant currency. Phone numbers use E.164. The [CON-02 representations](https://github.com/nanonoir/Agendoxa/blob/f3d06e2774cc129aab0503ed3aac67710d727257/docs/design-docs/api-contracts.md#3-general-conventions) supply the corresponding wire conventions.
 
 The TypeScript below is a portable specification, with runtime parsing required at each inbound boundary. `UUID`, `Instant`, `Money` and `LocalDate` need the format validations described above. Objects reject unknown input keys. Provider DTOs, ORM rows and credentials stay inside their adapters.
 
@@ -468,6 +468,7 @@ type InitialDepositProjection =
   | { state: 'UNDER_REVIEW' }
   | { state: 'CORRECTION_WINDOW'; amountOwed: Money; correctionDeadline: Instant }
   | { state: 'PARTIAL'; amountOwed: Money }
+  | { state: 'UNALLOCATED'; amountOwed: Money }
   | { state: 'MET' }
   | { state: 'ADMIN_EXCEPTION' }
   | { state: 'PERSONNEL_REQUIRED' };
@@ -478,6 +479,12 @@ type SupplementalDepositProjection =
   | { state: 'MET' }
   | { state: 'NOT_COLLECTED' }
   | { state: 'PERSONNEL_REQUIRED' };
+
+type PaymentBookingContext =
+  | { status: 'HOLD'; action: 'FOLLOW_DEPOSIT_INSTRUCTIONS' | 'WAIT_FOR_REVIEW' | 'NONE' | 'PERSONNEL_REQUIRED' }
+  | { status: 'PENDING_PAYMENT_REVIEW'; action: 'SEND_RECEIPT_AGAIN' | 'FOLLOW_DEPOSIT_INSTRUCTIONS' | 'WAIT_FOR_REVIEW' | 'NONE' | 'PERSONNEL_REQUIRED' }
+  | { status: 'CONFIRMED'; started: boolean; action: 'NONE' | 'PERSONNEL_REQUIRED' }
+  | { status: 'COMPLETED'; action: 'NONE' | 'PERSONNEL_REQUIRED' };
 
 interface AcquiredHold {
   booking: CustomerBooking;
@@ -520,6 +527,7 @@ interface ToolOutputs {
   leaveWaitlist: { entryId: UUID; closed: true };
   getOwnPaymentStatus: {
     bookingId: UUID;
+    bookingContext: PaymentBookingContext;
     initialDeposit: InitialDepositProjection;
     supplementalDeposit: SupplementalDepositProjection | null;
   };
@@ -556,7 +564,7 @@ interface CustomerToolExecutor {
 
 | Tools | Facade / composition | Required checks and refusal vocabulary |
 |---|---|---|
-| Information and services | Read composition above `tenants` and `catalog` | Deliberately public fields. Product-owner agreement of 2026-11-12, pending reflection in PR #33: location comes from a public business address field (proposed DOM-01 addition) and the WhatsApp link from the tenant's connected number |
+| Information and services | Read composition above `tenants` and `catalog` | Deliberately public fields. Product-owner agreement of 2026-11-12, also reflected in PR #33: location comes from a public business address field (proposed DOM-01 addition) and the WhatsApp link from the tenant's connected number |
 | Free slots and own bookings | `bookings` queries | Same tenant, current catalog, requester-owned future records; `not_found`, `range_too_large`, `inactive_service` |
 | HOLD and no-deposit confirmation | `workflows` | Recheck restrictions, policy, limits and occupancy; confirm explicit current terms while valid; `slot_unavailable`, `state_changed`, slot/policy refusal reasons |
 | Preparation and own cancellation/rescheduling | `workflows` | Requester ownership, current confirmation and any accepted late consequence; `not_found`, `late_change_requires_acceptance`, `reschedule_limit_reached`, `state_changed` |
@@ -567,7 +575,7 @@ interface CustomerToolExecutor {
 | Preference changes and deletion | `workflows` | Explicit answer from this requester, scoped audit and immediate effects; `state_changed` |
 | Escalation | `messaging` public command | Same conversation, bounded summary and routing update |
 
-The table reuses [CON-02 §10](https://github.com/nanonoir/Agendoxa/blob/d2b7d77769738b118b09241808bfd1edc50cfbcf/docs/design-docs/api-contracts.md#10-internal-consumers-the-agent). Preserve the full applicable slot-policy reasons there. `requester_not_eligible` conceals internal restriction labels. Financial status is an explicit customer projection; reviewer identity, internal rejection reasons, restriction labels, cash data and personnel-only decisions are absent. Its enums are a proposed tool contract, separate from the CRM's proposed `depositState` representation.
+The table reuses [CON-02 §10](https://github.com/nanonoir/Agendoxa/blob/f3d06e2774cc129aab0503ed3aac67710d727257/docs/design-docs/api-contracts.md#10-internal-consumers-the-agent). Preserve the full applicable slot-policy reasons there. `requester_not_eligible` conceals internal restriction labels. Financial status is an explicit customer projection; reviewer identity, internal rejection reasons, restriction labels, cash data and personnel-only decisions are absent. Its enums are a proposed tool contract, separate from the CRM's proposed `depositState` representation.
 
 `findFreeSlots` computes a price and compatible concrete choices in the core. `createHold` rechecks and applies the tenant's any-resource assignment mode. The backend computes duration, end, price, deposit and receiving instructions. AcquiredHold returns the actual acquired terms, including the authoritative price, currency, required deposit and configured cancellation/reschedule policy summaries. The core persists the relevant snapshots and supplies these summaries; the agent cannot reconstruct them from an older search. The same contract covers an invitation winner. The `confirmationId` in a HOLD is valid for no-deposit confirmation only when the core says that path is allowed.
 
@@ -575,7 +583,15 @@ NOT_REQUIRED corresponds to zero required deposit. INSTRUCTIONS_ISSUED contains 
 
 **Payment projections.** `getOwnPaymentStatus` returns two separate projections for one requester-owned booking of the trusted tenant; a foreign or unknown ID is `not_found`. `initialDeposit` describes the initial deposit. `supplementalDeposit` is `null` unless a permitted reschedule of a `CONFIRMED` booking required an additional deposit (BR-CAN-10); it never replaces or reopens the initial one. Amounts (`amountOwed`) are exact decimal strings calculated by the backend from the booking's charge and valid allocations; the agent never computes, rounds or infers them. The backend maps its internal deposit, review and allocation states to these customer states in one total function: any state it cannot map, or any read that fails or is unavailable, yields `PERSONNEL_REQUIRED` rather than a guess. The agent treats that value as "personnel will confirm", offers `escalateToHuman` when the customer needs an answer, and makes no claim about payment.
 
-Under BR-SEN-07/09/11 and BR-COB-03, personnel verification allocates the money to the booking's charge in the same human action, up to the amount owed. An active booking therefore never exposes "verified but unallocated" funds, and the proposed CON-02 `AWAITING_ALLOCATION` deposit state has no customer projection. Excess or unknown-origin money stays unallocated for manual resolution and is not part of this projection. CON-02 still lists `AWAITING_ALLOCATION` and API-Q-13; reflecting that product decision there is pending in INT-Q-07.
+Under BR-SEN-07/09/11 and BR-COB-03, personnel verification allocates money to the booking's charge in the same human action, up to the amount owed. CON-02 removes `AWAITING_ALLOCATION` and closes API-Q-13. `UNALLOCATED` instead means a subsequent reversal left no valid initial-deposit allocation; it does not mean verification left payable funds unallocated. Excess, unmatched money and funds freed by reversal remain available for manual resolution.
+
+Apply BR-SEN-21 and CON-02 §7.5 precedence exactly: `NOT_REQUIRED`, `ADMIN_EXCEPTION`, `MET`, `UNDER_REVIEW`, `CORRECTION_WINDOW`, `PARTIAL`, `UNALLOCATED`, `AWAITING_EVIDENCE`. Only allocations to the initial-deposit charge affect its threshold. A reversal never creates a correction window. When authorized personnel reverse such an allocation and a not-started `CONFIRMED` booking falls below threshold, `workflows` coordinates `payments`, `bookings` and `notifications`: under MOD-DM-08 guards, the same transaction records the reversal, returns the booking to `PENDING_PAYMENT_REVIEW` and enqueues a notice requesting the receipt again. The AI does not detect or initiate the notice. Some allocation remaining projects `PARTIAL`, zero projects `UNALLOCATED`, unless a higher-precedence state applies. Resent evidence projects `UNDER_REVIEW`; rejection restores the applicable `PARTIAL` or `UNALLOCATED` without a correction window, expiry or automatic release. Occupancy continues until personnel verify and allocate, collect or cancel with authority. A started or completed booking keeps its status, has no resend notice, and may show status-neutral `PARTIAL` or `UNALLOCATED`. Admin exceptions and supplemental deposits are unaffected. A reversal of another charge does not affect the initial threshold.
+
+Wrong-booking allocations are normally reversed and allocated to the correct booking by personnel without requesting anything from the paying customer; a booking losing allocation otherwise follows BR-SEN-18. The same-person case conflicts with the required resend notice and remains explicitly pending in BR-SEN-18/INV-SEN-15. Do not infer a notice or suppress one by default; this case blocks the affected notice path pending resolution.
+
+`bookingContext` is a customer-safe, backend-derived snapshot of status, start and the allowed **initial-deposit** action, not a personnel decision or a second financial engine. The backend revalidates it before action and returns `PERSONNEL_REQUIRED` when the facts or action cannot be safely mapped. `FOLLOW_DEPOSIT_INSTRUCTIONS` is allowed only where the normal outstanding initial expectation is actionable; `WAIT_FOR_REVIEW` means no receipt or payment request for that expectation; `SEND_RECEIPT_AGAIN` is only for a not-started booking returned to `PENDING_PAYMENT_REVIEW` after reversal, when no evidence is under review and the notice path is authorized. `NONE` means no initial-deposit request. Started `CONFIRMED` and `COMPLETED` always use `NONE` or the guarded fallback. Supplemental requests are governed separately by their projection. Never infer confirmation, occupancy, or an action from `PARTIAL` or `UNALLOCATED` alone; for reported transfers the action and existing evidence binding must both be revalidated. The normal under-review correlation rules below still apply.
+
+For the initial-deposit action the backend uses the following allowed mapping, after precedence and authorization checks: `NOT_REQUIRED`, `MET` and `ADMIN_EXCEPTION` → `NONE`; `UNDER_REVIEW` → `WAIT_FOR_REVIEW` while the booking has not started and `NONE` for started/completed; `AWAITING_EVIDENCE` and `CORRECTION_WINDOW` → `FOLLOW_DEPOSIT_INSTRUCTIONS` only for an eligible not-started booking; `PARTIAL` → `FOLLOW_DEPOSIT_INSTRUCTIONS` for ordinary actionable partial collection, `SEND_RECEIPT_AGAIN` for an authorized post-reversal resend, otherwise `NONE`; `UNALLOCATED` → `SEND_RECEIPT_AGAIN` only for an authorized not-started post-reversal resend, otherwise `NONE`. Any inconsistent, ambiguous or unavailable combination → `PERSONNEL_REQUIRED`. For every state, started `CONFIRMED` or `COMPLETED` → `NONE` or `PERSONNEL_REQUIRED`, never a resend. These actions do not authorize an unsolicited agent message; the reversal notice is a separate system notification.
 
 | Source state | What the agent may say | What it may request | Staff attention |
 |---|---|---|---|
@@ -583,7 +599,8 @@ Under BR-SEN-07/09/11 and BR-COB-03, personnel verification allocates the money 
 | Initial `AWAITING_EVIDENCE` | The deposit is pending and how much is owed | The transfer receipt, using the issued instruction (never a second payment) | No |
 | Initial `UNDER_REVIEW` | The business is reviewing the receipt; the result is not yet known | Nothing; no new transfer, and no assumption that a reported transfer is the one under review (see the reported-transfer flow) | No (review is queued) |
 | Initial `CORRECTION_WINDOW` | The receipt could not be accepted for now, the amount still owed and the `correctionDeadline` | A corrected receipt or transfer before the deadline, without implying the deadline is extended | No; the reason is never shown |
-| Initial `PARTIAL` | A part is verified and `amountOwed` remains; the booking stays unconfirmed | The remaining amount through the issued instruction | Optional; the customer may ask for contact |
+| Initial `PARTIAL` | Some initial allocation remains and `amountOwed` remains; use `bookingContext` for booking status | Only the action authorized by `bookingContext`: resend receipt, follow current instructions, or nothing | Personnel resolve reversal cases; otherwise optional |
+| Initial `UNALLOCATED` | No initial amount is currently allocated; use `bookingContext` for booking status, never imply money was not received | Only `SEND_RECEIPT_AGAIN` when authorized; otherwise nothing | Personnel resolve reversal cases |
 | Initial `MET` | The deposit requirement is met | Nothing | No |
 | Initial `ADMIN_EXCEPTION` | The booking is confirmed, without presenting any payment as received or the exception as a payment or waiver | Nothing about a deposit | No |
 | Supplemental `null` | Nothing about a supplement | Nothing | No |
@@ -603,7 +620,7 @@ For REPORT_INABILITY_TO_ATTACH, `sourceMessageId` must resolve to the customer's
 
 `submitReceiptEvidence` resolves the stored message under context and crosschecks its trusted evidence binding. A matching model-supplied `bookingId` alone cannot move a file to another booking. A technical duplicate returns the receipt's current disposition. The disposition for evidence about a released booking depends on when it was sent and why the booking closed (§4.2). Evidence sent after the deadline, or sent in time for a booking closed by explicit cancellation or another terminal cause, is `LATE_FINANCIAL_HANDLING`: retained, never reviving the booking or reclaiming the slot. Evidence sent in time for a booking closed by deadline expiry (BR-SEN-20) is first `SCREENING_PENDING` for a file; the recorded result is then `REBLOCKED_FOR_REVIEW` (same booking reactivated into human review), `PRIORITY_PERSONNEL_REVIEW` (any other occupying or unavailable state is never displaced) or `RELEASED_UNRELATED` (clearly unrelated file; booking stays expired, nothing re-blocked). Authorized text fallback goes directly to `REBLOCKED_FOR_REVIEW` or `PRIORITY_PERSONNEL_REVIEW`. A repeated call returns the receipt's recorded disposition, which is how the runtime learns the outcome of a pending screening; the agent never decides or applies it. The agent says only what the disposition supports: for `REBLOCKED_FOR_REVIEW`, that the business will check the receipt, with no claim of acceptance or money received; for `PRIORITY_PERSONNEL_REVIEW`, that the business will review the case urgently, with no promise of the slot; for `RELEASED_UNRELATED`, that the file does not look like a receipt and the booking expired, optionally offering BR-SEN-19 re-booking. The proposed CON-02 `booking_released` refusal must preserve that same retained-evidence side effect when mapped to a refusal.
 
-**Reported transfer (BR-SEN-17, INV-MSG-08).** The system cannot detect an unreported transfer, so the agent never starts a message about one. When the customer says they already transferred, the agent reads `listOwnBookings` and `getOwnPaymentStatus` for the candidates. With no booking, it follows the normal flow (service, date, `createHold`, receipt request). A booking is eligible for a receipt when `getOwnPaymentStatus` shows any outstanding expectation: initial `AWAITING_EVIDENCE`, `CORRECTION_WINDOW` or `PARTIAL`, or supplemental `REQUESTED` (including a booking created by personnel). The backend revalidates the binding of the receipt to that expectation. With exactly one eligible booking, the agent asks for the receipt and calls `submitReceiptEvidence` with that `bookingId`, so the receipt goes to human verification. With several eligible, it asks which one (INT-Q-02) and submits only the customer's explicit choice, which the backend revalidates. A booking whose initial or supplemental deposit is `UNDER_REVIEW` is not "no deposit awaiting", but the report does not by itself refer to the receipt already in review. The agent asks whether the transfer is the one already sent. If the customer says it is, the agent says it is under review by the business and requests and submits nothing. If it is a different transfer, or the answer is unclear, the agent requests the receipt and submits it: linked to a booking when a valid expectation exists (with the usual backend revalidation and choice among several), otherwise without `bookingId` as a payment for personnel review. Neither answer treats money as received or asks the customer to pay twice. If any candidate booking's projection is `PERSONNEL_REQUIRED`, or its read fails or cannot be mapped, the agent does not infer that no expectation exists and does not take the "none eligible" branch: it says personnel will confirm and offers `escalateToHuman`, requesting a receipt only to route it to personnel review without `bookingId`. With bookings but none eligible (all projections readable and none outstanding or under review), it follows the normal flow if the customer wants a new booking; otherwise it requests the receipt and calls `submitReceiptEvidence` without `bookingId`: the backend routes it as a payment for personnel review (`HUMAN_REVIEW`), changing no booking. The customer's statement is never treated as money received, the agent never asks them to pay twice, and it says only that the business will review and confirm.
+**Reported transfer (BR-SEN-17, INV-MSG-08).** The system cannot detect an unreported transfer, so the agent never starts a message about one. When the customer says they already transferred, the agent reads `listOwnBookings` and `getOwnPaymentStatus` for the candidates. With no booking, it follows the normal flow (service, date, `createHold`, receipt request). A booking is eligible for a receipt only when the backend confirms an outstanding expectation and the applicable `bookingContext.action` permits it, including reversal-related `PARTIAL` or `UNALLOCATED` with `SEND_RECEIPT_AGAIN`, or supplemental `REQUESTED` (including a booking created by personnel). A started or completed booking never acquires a resend expectation from the deposit state alone. The backend revalidates the binding of the receipt to that expectation. With exactly one eligible booking, the agent asks for the receipt and calls `submitReceiptEvidence` with that `bookingId`, so the receipt goes to human verification. With several eligible, it asks which one (INT-Q-02) and submits only the customer's explicit choice, which the backend revalidates. A booking whose initial or supplemental deposit is `UNDER_REVIEW` is not "no deposit awaiting", but the report does not by itself refer to the receipt already in review. The agent asks whether the transfer is the one already sent. If the customer says it is, the agent says it is under review by the business and requests and submits nothing. If it is a different transfer, or the answer is unclear, the agent requests the receipt and submits it: linked to a booking when a valid expectation exists (with the usual backend revalidation and choice among several), otherwise without `bookingId` as a payment for personnel review. Neither answer treats money as received or asks the customer to pay twice. If any candidate booking's projection or `bookingContext.action` is `PERSONNEL_REQUIRED`, or its read fails or cannot be mapped, the agent does not infer that no expectation exists and does not take the "none eligible" branch: it says personnel will confirm and offers `escalateToHuman`, requesting a receipt only to route it to personnel review without `bookingId`. With bookings but none eligible (all projections readable and none outstanding or under review), it follows the normal flow if the customer wants a new booking; otherwise it requests the receipt and calls `submitReceiptEvidence` without `bookingId`: the backend routes it as a payment for personnel review (`HUMAN_REVIEW`), changing no booking. The customer's statement is never treated as money received, the agent never asks them to pay twice, and it says only that the business will review and confirm.
 
 **Late receipt (BR-SEN-19).** A receipt sent after the deadline of a booking released by deadline expiry returns `LATE_FINANCIAL_HANDLING`: retained for personnel, and the agent says the booking expired and the business will review the payment, never that it was received or accepted. If the released slot is still available under the normal availability check (including waitlist priority), the agent may offer to book again through the normal flow: `findFreeSlots`, `createHold` on current terms and explicit confirmation. It then links the retained late receipt to the new booking through the dedicated `relinkLateReceipt` operation, not by calling `submitReceiptEvidence` again: that tool keeps its duplicate semantics, so a repeated message returns the existing disposition and a supplied `bookingId` never moves a file. The old booking is never revived and the late receipt never reclaims the slot. If the slot is unavailable, the late-evidence handling applies.
 
@@ -665,7 +682,7 @@ The workflow first records pending intake and its recovery deadline as in §4.2.
 
 An out-of-order result waits for the earlier distinct intake's terminal classification or is applied by the serialized evidence sequence. It cannot become the first/second attempt merely by finishing sooner. Recovery converts a stalled analysis to a technical failure and reuses the same intake identity. Original receipt order and technical duplicates remain distinguishable.
 
-The watchdog applies a technical-failure result when a current analysis exceeds its budget; a late successful provider result then becomes a no-op. A first-unrelated result completed before that cutoff but after the business deadline permits the applicable expiry only after the canonical rechecks. Explicit authorized cancellation releases immediately while review/fund handling continues separately. Partial verified funds and supplemental collection retain their UC-03 safeguards.
+The watchdog applies a technical-failure result when a current analysis exceeds its budget; a late successful provider result then becomes a no-op. A first-unrelated result completed before that cutoff but after the business deadline permits the applicable expiry only after the canonical rechecks, never for the protected post-reversal condition (BR-SEN-18). Rejection of resent evidence after reversal opens no correction window and cannot release occupancy. Explicit authorized cancellation releases immediately while review/fund handling continues separately. Partial verified funds and supplemental collection retain their UC-03 safeguards.
 
 P-40 still gates how unrelated-file counts carry across a human decision or a later correction round. This contract defines the initial two-attempt sequence and records round/provenance without choosing a reset. It does not authorize implementing an inferred count rule for later rounds.
 
@@ -735,7 +752,7 @@ type JobKind =
 | Kind | Ingress / state owner | Due time and mandatory rechecks |
 |---|---|---|
 | `booking.hold-expiry.v1` | `workflows` / `bookings`, with `payments` and intake queries | Original HOLD deadline plus the configured admission margin (default 15 seconds; §4.2), generation, evidence sent by the deadline and correlated intake/screening/review revalidated under the booking lock, funds, start and occupancy; records the deadline-expiry closure cause for BR-SEN-20 |
-| `booking.correction-expiry.v1` | `workflows` / `bookings`, with `payments` | Correction deadline plus the configured admission margin (default 15 seconds; §4.2), distinct human-rejection sequence, evidence sent by the deadline and intake/review revalidated under the booking lock, partial funds, start and supplemental safeguard; records the deadline-expiry closure cause for BR-SEN-20 |
+| `booking.correction-expiry.v1` | `workflows` / `bookings`, with `payments` | Correction deadline plus the configured admission margin (default 15 seconds; §4.2), distinct human-rejection sequence, reversal protection (never expire after reversal), evidence sent by the deadline and intake/review revalidated under the booking lock, partial funds, start and supplemental safeguard; records the deadline-expiry closure cause for BR-SEN-20 |
 | Priority/progression/entry-expiry | `bookings` | Current round/generation, original priority schedule, eligibility/range/start; priority expiry preserves otherwise valid late invitations; a BR-SEN-20 re-block makes the slot's pending invitation work obsolete by generation |
 | Capacity reevaluation | `bookings`, initiated by release or a catalog workflow | Actual resource/range availability after removal of a block or release, even without an earlier booking/round; exclude private remainders |
 | Notification dispatch/status recovery | `notifications` / `messaging` transport | Current kind-specific audience, consent, lifecycle, slot and validity; `rejected` (confirmed failure) vs `unknown` outcome |
@@ -853,6 +870,10 @@ The next examples are `getOwnPaymentStatus` outputs and one `submitReceiptEviden
 ```json
 {
   "bookingId": "00000000-0000-4000-8000-000000000021",
+  "bookingContext": {
+    "status": "HOLD",
+    "action": "FOLLOW_DEPOSIT_INSTRUCTIONS"
+  },
   "initialDeposit": {
     "state": "CORRECTION_WINDOW",
     "amountOwed": "2000.00",
@@ -868,7 +889,14 @@ An Admin exception shows no payment amount or reason:
 ```json
 {
   "bookingId": "00000000-0000-4000-8000-000000000022",
-  "initialDeposit": { "state": "ADMIN_EXCEPTION" },
+  "bookingContext": {
+    "status": "CONFIRMED",
+    "started": false,
+    "action": "NONE"
+  },
+  "initialDeposit": {
+    "state": "ADMIN_EXCEPTION"
+  },
   "supplementalDeposit": null
 }
 ```
@@ -879,14 +907,24 @@ A confirmed booking with a pending supplemental deposit, and a customer reportin
 ```json
 {
   "bookingId": "00000000-0000-4000-8000-000000000023",
-  "initialDeposit": { "state": "MET" },
+  "bookingContext": {
+    "status": "CONFIRMED",
+    "started": false,
+    "action": "NONE"
+  },
+  "initialDeposit": {
+    "state": "MET"
+  },
   "supplementalDeposit": {
     "state": "REQUESTED",
     "amountOwed": "1200.00",
     "instruction": {
       "instructionId": "00000000-0000-4000-8000-000000000051",
       "recipientName": "Negocio de prueba",
-      "destination": { "kind": "ALIAS", "value": "negocio.prueba" },
+      "destination": {
+        "kind": "ALIAS",
+        "value": "negocio.prueba"
+      },
       "amount": "1200.00"
     }
   }
@@ -897,7 +935,14 @@ A confirmed booking with a pending supplemental deposit, and a customer reportin
 ```json
 {
   "bookingId": "00000000-0000-4000-8000-000000000024",
-  "initialDeposit": { "state": "AWAITING_EVIDENCE", "amountOwed": "2000.00" },
+  "bookingContext": {
+    "status": "HOLD",
+    "action": "FOLLOW_DEPOSIT_INSTRUCTIONS"
+  },
+  "initialDeposit": {
+    "state": "AWAITING_EVIDENCE",
+    "amountOwed": "2000.00"
+  },
   "supplementalDeposit": null
 }
 ```
@@ -908,8 +953,17 @@ A supplement personnel decided not to collect:
 ```json
 {
   "bookingId": "00000000-0000-4000-8000-000000000023",
-  "initialDeposit": { "state": "MET" },
-  "supplementalDeposit": { "state": "NOT_COLLECTED" }
+  "bookingContext": {
+    "status": "CONFIRMED",
+    "started": false,
+    "action": "NONE"
+  },
+  "initialDeposit": {
+    "state": "MET"
+  },
+  "supplementalDeposit": {
+    "state": "NOT_COLLECTED"
+  }
 }
 ```
 
@@ -968,6 +1022,84 @@ The recorded outcome of such evidence when its booking was released by deadline 
 }
 ```
 
+
+Reversal projections below distinguish an unstarted booking requiring a resend from status-neutral started/completed balances. When resent evidence is in review, the action changes to waiting; rejection restores the appropriate allocation projection without releasing the booking:
+
+<!-- contract-example: ToolOutputs['getOwnPaymentStatus'] -->
+```json
+{
+  "bookingId": "00000000-0000-4000-8000-000000000071",
+  "bookingContext": { "status": "PENDING_PAYMENT_REVIEW", "action": "WAIT_FOR_REVIEW" },
+  "initialDeposit": { "state": "UNDER_REVIEW" },
+  "supplementalDeposit": null
+}
+```
+
+<!-- contract-example: ToolOutputs['getOwnPaymentStatus'] -->
+```json
+{
+  "bookingId": "00000000-0000-4000-8000-000000000071",
+  "bookingContext": {
+    "status": "PENDING_PAYMENT_REVIEW",
+    "action": "SEND_RECEIPT_AGAIN"
+  },
+  "initialDeposit": {
+    "state": "UNALLOCATED",
+    "amountOwed": "2000.00"
+  },
+  "supplementalDeposit": null
+}
+```
+
+<!-- contract-example: ToolOutputs['getOwnPaymentStatus'] -->
+```json
+{
+  "bookingId": "00000000-0000-4000-8000-000000000072",
+  "bookingContext": {
+    "status": "PENDING_PAYMENT_REVIEW",
+    "action": "SEND_RECEIPT_AGAIN"
+  },
+  "initialDeposit": {
+    "state": "PARTIAL",
+    "amountOwed": "1000.00"
+  },
+  "supplementalDeposit": null
+}
+```
+
+<!-- contract-example: ToolOutputs['getOwnPaymentStatus'] -->
+```json
+{
+  "bookingId": "00000000-0000-4000-8000-000000000073",
+  "bookingContext": {
+    "status": "CONFIRMED",
+    "started": true,
+    "action": "NONE"
+  },
+  "initialDeposit": {
+    "state": "PARTIAL",
+    "amountOwed": "1000.00"
+  },
+  "supplementalDeposit": null
+}
+```
+
+<!-- contract-example: ToolOutputs['getOwnPaymentStatus'] -->
+```json
+{
+  "bookingId": "00000000-0000-4000-8000-000000000074",
+  "bookingContext": {
+    "status": "COMPLETED",
+    "action": "NONE"
+  },
+  "initialDeposit": {
+    "state": "UNALLOCATED",
+    "amountOwed": "2000.00"
+  },
+  "supplementalDeposit": null
+}
+```
+
 <!-- contract-example: ScheduledAction -->
 ```json
 {
@@ -1015,11 +1147,15 @@ The following scenarios are requirements for implementation tests. Their presenc
 | INT-E19 | A job is redelivered after business commit, or due work is missing after restart | Existing effect is reused; owner reconciliation restores eligible work |
 | INT-E20 | Model supplies forbidden arguments or asks a restricted tool operation | Strict input/allowlist rejection before any business mutation |
 | INT-E21 | Customer already recorded refusal or another preference and later confirms/enrolls again | Current RECORDED preference is reused without asking again; an explicit requested change still works |
-| INT-E22 | Customer says they already transferred: no booking; one booking with an outstanding expectation (initial `AWAITING_EVIDENCE`, `CORRECTION_WINDOW` or `PARTIAL`; supplemental `REQUESTED`); several; a booking `UNDER_REVIEW` (customer confirms it is the transfer already sent, then says it is a different or unclear one); a candidate with `PERSONNEL_REQUIRED` or an unavailable/unmappable projection; bookings but none outstanding | Normal flow; receipt linked to the one booking after backend revalidation of the binding; the agent asks which (INT-Q-02); for `UNDER_REVIEW` the agent first asks whether it is the transfer already sent: if yes it says it is under review and requests/submits nothing, if different or unclear it requests the receipt and routes it (linked when a valid expectation exists, otherwise as a payment for personnel review); for `PERSONNEL_REQUIRED`/unavailable the agent infers no absence of expectation, says personnel will confirm and routes any receipt to personnel review without `bookingId`; otherwise receipt routed to personnel without a booking. Money is never treated as received, no second payment is requested and the agent never initiates the topic |
+| INT-E22 | Customer says they already transferred: no booking; one or several bookings with an outstanding expectation (including `PARTIAL` or `UNALLOCATED` only where the action permits a resend); `UNDER_REVIEW`; or an unavailable projection or `PERSONNEL_REQUIRED` action | Normal flow if none; link the receipt to the one eligible booking after backend revalidation, or ask which when several (INT-Q-02). For `UNDER_REVIEW`, first ask whether it is the transfer already sent: if yes request nothing, otherwise route the receipt after checking binding. On guarded fallback infer no absence of expectation, offer personnel and route any receipt to personnel review without `bookingId`. Money is never treated as received or requested twice and the agent never initiates the topic |
 | INT-E23 | Status for a booking in a correction window, with an Admin exception, with an unmapped/unavailable source state | `CORRECTION_WINDOW` with deadline and owed amount and no rejection note; `ADMIN_EXCEPTION` never presented as payment; `PERSONNEL_REQUIRED` fallback without guessing |
 | INT-E24 | Rescheduled CONFIRMED booking: supplement requested, under review, met, and not collected by personnel | `REQUESTED` with instruction/amount, `UNDER_REVIEW`, `MET`; `NOT_COLLECTED` says nothing more is owed in advance and the rest is paid at the appointment, never "forgiven". Booking stays confirmed in every case |
 | INT-E25 | Receipt sent after the deadline of an expired, released booking while the slot is free, then while it is taken | Late evidence retained; booking expired and business reviews the payment; if free, new HOLD on current terms with explicit confirmation and `relinkLateReceipt` moves the receipt to it for human verification (idempotent on a repeat; old booking unchanged; refused for a non-late receipt, another requester/tenant or a non-HOLD target); otherwise late handling, with no revival or reclaim |
-| INT-E26 | Model or customer asks the agent to verify, allocate, refund or record a payment, or cites verified-but-unallocated funds | Not exposed as a tool; the projection has no unallocated state for an active booking and nothing mutates financial records |
+| INT-E27 | Authorized full and partial reversal of initial-deposit allocations on not-started confirmed bookings | Same transaction returns each below-threshold booking to pending review and queues the resend notice; zero gives `UNALLOCATED`, remaining funds `PARTIAL`; no expiry, subject to same-person notice gate |
+| INT-E28 | Resent evidence after reversal enters review, then is rejected | `UNDER_REVIEW` takes precedence during review; after rejection `PARTIAL` or `UNALLOCATED` returns, no correction window, expiry or release |
+| INT-E29 | Initial allocation reversal on started CONFIRMED and COMPLETED bookings, and reversal of a non-initial charge | Started/completed statuses remain unchanged, no resend or implication of unconfirmed status; other charges never affect the initial threshold |
+| INT-E30 | Wrong-booking allocation where paying and affected booking customers are the same person | Explicit unresolved notice conflict: do not invent a default; affected notice path is blocked pending decision |
+| INT-E26 | Model or customer asks the agent to verify, reverse, allocate, refund or record a payment | No financial authority is exposed as a tool; `UNALLOCATED` describes a reversal, not a verification without allocation; nothing mutates financial records |
 
 INT-E03a through INT-E03h are implementation acceptance tests for the PostgreSQL integration suite (two independent connections, forced pause before the intake commit), and INT-E03i is a contract test. They have not been executed and no pass is claimed here.
 
@@ -1052,7 +1188,7 @@ All INT-DM decisions are proposed for team review.
 | INT-Q-04 | Exact physical metadata/constraints for intake protection (including provider send time, receipt time and timeliness basis), booking closure cause and reactivation audit, operation dedupe, screening generations, dispatch states, confirmation and batch leases | T-04/T-05, API-Q-06 and affected owners; corresponding adapters/workers |
 | INT-Q-05 | Verify Evolution 2.3.7 sender/LID variants, status mapping, recovery limits, custom headers and image digest, plus the message send-timestamp field (semantics, precision and clock skew) and webhook delivery delay/retry behavior; qualify any version change | T-04 pilot; enabling each real provider path |
 | INT-Q-06 | Private storage implementation/location, provider-account data handling and approved retention/cleanup for external copies | Deployment/Product/legal under P-32; real personal-data processing |
-| INT-Q-07 | Reconcile this proposal with PR #33, including tool projections/errors, composed ingress, API-Q-11 screening display, API-Q-12 unlinked uploads, any new shared refusal, the landing location/WhatsApp-link sources, allocation on human verification (closing API-Q-13 and removing `AWAITING_ALLOCATION` from active-booking deposit states); the proposed non-collected supplemental-deposit state, named `NOT_COLLECTED` here, with its payments-permission decision and optional reason; the `CORRECTION_WINDOW`/`ADMIN_EXCEPTION`/`PERSONNEL_REQUIRED` customer projections and the separate initial/supplemental `getOwnPaymentStatus` shape, including `rescheduleOwnBooking.supplementalDeposit` replacing `additionalDeposit`; an optional `bookingId` in `submitReceiptEvidence` for a reported transfer with no booking awaiting a deposit (a payment review without a booking), with the `REBLOCKED_FOR_REVIEW`, `PRIORITY_PERSONNEL_REVIEW` and `RELEASED_UNRELATED` dispositions (replacing the earlier `TIMELY_RELEASED_REVIEW` proposal), the BR-SEN-20 reactivation of a deadline-expired booking into `PENDING_PAYMENT_REVIEW` with its closure cause and audit, the priority personnel-review queue and notifications, withdrawal of unclaimed waitlist invitations, `slot_unavailable` for competing attempts, and evidence timeliness judged by the provider send time rather than arrival; and the proposed `relinkLateReceipt` operation (name, refusal codes, `workflows` coordination) that relinks a retained late receipt to a new HOLD under BR-SEN-19; then repin the CON-02 references to its final revision | CON-02/CON-03 team review; incompatible contract implementation |
+| INT-Q-07 | Compared with open PR #33 at `f3d06e2774cc129aab0503ed3aac67710d727257`: CON-02 §7.5, §7.7–7.9, §10.1 and API-DM-21/24 already reflect same-action allocation (API-Q-13 closed), reported transfers, `NOT_COLLECTED`, reversal and `UNALLOCATED`. Remaining reconciliation: CON-02 does not yet reflect BR-SEN-16/19/20 provider-send timeliness, configurable 15-second margin and post-release re-block/occupancy and waitlist exception; reconcile composed ingress, API-Q-11 screening display, API-Q-12 upload retention, customer tool projections and action context, errors/refusals, booking-less evidence and `relinkLateReceipt`, and the `REBLOCKED_FOR_REVIEW`, `PRIORITY_PERSONNEL_REVIEW` and `RELEASED_UNRELATED` dispositions. Landing address and WhatsApp sources are reflected; CON-01 public projection alignment remains a team gate. The same-person wrong-booking notice conflict remains pending under BR-SEN-18. | CON-02/CON-03 team review; incompatible implementation |
 | Existing P-40 | Counter continuation across later human-review/correction rounds | Product; later-round unrelated-file counting |
 | Existing T-01–T-05 / TEN-Q | Occupancy, money, actors, consent, schema and provider gates remain in their sources | Existing owners; affected implementations |
 
@@ -1080,7 +1216,7 @@ Primary sources inspected on 2026-11-11. Versioned repository references are use
 | Timeliness, duplicates, technical uncertainty and preserved HOLD deadline | §3, §4.2 (serialization with expiry), §7.1, INT-E03/E03a-E03i (BR-SEN-20 re-block in §4.2 and §7.1), INT-E04-07 |
 | Messaging/media, lifecycle, human control and send correlation | §4, §5, §8, INT-E08/13/17 |
 | Durable work, recovery, invitation failures and current-state rechecks | §3, §9, §10, INT-E09–12/19 |
-| Allowed/prohibited tools and authorized context | §2, §6 (payment projections, reported transfers, late receipts), INT-E02/20/22-26 |
+| Allowed/prohibited tools and authorized context | §2, §6 (payment projections, reported transfers, late receipts), INT-E02/20/22-30 |
 | Private storage, limits and retention responsibilities | §8, INT-E15/16; API-Q-12 and P-32 retained |
 | Simulations and representative failure/retry examples | §11 |
 | Consistency with CON-01/02 and explicit pending provider/legal questions | §1, §12, §13; PR #33 remains a pinned proposal |
