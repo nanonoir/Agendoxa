@@ -39,7 +39,7 @@ Examples `EJ-NN` follow *Given / When / Then* and are written to become tests (A
 
 ## 2. Booking Lifecycle
 
-The diagram shows product-owner-agreed transitions and explicitly labeled proposals. `PENDING_PAYMENT_REVIEW` is an umbrella conceptual label, not a required enum: distinguish actually pending review, rejected evidence awaiting correction, and verified partial-deposit waiting with no pending review. Only rejected evidence **without verified partial funds** follows the 15-minute/second-distinct-rejection cancellation rule. Partial funds, started slots and supplemental reschedule collection cannot be automatically released by that rule. Explicit authorized cancellation remains possible without waiting for financial resolution.
+The diagram shows product-owner-agreed transitions and explicitly labeled proposals. The lifecycle state for the re-blocking required by BR-SEN-18 is pending reconciliation with terminal states and is not depicted. `PENDING_PAYMENT_REVIEW` is an umbrella conceptual label, not a required enum: distinguish actually pending review, rejected evidence awaiting correction, and verified partial-deposit waiting with no pending review. Only rejected evidence **without verified partial funds** follows the 15-minute/second-distinct-rejection cancellation rule. Partial funds, started slots and supplemental reschedule collection cannot be automatically released by that rule. Explicit authorized cancellation remains possible without waiting for financial resolution.
 
 ```mermaid
 stateDiagram-v2
@@ -93,13 +93,15 @@ stateDiagram-v2
 
 P-05, P-06 and P-16, and the customer-cancellation portion of P-24, were resolved in the follow-up conversation and moved into §2.1. Remaining questions in the canonical register do not authorize unspecified transitions. Product-owner agreement is not implementation approval.
 
+BR-SEN-18 requires re-blocking for timely WhatsApp evidence delivered after release, but its relationship to terminal states and explicit cancellation remains unresolved.
+
 ### 2.3 Confirmed Prohibitions
 
 | Prohibition | Origin |
 |---|---|
 | `PENDING_PAYMENT_REVIEW` → `EXPIRED` never happens: review has no automatic timeout. | MVP §6.3.5, §9.2 |
 | Time never confirms, completes or marks a no-show. Initial-evidence automatic cancellation never releases verified partial-deposit, actually pending review, started or supplemental-reschedule occupancy. Explicit authorized cancellation is a separate operation. | BR-SEN-10–11, BR-CAN-04 |
-| `EXPIRED` and `CANCELLED` never return to an occupying state; a late payment never rebooks automatically. A new booking for a released slot follows BR-SEN-17. | MVP §6.3.6; product-owner agreement 2026-11-12 |
+| `EXPIRED` and `CANCELLED` never return to an occupying state; a late payment never rebooks automatically. A new booking for a released slot follows BR-SEN-17. **Conflict pending:** BR-SEN-18 requires re-blocking for the original booking after release for timely evidence delivered late; the state relationship is unresolved. | MVP §6.3.6; product-owner agreement 2026-11-12 |
 | The AI never performs a transition that requires verifying a payment or recording an outcome. | SYS-01 |
 
 A transition that appears in none of §2.1–§2.3 is outside the MVP; adding one requires a decision.
@@ -114,13 +116,13 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | First small-cohort exclusive priority | **Yes**, for 5 minutes only | Separate initial offer claim; later invitations have no claim |
 | Progressive late / simultaneous invitations | **No** | Eligibility is not occupancy or guaranteed reservation |
 | `COMPLETED`, `NO_SHOW` | Residual time remains private | Explicit atomic CRM walk-in reuse only; timing BR-RES-10–12 |
-| `EXPIRED`, `CANCELLED` | No | Confirmed |
+| `EXPIRED`, `CANCELLED` | No | Conflict with BR-SEN-18 re-blocking pending lifecycle reconciliation |
 | Target slot awaiting prior reschedule authorization | No | F-006; after permitted move the target is confirmed, including while the difference remains unpaid |
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-RES-01 | Only the transitions in §2.1 run, by the actors listed. Rows marked *Proposal* run only after approval; §2.2 stays unimplemented until each decision is taken. | UC | MVP §6.3; BR-RES-* |
-| INV-RES-02 | EXPIRED/CANCELLED never reactivate. COMPLETED and NO_SHOW permit audited correction both ways, with correction permission, mandatory reason and destination timing guard; financial history and reused walk-ins stay intact. | UC + TX | BR-RES-12 |
+| INV-RES-02 | EXPIRED/CANCELLED never reactivate; **conflict pending** with re-blocking for the original booking under BR-SEN-18. COMPLETED and NO_SHOW permit audited correction both ways, with correction permission, mandatory reason and destination timing guard; financial history and reused walk-ins stay intact. | UC + TX | BR-RES-12, BR-SEN-18 |
 | INV-RES-03 | Automatic transitions include HOLD expiry and initial-deposit correction-window cancellation under BR-SEN-10; time never completes or marks no-show. | UC + JOB | Handoff F-018 |
 | INV-RES-04 | Every transition records actor, time, previous state and reason when applicable. | TX | BR-AUD-01 |
 | INV-RES-05 | Booking state and payment state are **independent**: `CONFIRMED` and `COMPLETED` may both have a balance due. | UC | BR-RES-10, BR-COB-09 |
@@ -165,9 +167,9 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
 | INV-SEN-01 | `HOLD` → `CONFIRMED` without a deposit requires an explicit confirmation recorded **while the HOLD is valid**, checked in the same transaction. | TX | BR-RES-04 |
-| INV-SEN-02 | Timeliness uses recorded evidence receipt time, not screening completion. Timely evidence routed to review protects the HOLD; a first clearly unrelated file instead requests replacement without renewal. Expiry cannot release against unresolved screening of timely evidence. | TX | BR-RES-06, BR-SEN-14–16 |
+| INV-SEN-02 | Timeliness of WhatsApp evidence uses the provider-assigned message send time against the HOLD or correction deadline, not device clock, system arrival or screening completion; no extra customer time is granted. Known timely evidence routed to review protects the HOLD; a first clearly unrelated file instead requests replacement without renewal. Expiry cannot release against unresolved screening of known timely evidence. Timely evidence delivered after release follows BR-SEN-18. | TX | BR-RES-06, BR-SEN-14–16, BR-SEN-18; product-owner agreement 2026-11-12 |
 | INV-SEN-03 | HOLD expiry is idempotent; if no longer HOLD, timely evidence is still being screened, already under review or protected by verified partial funds, it does not release. Current state, evidence, funds and occupancy are checked atomically. | JOB + TX | BR-RES-08, BR-SEN-11, BR-SEN-16 |
-| INV-SEN-04 | A late receipt or payment never reactivates the expired booking or reclaims its released slot; preserve it for human financial handling. Any new booking of that slot follows normal availability, including waitlist priority, and BR-SEN-17. | TX | BR-COB-12, BR-SEN-16–17; product-owner agreement 2026-11-12 |
+| INV-SEN-04 | Evidence sent after the applicable deadline never reactivates the expired booking or reclaims its released slot; preserve it for human financial handling. Any new booking of that slot follows normal availability, including waitlist priority, and BR-SEN-17. Timely WhatsApp evidence delivered after release follows BR-SEN-18. | TX | BR-COB-12, BR-SEN-16–18; product-owner agreement 2026-11-12 |
 | INV-SEN-05 | A deposit becomes verified **only** through a recorded human verification. Nothing created by the AI or by an image is verified. | UC | BR-SEN-07, BR-COB-07 |
 | INV-SEN-06 | If expiry processing fails, it is recovered; an eligible expired HOLD does not occupy a slot indefinitely. Timely unresolved screening and human review remain protected under BR-SEN-16. | TX + JOB | ARQ §6.5, §10.3; BR-SEN-16 |
 | INV-SEN-07 | The required deposit is computed by the backend; with `FULL_PREPAYMENT` it is 100% of the charge. | UC | BR-SEN-04, BR-SEN-05 |
@@ -177,14 +179,15 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-SEN-11 | Multiple verified partial deposits retain occupied unconfirmed capacity indefinitely pending manual resolution or explicit authorized cancellation. Show missing amount; no rejected later evidence or timer releases it. Threshold confirmation requires allocation under BR-COB-03; FULL_PREPAYMENT is not bypassed. | TX + UC | BR-SEN-11; product-owner agreement 2026-11-12 |
 | INV-SEN-12 | Preliminary relevance screening never verifies authenticity or credit; clearly unrelated attempts are not human financial rejections. Technical duplicates do not add attempts. Failure or uncertainty goes to human review, not unrelated classification or payment approval. | UC | BR-SEN-14–15 |
 | INV-SEN-13 | Neither replacement nor screening renews the HOLD or correction window. A timely second clearly unrelated attempt reaches human review without inactivity timeout, including when analysis finishes after the deadline. Explicit authorized cancellation and late-evidence safeguards still apply. | UC + TX | BR-SEN-14–16, BR-CAN-04 |
+| INV-SEN-14 | Timely provider-stamped WhatsApp evidence delivered after release re-blocks the slot for the original booking if free, including against browsing without a HOLD, and requires personnel notification. Withdraw sent waitlist invitations and tell invitees the slot was taken. Never displace another customer's HOLD or confirmed booking; instead send the case to priority personnel review. Only this timely-evidence case permits re-blocking a released slot for the original booking. The conflicts identified in BR-SEN-18 remain pending. | TX + UC | BR-SEN-18; product-owner agreement 2026-11-12 |
 
-**EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when plausible evidence arrives at 15:07 and enters human review, then the slot is still blocked at 15:30.
+**EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when plausible WhatsApp evidence stamped sent at 15:07 arrives and enters human review, then the slot is still blocked at 15:30.
 
-**EJ-14 · Late receipt.** Given a HOLD that expired at 15:10 and the slot taken by another customer at 15:11, when the first customer's receipt arrives at 15:12, then a financial incident is recorded, the first booking stays `EXPIRED` and the other booking is untouched.
+**EJ-14 · Late receipt.** Given a HOLD that expired at 15:10 and the slot taken by another customer at 15:11, when the first customer's receipt is stamped sent at 15:12, then a financial incident is recorded, the first booking stays `EXPIRED` and the other booking is untouched.
 
-**EJ-57 · Available slot after late evidence.** Given an expired HOLD and a later receipt, when the released slot passes normal availability including waitlist priority, the AI may offer a new HOLD on current terms with explicit customer confirmation and link the receipt to it for human verification. The old booking stays `EXPIRED`; the AI says the business will review the payment, not that it was received or accepted. If the slot is unavailable, personnel handle the retained late evidence instead.
+**EJ-57 · Available slot after late evidence.** Given an expired HOLD and a receipt sent after its deadline, when the released slot passes normal availability including waitlist priority, the AI may offer a new HOLD on current terms with explicit customer confirmation and link the receipt to it for human verification. The old booking stays `EXPIRED`; the AI says the business will review the payment, not that it was received or accepted. If the slot is unavailable, personnel handle the retained late evidence instead.
 
-**EJ-15 · Expiry during screening.** Given evidence received at 15:09 and still being screened at the 15:10 deadline, expiry does not release it while screening is unresolved. A first unrelated result requests replacement without extending the deadline; subsequent expiry follows current-state checks. A plausible, uncertain or failed result enters human review instead.
+**EJ-15 · Expiry during screening.** Given WhatsApp evidence stamped sent at 15:09, delivered and still being screened at the 15:10 deadline, expiry does not release it while screening is unresolved. A first unrelated result requests replacement without extending the deadline; subsequent expiry follows current-state checks. A plausible, uncertain or failed result enters human review instead.
 
 **EJ-16 · Expiry after confirmation.** Given a no-deposit HOLD confirmed by the customer at 15:09, when the expiry job runs at 15:10, then nothing changes.
 
@@ -194,9 +197,11 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 
 **EJ-49 · CRM booking with a deposit.** Given a $10,000 service with a $3,000 deposit, when authorized personnel book it in the CRM and record $3,000 in cash in an open session, allocating it to the charge in that action to meet the deposit threshold, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it; in that case the booking records that no deposit was paid and a $10,000 balance due, with or without a reason.
 
-**EJ-55 · Second unrelated file near deadline.** Given a first clearly unrelated file and a distinct second one received before the deadline, when screening finishes after the deadline and finds it clearly unrelated, the customer is told to await human review; the review occupies without inactivity timeout. Neither attempt counts as a human rejection and the deadline was not renewed.
+**EJ-55 · Second unrelated file near deadline.** Given a first clearly unrelated file and a distinct second one stamped sent by WhatsApp before the deadline, when screening finishes after the deadline and finds it clearly unrelated, the customer is told to await human review; the review occupies without inactivity timeout. Neither attempt counts as a human rejection and the deadline was not renewed.
 
 **EJ-56 · Screening failure.** Given timely evidence whose screening fails or is uncertain, it goes to human review without being called unrelated or credited; no bank verification is claimed. Explicit inability to attach permits timely text fallback, while late evidence is retained for financial handling and never reactivates the old booking (BR-SEN-17).
+
+**EJ-59 · Timely message delivered after release.** Given a 15:10 deadline and a receipt stamped sent at 15:09 but delivered after release, re-block the free slot for the original booking and notify personnel; browsing does not protect another customer, and sent waitlist invitations are withdrawn with notice that the slot was taken. If another customer already has a HOLD or confirmed booking, do not displace it; send the case to priority personnel review. A message stamped sent at 15:11 is late even if delivered immediately.
 
 ## 5. Payments and Balances
 
