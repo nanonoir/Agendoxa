@@ -1944,7 +1944,9 @@ paths:
       description: |
         Personnel attach a receipt they received. It goes to human review without preliminary
         screening (`arrivedVia: CRM_SUBMISSION`). Not for a HOLD, which receives evidence only
-        over WhatsApp, nor for a released booking.
+        over WhatsApp, nor for a released booking. Refusing this CRM association does not
+        discard or reject WhatsApp composite intake: late-sent evidence is retained for
+        personnel, and timely evidence delivered after deadline release follows BR-SEN-20.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -2284,8 +2286,8 @@ paths:
         payer, even for the same customer. The backend uses the trusted persisted correction
         cause; private staff reasons are not exposed to the agent (BR-SEN-18, INV-SEN-15).
         There is no correction window, expiry or automatic release, even after rejection of
-        resent evidence. A started or completed booking gets no resend notice; an Admin exception and the
-        supplemental deposit are not changed. Multi-owner command of `workflows`; the response
+        resent evidence. A started or completed booking retains its status and gets no resend
+        notice; an Admin exception and the supplemental deposit are not changed. Multi-owner command of `workflows`; the response
         is assembled in the transaction (API-DM-24, API-DM-25). 409 `state_changed` when the
         booking changed meanwhile, `allocation_already_reversed` when already reversed.
       security:
