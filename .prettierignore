@@ -1,0 +1,15 @@
+# Dependencies, build outputs and caches
+node_modules/
+dist/
+.next/
+out/
+.turbo/
+coverage/
+
+# Generated or machine-maintained files
+pnpm-lock.yaml
+next-env.d.ts
+packages/database/drizzle/
+
+# Hand-authored documentation is not reformatted
+*.md
