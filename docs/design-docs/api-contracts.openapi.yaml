@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agendoxa API — initial MVP contracts (CON-02)
-  version: 0.3.0-proposal
+  version: 0.4.0-proposal
   summary: Proposal for team review; no endpoint is implemented.
   description: |
     Design contract for the authenticated CRM and the read-only public landing.
@@ -10,9 +10,11 @@ info:
     from [modules.md](./modules.md) through tags (API-DM-12).
 
     `x-agendoxa-invokes` marks how an operation reaches the owners: `coordinator: workflows`
-    with its `participants` for a multi-owner command, or `composition` with the owners a
-    cross-owner read combines. Without it, the operation is one use case of the tagged owner.
-    The extension documents ownership only; it does not change the HTTP contract.
+    with its `participants` for a multi-owner command, `composition` with the owners a
+    cross-owner read combines, or `responseComposition` when the command itself is an owner
+    command but its response carries another owner's facts and is therefore read after the
+    commit, above the owners (API-DM-25). Without it, the operation is one use case of the
+    tagged owner. The extension documents ownership only; it does not change the HTTP contract.
 
     WhatsApp self-service and agent tools are not HTTP and are not described here; their typed
     contracts belong to CON-03 (API-DM-23). Receipt upload, human review, verified payments,
@@ -23,6 +25,16 @@ info:
     Reconciled 2026-11-10 with the consolidated CON-01 module catalog: calendars, hours,
     blocks and openings are tagged `catalog`; the former `availability` tag is removed.
     Version 0.3.0 adds the priority money flows (API-DM-18 to API-DM-22).
+
+    Version 0.4.0 applies the PR #33 review and the product-owner agreements of 2026-11-12 as
+    proposals for team review, not ratified: current deposit requirement kept apart from the
+    initial one and the supplement (API-DM-21); verification allocates in the same action, so
+    `AWAITING_ALLOCATION` is removed; a supplemental deposit request can be closed without
+    collecting it (API-DM-26); the first cash session is opened manually (API-DM-22);
+    responses no longer carry another owner's facts unless composed above the owners
+    (API-DM-25); stricter `DepositInput`, `DepositRule` and `RescheduleResult`; a `403` on
+    permission-gated reads and `409` idempotency conflicts on every keyed `POST`; a public
+    address and Maps link for the landing, pending adoption in the ERD.
 servers:
   - url: /api/v1
     description: Relative to the API origin of each installation.
@@ -51,7 +63,10 @@ paths:
       x-agendoxa-invokes:
         composition: [tenants, catalog, messaging]
       summary: Public business profile for the landing
-      description: The slug selects the business for display only; it never authorizes anything.
+      description: |
+        The slug selects the business for display only; it never authorizes anything. Location is
+        the public address text with an optional Maps link (proposed, pending ERD adoption); the
+        WhatsApp link is built from the tenant's connected number.
       security: []
       parameters:
         - $ref: '#/components/parameters/Slug'
@@ -147,6 +162,8 @@ paths:
           description: Session ended and cookie cleared.
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /tenants/{tenantId}/me:
     get:
       tags: [identity]
@@ -182,6 +199,8 @@ paths:
                 $ref: '#/components/schemas/TenantProfile'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
@@ -231,6 +250,8 @@ paths:
                 $ref: '#/components/schemas/ServiceList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -283,6 +304,8 @@ paths:
                 $ref: '#/components/schemas/Service'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
@@ -334,6 +357,8 @@ paths:
                 $ref: '#/components/schemas/ResourceList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/services/{serviceId}/resources/{resourceId}:
@@ -395,6 +420,8 @@ paths:
                 $ref: '#/components/schemas/ResourceList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -447,6 +474,8 @@ paths:
                 $ref: '#/components/schemas/Resource'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
@@ -496,6 +525,8 @@ paths:
                 $ref: '#/components/schemas/BookingPolicyList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/booking-policies/tenant:
@@ -663,6 +694,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/calendars:
@@ -681,6 +714,8 @@ paths:
                 $ref: '#/components/schemas/CalendarList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/resources/{resourceId}/calendar:
@@ -751,6 +786,8 @@ paths:
                 $ref: '#/components/schemas/WeeklyRules'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     put:
@@ -810,6 +847,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -898,6 +937,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/free-slots:
@@ -932,6 +973,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/agenda:
@@ -967,6 +1010,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/bookings:
@@ -1024,6 +1069,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -1099,6 +1146,8 @@ paths:
                 $ref: '#/components/schemas/BookingDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/bookings/{bookingId}/events:
@@ -1118,6 +1167,8 @@ paths:
                 $ref: '#/components/schemas/BookingEventList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
   /tenants/{tenantId}/bookings/{bookingId}/cancel:
@@ -1127,8 +1178,13 @@ paths:
       x-agendoxa-invokes:
         coordinator: workflows
         participants: [bookings, notifications]
+        responseComposition: [bookings, payments]
       summary: Cancel a booking and release its slot
-      description: Releases immediately, even during review or partial-deposit waiting; finances continue separately (BR-CAN-04).
+      description: |
+        Releases immediately, even during review or partial-deposit waiting; finances continue
+        separately (BR-CAN-04). `payments` does not take part in the command, so the
+        `BookingDetail` returned, whose deposit fields need payment facts, is the `getBooking`
+        composition read after the commit (API-DM-25): no atomicity with the commit is promised.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1174,8 +1230,12 @@ paths:
       summary: Move a confirmed booking to a new slot, service or resource
       description: |
         Checks the target without releasing the current slot; the move and release are atomic
-        (BR-CAN-08, BR-CAN-12). A deposit difference is returned as `supplementalDeposit` and
-        requested afterwards; it never undoes the move (BR-CAN-10).
+        (BR-CAN-08, BR-CAN-12). If the destination's current requirement exceeds the valid
+        allocations, the shortfall is returned as `supplementalDeposit` and requested afterwards;
+        it never undoes the move (BR-CAN-10). A lower requirement refunds or credits nothing: the
+        retained allocations simply reduce the balance and `supplementalDeposit` is `null`
+        (BR-CAN-11). The result is assembled from the participants' results in the same
+        transaction (API-DM-25).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1196,6 +1256,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RescheduleResult'
+              examples:
+                lowerRequirement:
+                  $ref: '#/components/examples/RescheduleResultLowerRequirement'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -1212,8 +1275,14 @@ paths:
     post:
       tags: [bookings]
       operationId: recordBookingOutcome
+      x-agendoxa-invokes:
+        responseComposition: [bookings, payments]
       summary: Record completion or no-show of a confirmed booking
-      description: Completion from start; no-show from start + 15 minutes. Never records a payment (BR-RES-10–11).
+      description: |
+        Completion from start; no-show from start + 15 minutes. Never records a payment
+        (BR-RES-10–11). Owner command of `bookings`; the `BookingDetail` returned, whose deposit
+        fields need payment facts, is the `getBooking` composition read after the commit
+        (API-DM-25), not part of the command's transaction.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1250,7 +1319,10 @@ paths:
     post:
       tags: [bookings]
       operationId: correctBookingOutcome
+      x-agendoxa-invokes:
+        responseComposition: [bookings, payments]
       summary: Correct NO_SHOW ↔ COMPLETED with a mandatory reason
+      description: Owner command of `bookings`; the returned `BookingDetail` is the `getBooking` composition read after the commit (API-DM-25).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1354,12 +1426,20 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
       tags: [customers]
       operationId: createCustomer
+      x-agendoxa-invokes:
+        responseComposition: [customers, bookings]
       summary: Create a customer from the CRM
+      description: |
+        Owner command of `customers`. Its response carries the derived `indicators`, which come
+        from `bookings`, so the response is the `getCustomer` composition read after the commit
+        (API-DM-25).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1411,12 +1491,17 @@ paths:
                   $ref: '#/components/examples/CustomerDetail'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
       tags: [customers]
       operationId: updateCustomer
+      x-agendoxa-invokes:
+        responseComposition: [customers, bookings]
       summary: Update the name, or add a phone to a customer without one
+      description: Owner command of `customers`; the response is the `getCustomer` composition read after the commit, because the derived `indicators` come from `bookings` (API-DM-25).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1465,6 +1550,8 @@ paths:
                 $ref: '#/components/schemas/RestrictionList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -1499,6 +1586,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/customers/{customerId}/restrictions/current/removal:
     post:
       tags: [customers]
@@ -1551,6 +1640,8 @@ paths:
                 $ref: '#/components/schemas/IncidentList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -1585,6 +1676,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/payment-evidence-uploads:
     post:
       tags: [payments]
@@ -1738,8 +1831,13 @@ paths:
       summary: Record that a person verified the actual credit
       description: |
         Creates exactly one verified TRANSFER payment linked to the review (INV-PAY-10) and the
-        allocations listed, never others. Verification alone does not reduce a balance or confirm
-        a booking; only the listed allocations can reach the threshold (BR-SEN-07, EJ-20).
+        allocations listed, never others. For an active booking the person confirms the
+        allocation in this same action, up to the amount owed (BR-SEN-07, BR-COB-03–04,
+        INV-SEN-14, EJ-20): leaving payable debt unallocated is `422 allocation_required`.
+        `allocations: []` with an `unallocatedReason` is accepted only for excess, money not
+        matched to the booking, or a booking already expired or cancelled (BR-COB-02, BR-COB-17).
+        Only the listed allocations can reach the threshold and confirm the booking. Approval stays
+        human-only; the agent never reaches it.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1797,7 +1895,9 @@ paths:
         A human rejection, the only kind BR-SEN-10 counts. For initial evidence without verified
         partial funds, the first distinct rejection opens the 15-minute correction window and a
         second may cancel before start after rechecks; otherwise the booking does not change.
-        Creates no payment.
+        Exception: evidence resent after an allocation reversal (BR-SEN-18, INV-SEN-15) opens no
+        window and cancels nothing; the result is `bookingEffect: NONE` and the booking stays in
+        PENDING_PAYMENT_REVIEW with depositState PARTIAL or UNALLOCATED. Creates no payment.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1902,6 +2002,62 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /tenants/{tenantId}/bookings/{bookingId}/supplemental-deposit/non-collection:
+    post:
+      tags: [payments]
+      operationId: closeSupplementalDepositWithoutCollection
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [bookings, payments]
+      summary: Close a supplemental deposit request without collecting it
+      description: |
+        Personnel with the payments permission decide not to collect the additional deposit requested
+        after a permitted reschedule (BR-CAN-15, INV-CAN-10, API-DM-26), under the
+        `payments.allocate` permission. Only a request still `REQUESTED` can be closed. The decision is recorded once and immutably, with actor, time,
+        the amount not collected and the optional reason, and `supplementalDepositState` becomes
+        `NOT_COLLECTED`. It creates, alters, refunds or forgives no payment or charge and never
+        changes the paid deposit, the agreed price or the `CONFIRMED` status; the balance stays
+        price minus valid allocations, payable at the appointment. Conflicts: `409
+        no_open_supplemental_deposit` when there is no request to close or it is already `MET` or
+        `NOT_COLLECTED` (a second application with a new key); `409 state_changed` while its
+        evidence is under review (the review is resolved first) or when the state changed concurrently; `409 idempotency_key_reused`
+        and `idempotency_request_in_progress` as for every keyed POST.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseSupplementalDepositRequest'
+            examples:
+              withReason:
+                $ref: '#/components/examples/CloseSupplementalDepositRequest'
+      responses:
+        '200':
+          description: Closed without collection; a retry with the same key returns this same response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplementalDepositClosure'
+              examples:
+                closed:
+                  $ref: '#/components/examples/SupplementalDepositClosure'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /tenants/{tenantId}/receiving-accounts:
     get:
       tags: [payments]
@@ -1990,9 +2146,14 @@ paths:
         participants: [payments, bookings, notifications]
       summary: Record verified money received in cash, or a transfer whose credit was checked
       description: |
-        No review is needed when personnel verify directly (BR-COB-04, BR-COB-08). Cash needs an
-        open session, or opens one automatically when the tenant configured it (BR-CAJA-03); the
-        payment and its cash movement are the same money. Allocations are only those listed.
+        No review is needed when personnel verify directly (BR-COB-04, BR-COB-08). A payment, TRANSFER
+        or CASH, recorded for an active booking carries its allocation in the same action, up to the
+        amount owed (BR-SEN-07, INV-SEN-14). Cash needs an open session. The tenant's first session
+        is always opened manually with an explicit opening amount, so a cash payment with no open
+        session and no earlier close is `409 cash_session_not_open` even when automatic opening is
+        configured; once a counted close exists, automatic opening uses it (BR-CAJA-03,
+        API-DM-22). The payment and its cash movement are the same money. Allocations are only
+        those listed.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -2029,7 +2190,14 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: Idempotency conflict, or the cash session does not allow the payment (`cash_session_not_open`, including the tenant's first cash payment before any manual opening).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                firstCashPayment:
+                  $ref: '#/components/examples/ProblemCashSessionNotOpen'
         '422':
           $ref: '#/components/responses/AllocationRuleViolation'
   /tenants/{tenantId}/payments/{paymentId}:
@@ -2093,14 +2261,28 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/AllocationRuleViolation'
   /tenants/{tenantId}/payment-allocations/{allocationId}/reversal:
     post:
       tags: [payments]
       operationId: reversePaymentAllocation
+      x-agendoxa-invokes:
+        coordinator: workflows
+        participants: [payments, bookings, notifications]
       summary: Reverse an allocation, keeping it in history
-      description: The allocation becomes REVERSED and its funds available again. It never changes a booking status (API-Q-14).
+      description: |
+        The allocation becomes REVERSED and its funds available again; it never cancels a booking.
+        If it leaves a CONFIRMED booking that has not started below its initial-deposit threshold
+        (fully or partially), the same transaction returns the booking to PENDING_PAYMENT_REVIEW
+        (unconfirmed, occupying) and queues a notice asking the customer to send the receipt again
+        (BR-SEN-18, INV-SEN-15; API-Q-14 closed). There is no correction window, expiry or
+        automatic release. A started or completed booking, an Admin exception and the
+        supplemental deposit are not changed. Multi-owner command of `workflows`; the response
+        is assembled in the transaction (API-DM-24, API-DM-25). 409 `state_changed` when the
+        booking changed meanwhile, `allocation_already_reversed` when already reversed.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -2116,7 +2298,7 @@ paths:
               $ref: '#/components/schemas/ReverseAllocationRequest'
       responses:
         '200':
-          description: Reversed.
+          description: Reversed; the payment with its allocations, the reversed one included, and the affected bookings after any return to review.
           content:
             application/json:
               schema:
@@ -2159,7 +2341,11 @@ paths:
       tags: [payments]
       operationId: openCashSession
       summary: Open the shared cash session manually
-      description: At most one open session per tenant (INV-CAJA-01). Opening cash is declared the first time and reconciled with the previous close afterwards (BR-CAJA-03).
+      description: |
+        At most one open session per tenant (INV-CAJA-01). Opening cash is declared the first time
+        and reconciled with the previous close afterwards (BR-CAJA-03). The tenant's first session
+        can only be opened here, with an explicit `openingAmount`: no implicit 0.00 and no automatic
+        opening without a previous counted close (API-DM-22).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -2616,6 +2802,10 @@ components:
       description: Exact non-negative decimal with two places in the tenant currency.
       type: string
       pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+    Percentage:
+      description: Exact decimal percentage from 0.01 to 100.00 inclusive, two places; zero is not a percentage here.
+      type: string
+      pattern: '^(100\.00|(0\.(0[1-9]|[1-9][0-9])|[1-9][0-9]?\.[0-9]{2}))$'
     PositiveMoney:
       description: Money greater than zero, for payments, allocations and movements.
       type: string
@@ -2650,18 +2840,35 @@ components:
         AWAITING_EVIDENCE also covers a first clearly unrelated file and evidence still under
         preliminary screening. UNDER_REVIEW means human review, whatever routed the evidence
         there; CORRECTION_WINDOW follows a human rejection only. No value is a screening verdict
-        (BR-SEN-14–16). AWAITING_ALLOCATION means verified funds linked to the booking that no
-        one has allocated yet (API-Q-13). It describes the initial deposit only; a supplement
-        after a reschedule is `supplementalDepositState` (API-DM-21).
+        (BR-SEN-14–16). There is no "verified but unallocated" value: verifying money for an
+        active booking allocates it in the same human action, up to the amount owed (BR-SEN-07,
+        INV-SEN-14; API-Q-13 closed). It describes the initial deposit only; a supplement
+        after a reschedule is `supplementalDepositState` (API-DM-21). The value describes the
+        initial-deposit allocations against the threshold and the evidence, not the booking
+        status, which comes from `status`. Conditions can overlap, so the value is the first
+        that matches, in this order: 1 NOT_REQUIRED (no deposit applies); 2 ADMIN_EXCEPTION;
+        3 MET (valid allocations reach the threshold, even if more evidence is in review);
+        4 UNDER_REVIEW (initial-deposit evidence in human review, even with some allocations
+        left, e.g. a resent receipt after a partial reversal); 5 CORRECTION_WINDOW (only without
+        verified funds, never after a reversal, so it cannot overlap 6 or 7); 6 PARTIAL
+        (allocated above zero and below the threshold); 7 UNALLOCATED (a personnel reversal,
+        BR-SEN-18, API-Q-14 closed, left none); 8 AWAITING_EVIDENCE (everything else with a
+        deposit, including evidence still under preliminary screening). The allocated amount
+        stays visible in `deposit.allocated` whichever value is selected. A not-yet-started booking so returned to PENDING_PAYMENT_REVIEW has had its
+        customer asked to resend the receipt, with no window, expiry or automatic release; a
+        started or completed booking keeps its status, is not asked to resend, and shows PARTIAL
+        or UNALLOCATED rather than a stale MET.
       type: string
-      enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, AWAITING_ALLOCATION, PARTIAL, MET, ADMIN_EXCEPTION]
+      enum: [NOT_REQUIRED, AWAITING_EVIDENCE, UNDER_REVIEW, CORRECTION_WINDOW, PARTIAL, UNALLOCATED, MET, ADMIN_EXCEPTION]
     SupplementalDepositState:
       description: |
         Additional deposit requested after a permitted reschedule of a CONFIRMED booking
         (BR-CAN-10). Never confirms, unconfirms or cancels; a rejected supplemental receipt
-        returns to REQUESTED without a correction window (BR-SEN-10, CU-09 A3).
+        returns to REQUESTED without a correction window (BR-SEN-10, CU-09 A3). NOT_COLLECTED is
+        terminal: personnel closed the request without collecting it (BR-CAN-15, API-DM-26); the
+        deposit, price and CONFIRMED status are unchanged.
       type: string
-      enum: [REQUESTED, UNDER_REVIEW, MET]
+      enum: [REQUESTED, UNDER_REVIEW, MET, NOT_COLLECTED]
     RestrictionKind:
       type: string
       enum: [FULL_PREPAYMENT, BLOCKED]
@@ -2865,7 +3072,7 @@ components:
       additionalProperties: false
     PublicBusinessProfile:
       type: object
-      required: [name, slug, timezone, branding, whatsappUrl, regularHours]
+      required: [name, slug, timezone, branding, location, whatsappUrl, regularHours]
       properties:
         name:
           type: string
@@ -2875,8 +3082,18 @@ components:
           type: string
         branding:
           type: [string, 'null']
+        location:
+          description: |
+            Public location text of the business, with an optional Maps link; null until the
+            business sets it. Proposed (product-owner agreement 2026-11-12): the address belongs
+            to `tenants` and is pending adoption in the ERD (DOM-01); it is not migrated (API-Q-01).
+          oneOf:
+            - $ref: '#/components/schemas/PublicLocation'
+            - type: 'null'
         whatsappUrl:
-          description: wa.me link to the active WhatsApp connection; null when none is active.
+          description: |
+            `wa.me` link built from the tenant's connected WhatsApp number (digits of the E.164
+            number, no `+`); null when no connection is active. The number is a `messaging` fact.
           type: [string, 'null']
           format: uri
         regularHours:
@@ -2884,6 +3101,22 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WeeklyHours'
+      additionalProperties: false
+    PublicLocation:
+      description: Public business address as text, plus an optional Maps link. Never a customer or private address.
+      type: object
+      required: [address, mapsUrl]
+      properties:
+        address:
+          type: string
+          minLength: 1
+          maxLength: 300
+        mapsUrl:
+          description: Optional Google Maps (or equivalent) link; null when the business has none.
+          type: [string, 'null']
+          format: uri
+          pattern: '^https://'
+          maxLength: 500
       additionalProperties: false
     PublicService:
       type: object
@@ -3031,16 +3264,50 @@ components:
           minimum: 0
       additionalProperties: false
     DepositRule:
-      description: FIXED uses an amount; PERCENTAGE uses 0–100 with two decimals; DISABLED explicitly disables.
+      description: |
+        A deposit rule is exactly one of three shapes chosen by `mode`: DISABLED has `value: null`,
+        FIXED a money amount greater than 0.00, PERCENTAGE a decimal from 0.01 to 100.00 inclusive.
+        A configured deposit is always greater than zero; having none is expressed only by DISABLED
+        (BR-SEN-02, BR-SEN-03). In an override, `null` for the whole field means inherit and is a
+        different thing from DISABLED. The API enforces this; the persisted `deposit_value >= 0`
+        check still allows zero (tech debt TD-03).
+      oneOf:
+        - $ref: '#/components/schemas/DepositRuleDisabled'
+        - $ref: '#/components/schemas/DepositRuleFixed'
+        - $ref: '#/components/schemas/DepositRulePercentage'
+      discriminator:
+        propertyName: mode
+        mapping:
+          DISABLED: '#/components/schemas/DepositRuleDisabled'
+          FIXED: '#/components/schemas/DepositRuleFixed'
+          PERCENTAGE: '#/components/schemas/DepositRulePercentage'
+    DepositRuleDisabled:
       type: object
       required: [mode, value]
       properties:
         mode:
-          type: string
-          enum: [DISABLED, FIXED, PERCENTAGE]
+          const: DISABLED
         value:
-          type: [string, 'null']
-          pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{2}$'
+          description: 'Always null: a disabled deposit has no amount.'
+          type: 'null'
+      additionalProperties: false
+    DepositRuleFixed:
+      type: object
+      required: [mode, value]
+      properties:
+        mode:
+          const: FIXED
+        value:
+          $ref: '#/components/schemas/PositiveMoney'
+      additionalProperties: false
+    DepositRulePercentage:
+      type: object
+      required: [mode, value]
+      properties:
+        mode:
+          const: PERCENTAGE
+        value:
+          $ref: '#/components/schemas/Percentage'
       additionalProperties: false
     OverridePolicyFields:
       description: Service or resource override. Null means inherit (DM-06).
@@ -3341,7 +3608,11 @@ components:
         agreedPrice:
           $ref: '#/components/schemas/Money'
         requiredDeposit:
-          description: Deposit required by the booking's current conditions; after a reschedule, the initial deposit plus any supplement (API-DM-21).
+          description: |
+            Deposit required by the conditions that currently apply to the booking, computed by the
+            backend (BR-SEN-05); null when none applies. After a reschedule it is the requirement of
+            the destination's conditions, not a sum: the initial requirement is `deposit.required`
+            of the financial state and the shortfall is `supplementalDeposit.required` (API-DM-21).
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
@@ -3491,8 +3762,13 @@ components:
           $ref: '#/components/schemas/Reason'
       additionalProperties: false
     CreateCrmBookingRequest:
+      description: '`deposit` and `depositException` are mutually exclusive; sending both is a validation error.'
       type: object
       required: [customer, serviceId, resourceId, startAt]
+      dependentSchemas:
+        deposit:
+          properties:
+            depositException: false
       properties:
         customer:
           $ref: '#/components/schemas/CustomerInput'
@@ -3533,11 +3809,17 @@ components:
     DepositInput:
       description: |
         Verified funds explicitly allocated to the new booking's charge, evidence for human review,
-        or both (BR-SEN-09). Threshold met: CONFIRMED. Evidence, or verified funds below the
-        threshold: PENDING_PAYMENT_REVIEW, occupying (UNDER_REVIEW or PARTIAL). Allocations need
-        `payments.allocate`, evidence `payments.record` (API-DM-08).
+        or both (BR-SEN-09). At least one of `evidence` or a non-empty `allocations` is required;
+        `declaredAmount` is accepted only together with `evidence` and is never proof of credit.
+        Both together are two routes, not two credits. Threshold met: CONFIRMED. Evidence, or
+        verified funds below the threshold: PENDING_PAYMENT_REVIEW, occupying (UNDER_REVIEW or
+        PARTIAL). Allocations need `payments.allocate`, evidence `payments.record` (API-DM-08).
       type: object
-      minProperties: 1
+      anyOf:
+        - required: [evidence]
+        - required: [allocations]
+      dependentRequired:
+        declaredAmount: [evidence]
       properties:
         allocations:
           type: array
@@ -3605,8 +3887,13 @@ components:
           $ref: '#/components/schemas/AdminException'
       additionalProperties: false
     RescheduleResult:
+      description: |
+        The moved booking and, when the destination's current requirement exceeds what the valid
+        allocations cover, the supplement requested for the shortfall. Every field is present;
+        `supplementalDeposit` is null when no supplement is requested (API-DM-03). Assembled by the
+        coordinator from the participants' results in the same transaction (API-DM-25).
       type: object
-      required: [booking, previousSlot, lateChange]
+      required: [booking, previousSlot, lateChange, supplementalDeposit]
       properties:
         booking:
           $ref: '#/components/schemas/BookingDetail'
@@ -3624,7 +3911,11 @@ components:
         lateChange:
           type: boolean
         supplementalDeposit:
-          description: Additional deposit requested because the destination requires more than the verified deposit covers (BR-CAN-10); null otherwise. The booking stays CONFIRMED either way.
+          description: |
+            The shortfall of the destination's current requirement over the valid allocations
+            (BR-CAN-10), requested after the move; null when nothing is missing, including when the
+            destination requires less (nothing is refunded or credited, BR-CAN-11). The booking stays
+            CONFIRMED either way.
           oneOf:
             - $ref: '#/components/schemas/SupplementalDeposit'
             - type: 'null'
@@ -3648,8 +3939,13 @@ components:
           $ref: '#/components/schemas/Reason'
       additionalProperties: false
     RemainderWalkInRequest:
+      description: '`deposit` and `depositException` are mutually exclusive, as in CreateCrmBookingRequest.'
       type: object
       required: [customer, serviceId, startAt]
+      dependentSchemas:
+        deposit:
+          properties:
+            depositException: false
       properties:
         customer:
           $ref: '#/components/schemas/CustomerInput'
@@ -4070,8 +4366,26 @@ components:
           $ref: '#/components/schemas/PositiveMoney'
       additionalProperties: false
     ApprovePaymentReviewRequest:
+      description: |
+        For a review of an active booking the approval carries the allocation in the same human
+        action, up to the amount the booking's charges still owe (BR-SEN-07, BR-COB-03–04,
+        INV-SEN-14); the backend refuses an approval that leaves payable debt unallocated with
+        `422 allocation_required`. An empty `allocations` is accepted only with an
+        `unallocatedReason`, for money that exceeds the amount owed, is not matched to the booking,
+        or belongs to a booking already released (BR-COB-02, BR-COB-17).
       type: object
       required: [verifiedAmount, allocations]
+      if:
+        properties:
+          allocations:
+            type: array
+            maxItems: 0
+      then:
+        required: [unallocatedReason]
+        properties:
+          unallocatedReason:
+            type: string
+            minLength: 1
       properties:
         verifiedAmount:
           description: The amount actually credited, as checked by the person; not the declared amount.
@@ -4083,13 +4397,13 @@ components:
             - $ref: '#/components/schemas/Uuid'
             - type: 'null'
         allocations:
-          description: Explicit allocations of the new payment; an empty array leaves it unallocated.
+          description: Explicit allocations of the new payment, chosen by the person in this same action; an empty array leaves the whole payment unallocated and then needs `unallocatedReason`.
           type: array
           maxItems: 20
           items:
             $ref: '#/components/schemas/AllocationItem'
         unallocatedReason:
-          description: Why the payment stays unallocated (BR-COB-02); only when `allocations` is empty.
+          description: Why part of the verified amount stays unallocated (excess over the amount owed, money not matched to the booking, released booking; BR-COB-02, BR-COB-17). Required when `allocations` is empty or does not use the whole `verifiedAmount`.
           type: [string, 'null']
           maxLength: 500
       additionalProperties: false
@@ -4226,7 +4540,15 @@ components:
               items:
                 $ref: '#/components/schemas/Payment'
     RecordPaymentRequest:
-      description: TRANSFER requires `receivingAccountId`; CASH must not send one.
+      description: |
+        TRANSFER requires `receivingAccountId`; CASH must not send one. A payment, TRANSFER or CASH,
+        recorded for an active booking carries its allocation in the same action, up to the amount owed
+        (BR-SEN-07, BR-COB-03, INV-SEN-14): the backend refuses payable debt left unallocated with
+        `422 allocation_required`, and `allocations` may stay empty only with an
+        `unallocatedReason` for excess, unmatched money or a released booking (BR-COB-17). CASH
+        needs an open session; the tenant's very first session can only be opened manually with an
+        explicit `openingAmount`, so a CASH payment with no open session and no earlier close is
+        `409 cash_session_not_open` even when automatic opening is configured (BR-CAJA-03, API-DM-22).
       type: object
       required: [method, amount, commercialOrigin]
       properties:
@@ -4309,6 +4631,7 @@ components:
           $ref: '#/components/schemas/Reason'
       additionalProperties: false
     AllocationResult:
+      description: Result of `allocatePayment` and `reversePaymentAllocation`, multi-owner commands whose coordinator assembles the affected bookings from its participants (API-DM-25).
       type: object
       required: [payment, affectedBookings]
       properties:
@@ -4371,17 +4694,24 @@ components:
             - $ref: '#/components/schemas/Money'
       additionalProperties: false
     InitialDeposit:
-      description: The deposit that governs confirmation (BR-SEN-07, BR-SEN-09–11).
+      description: |
+        The deposit that governs confirmation (BR-SEN-07, BR-SEN-09–11). Its `required` is the
+        historical initial threshold applied when the booking was created; it is not recomputed after
+        a reschedule. The requirement of the conditions that apply now is `requiredDeposit` of the
+        booking summary (API-DM-21).
       type: object
       required: [required, allocated, missing, state, exception, correctionDeadlineAt]
       properties:
         required:
+          description: Initial threshold applied at creation; null when no deposit applied.
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
         allocated:
+          description: Valid allocations counted toward the initial threshold; lower after a reversal of one of them, whatever the booking status (BR-SEN-18).
           $ref: '#/components/schemas/Money'
         missing:
+          description: max(0, required − allocated) while the booking waits for its initial deposit.
           $ref: '#/components/schemas/Money'
         state:
           $ref: '#/components/schemas/DepositState'
@@ -4395,23 +4725,66 @@ components:
             - type: 'null'
       additionalProperties: false
     SupplementalDeposit:
-      description: Additional deposit after a permitted reschedule (BR-CAN-10). How it is stored is ERD T-03/T-05.
+      description: |
+        Additional deposit requested after a permitted reschedule (BR-CAN-10): the shortfall of the
+        destination's current requirement over the valid allocations at that moment, so it exists only
+        when something is missing and is never the whole requirement (API-DM-21). How it is stored is
+        ERD T-03/T-05.
       type: object
       required: [changeRequestId, required, allocated, missing, state, requestedAt]
       properties:
         changeRequestId:
           $ref: '#/components/schemas/Uuid'
         required:
-          description: Additional amount, beyond the initial deposit already verified.
+          description: Amount requested, fixed when the request is created; greater than zero.
           allOf:
             - $ref: '#/components/schemas/PositiveMoney'
         allocated:
+          description: Valid allocations made toward this request since it was created.
           $ref: '#/components/schemas/Money'
         missing:
+          description: max(0, required − allocated). For NOT_COLLECTED it keeps the amount that was not collected.
           $ref: '#/components/schemas/Money'
         state:
           $ref: '#/components/schemas/SupplementalDepositState'
         requestedAt:
+          $ref: '#/components/schemas/Instant'
+      additionalProperties: false
+    CloseSupplementalDepositRequest:
+      description: The request is identified by the booking's open supplemental deposit; only an optional reason is sent.
+      type: object
+      properties:
+        reason:
+          description: Optional explanation recorded with the decision (BR-CAN-15).
+          oneOf:
+            - $ref: '#/components/schemas/Reason'
+            - type: 'null'
+      additionalProperties: false
+    SupplementalDepositClosure:
+      description: |
+        The immutable record of a decision not to collect a supplemental deposit (BR-CAN-15,
+        INV-CAN-10): who, when, the amount not collected and the optional reason. It is not a payment,
+        a refund or a charge change.
+      type: object
+      required: [bookingId, changeRequestId, state, nonCollectedAmount, reason, recordedByMembershipId, recordedAt]
+      properties:
+        bookingId:
+          $ref: '#/components/schemas/Uuid'
+        changeRequestId:
+          $ref: '#/components/schemas/Uuid'
+        state:
+          const: NOT_COLLECTED
+        nonCollectedAmount:
+          description: The `missing` amount of the request when it was closed.
+          allOf:
+            - $ref: '#/components/schemas/PositiveMoney'
+        reason:
+          oneOf:
+            - $ref: '#/components/schemas/Reason'
+            - type: 'null'
+        recordedByMembershipId:
+          $ref: '#/components/schemas/Uuid'
+        recordedAt:
           $ref: '#/components/schemas/Instant'
       additionalProperties: false
     FinancialPaymentLine:
@@ -4435,6 +4808,10 @@ components:
       description: |
         What is owed and what verified money covers it, apart from the booking status and the
         service outcome (INV-RES-05) and from physical cash (API-DM-21). Never a cash balance.
+        Five magnitudes stay separate: the current requirement (`requiredDeposit` of the booking
+        summary), the historical initial requirement (`deposit.required`), verified funds
+        (`payments`, `unallocatedLinkedFunds`), allocated funds (`deposit.allocated`, the charges
+        and `payments[].allocatedHere`) and the requested supplement (`supplementalDeposit`).
       type: object
       required: [bookingId, bookingStatus, agreedPrice, charges, balanceDue, deposit, supplementalDeposit, payments, unallocatedLinkedFunds, pendingReviewIds]
       properties:
@@ -4464,7 +4841,11 @@ components:
           items:
             $ref: '#/components/schemas/FinancialPaymentLine'
         unallocatedLinkedFunds:
-          description: Available funds of payments whose origin is this booking, not yet allocated anywhere.
+          description: |
+            Available funds of payments whose origin is this booking and that are not allocated
+            anywhere: excess over the amount owed, or funds freed by a reversal. Verifying money
+            for an active booking allocates it in the same action, so this is never a deposit state
+            and it does not protect occupancy (BR-SEN-07, BR-COB-17).
           allOf:
             - $ref: '#/components/schemas/Money'
         pendingReviewIds:
@@ -4627,17 +5008,23 @@ components:
               additionalProperties: false
             - type: 'null'
         automaticOpening:
-          description: Whether the first cash payment opens a session (BR-CAJA-03); configured in a later increment.
+          description: |
+            Whether the tenant configured automatic opening on a cash payment (BR-CAJA-03);
+            configured in a later increment. It takes effect only after a counted close exists:
+            with `session: null` and `previousClose: null` the first opening is manual, with an
+            explicit `openingAmount` (API-DM-22). Afterwards the automatic opening takes the
+            previous counted cash.
           type: boolean
       additionalProperties: false
     OpenCashSessionRequest:
+      description: The tenant's first session needs an explicit, auditable `openingAmount`; no 0.00 is assumed (BR-CAJA-03).
       type: object
       required: [openingAmount]
       properties:
         openingAmount:
           $ref: '#/components/schemas/Money'
         reconciliationReason:
-          description: Required when openingAmount differs from the previous counted cash (proposal, API-Q-15).
+          description: Required when openingAmount differs from the previous counted cash (proposal, API-Q-15); not applicable to the first session, which has nothing to reconcile with.
           oneOf:
             - $ref: '#/components/schemas/Reason'
             - type: 'null'
@@ -4734,6 +5121,9 @@ components:
         slug: barberia-centro
         timezone: America/Argentina/Buenos_Aires
         branding: null
+        location:
+          address: San Martín 1234, Corrientes
+          mapsUrl: https://maps.google.com/?q=Barber%C3%ADa+Centro+Corrientes
         whatsappUrl: https://wa.me/5493794000000
         regularHours:
           - weekday: TUESDAY
@@ -5067,7 +5457,7 @@ components:
           chargeBalance: '4000.00'
           availableFunds: '7000.00'
     BookingFinancialStateSupplement:
-      summary: Confirmed booking moved to a dearer service, with a supplemental deposit requested
+      summary: Confirmed booking moved to a dearer service; the current requirement is 4200.00 (30% of 14000.00), 3000.00 is allocated and the 1200.00 shortfall is requested
       value:
         bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
         bookingStatus: CONFIRMED
@@ -5156,3 +5546,68 @@ components:
         detail: A movement was recorded after you reviewed the totals. Review the expected cash again before closing.
         requestId: req_01JC8Q9K2M8
         currentRevision: 15
+    ProblemCashSessionNotOpen:
+      summary: First cash payment of a tenant that never opened a session
+      value:
+        type: urn:agendoxa:problem:conflict
+        title: There is no open cash session
+        status: 409
+        code: conflict
+        reason: cash_session_not_open
+        detail: The business has no earlier cash close, so its first session must be opened manually with an opening amount, even if automatic opening is on. Nothing was recorded.
+        requestId: req_01JC8QA2H5Z
+    RescheduleResultLowerRequirement:
+      summary: Destination requires 1500.00 after 3000.00 was allocated; no supplement, nothing refunded or credited
+      value:
+        booking:
+          booking:
+            id: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+            status: CONFIRMED
+            origin: WHATSAPP
+            customer:
+              id: e2a4c6e8-0b2d-4f6a-8c0e-2a4c6e8a0b2d
+              fullName: Lucía Fernández
+            attendeeName: null
+            service:
+              id: 8b1d3f5a-7c9e-4b2d-8f1a-3c5e7a9b1d3f
+              name: Corte
+            resource:
+              id: 1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f
+              name: Martín
+            startAt: '2026-11-13T14:00:00Z'
+            endAt: '2026-11-13T14:30:00Z'
+            agreedPrice: '5000.00'
+            requiredDeposit: '1500.00'
+            depositState: MET
+            supplementalDepositState: null
+            pendingOperationalClose: false
+            holdExpiresAt: null
+          attendeePhone: null
+          noticeMinutes: 600
+          depositRefundPolicy: NO_MONEY_BACK
+          blockedException: false
+          depositException: false
+          createdByMembershipId: null
+          cancelReason: null
+          createdAt: '2026-11-10T15:00:00Z'
+          updatedAt: '2026-11-11T13:02:00Z'
+        previousSlot:
+          resourceId: 1f3a5c7e-9b2d-4f6a-8c1e-3a5c7e9b2d4f
+          startAt: '2026-11-12T14:00:00Z'
+          endAt: '2026-11-12T15:30:00Z'
+        lateChange: false
+        supplementalDeposit: null
+    CloseSupplementalDepositRequest:
+      summary: Personnel decide not to collect the supplement
+      value:
+        reason: El saldo se cobra en el turno
+    SupplementalDepositClosure:
+      summary: The 1200.00 supplement closed without collection
+      value:
+        bookingId: 7b9d1f3a-5c7e-4a9b-8d1f-3a5c7e9b1d2e
+        changeRequestId: b3d5f7a9-1c3e-4b5d-9f7a-1c3e5b7d9f1a
+        state: NOT_COLLECTED
+        nonCollectedAmount: '1200.00'
+        reason: El saldo se cobra en el turno
+        recordedByMembershipId: 4d6f8a0c-2e4a-4d6f-8a0c-2e4a6c8e0a2b
+        recordedAt: '2026-11-11T16:20:00Z'

@@ -399,6 +399,8 @@ This is a logical proposal, not a physical schema. Names are descriptive, not fi
 | timezone | Text | Y | IANA name (BR-TEN-04) |
 | currency | Text | Y | Proposal: single currency per tenant |
 | branding | Text | N | Display settings |
+| public_address | Text | N | **Proposal, 2026-11-12 (product-owner agreement; not team-ratified, not in the physical schema or migrations):** the business's public address as text for the informational landing (MVP §7.2); never a customer's address. Pending adoption in DOM-01; [CON-02](./api-contracts.md#13-decisions-and-open-questions) exposes it as `location.address` (API-Q-01) |
+| public_maps_url | Text | N | **Proposal, same status:** optional Maps link (https) shown with the address; meaningful only when `public_address` is set |
 | collection_mode | Enum | Y | ALL_PROFESSIONAL (default), DEPOSIT_BUSINESS_REMAINDER_PROFESSIONAL, ALL_BUSINESS |
 | business_account_selection | Enum | Y | DEFAULT, SEQUENTIAL_ROTATION |
 | rotation_cursor | Identifier | N | FK → `ReceivingAccount`; last account issued **[T-02]** |
