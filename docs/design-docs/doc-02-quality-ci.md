@@ -1,6 +1,6 @@
 # DOC-02 — Quality tooling and continuous integration
 
-**Status:** implementation proposal for review; references [Issue #19](https://github.com/nanonoir/Agendoxa/issues/19). Implemented in the task branch; team review pending. GitHub Actions has not run this workflow yet, and `main` protection remains a separate owner-led step.
+**Status:** implementation proposal for review; references [Issue #19](https://github.com/nanonoir/Agendoxa/issues/19). Implemented in the task branch; team review pending. GitHub Actions ran both jobs on a test PR to `main` and reported an intentional failure ([PR #36](https://github.com/nanonoir/Agendoxa/pull/36)); `main` protection remains a separate owner-led step.
 
 ## Context
 

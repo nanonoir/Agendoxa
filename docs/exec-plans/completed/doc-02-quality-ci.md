@@ -68,7 +68,12 @@ Local environment: Windows 11, Node 24, pnpm 12.16.1, Docker Desktop 29.6.1, `po
 | Font fix: web `lint`, `typecheck`, `format:check`, root `pnpm build` | Pass (exit 0) |
 | Font fix: `pnpm build` with `HTTP(S)_PROXY` set to a dead address for that process only | Pass; `.next` contains no `fonts.googleapis.com`/`fonts.gstatic.com` references and no `next/font/google` import remains in source |
 
-Not checked: a GitHub-hosted run, because Actions is not enabled yet.
+GitHub-hosted runs (2026-11-12), through draft test PR [#36](https://github.com/nanonoir/Agendoxa/pull/36) to `main`, closed without merge:
+
+| Run | Commit | `quality` | `database-integration` |
+|---|---|---|---|
+| [43171874114](https://github.com/nanonoir/Agendoxa/actions/runs/43171874114) | `47842c9` (PR #35 content) | Pass; every step ran | Pass; API 1/1, database 90/90 |
+| [43172012430](https://github.com/nanonoir/Agendoxa/actions/runs/43172012430) | Intentional format drift | Fail at `pnpm format:check` (exit 1); later steps skipped; red check visible on the PR | Pass |
 
 ## Final implementation outcome
 
@@ -82,8 +87,8 @@ The original plan was extended after review to remove the build-time Google Font
 
 ### Validation
 
-The checks and failure probes listed above passed, including PostgreSQL integration (API 1/1, database 90/90), actionlint and a build with a dead proxy. The first independent review's font blocker was fixed; the second confirmed the fix and identified only plan closure as blocking, addressed here. Team review remains pending, and no GitHub-hosted run has been verified.
+The checks and failure probes listed above passed, including PostgreSQL integration (API 1/1, database 90/90), actionlint and a build with a dead proxy. The first independent review's font blocker was fixed; the second confirmed the fix and identified only plan closure as blocking, addressed here. GitHub Actions ran both jobs on a PR to `main` and reported an intentional failure. Team review remains pending.
 
 ### Follow-up
 
-PR #35's description still needs a delivery update covering the font fix, the lifecycle rule and Agus's frontend shared impact. Owner-led operational steps are tracked in Issue #19. No new technical debt was identified.
+Protecting `main` with the `quality` and `database-integration` checks is owner-led and tracked in Issue #19. No new technical debt was identified.
