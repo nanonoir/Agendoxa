@@ -1,6 +1,6 @@
 # UC-03 — Domain Invariants
 
-> **Status:** In Review — product-owner agreements through 2026-11-09; not collective team approval or implemented behavior. Current [UC-03 rules](./business-rules.md) supersede incompatible historical handoff portions.
+> **Status:** In Review — product-owner agreements through 2026-11-12; not collective team approval or implemented behavior. Current [UC-03 rules](./business-rules.md) supersede incompatible historical handoff portions.
 > **Objective:** State what the system must guarantee **always**, regardless of channel, event order, retries or partial failures, with examples that can become tests.
 > **Complements:** [business-rules.md](./business-rules.md) (rules `BR-*` and pending decisions `P-NN`) and [UC-02 use cases](../uc-02/use-cases.md) (`CU-XX`).
 > **References:** [UC-01 actors](../uc-01/actors.md) and [UC-01 flows](../uc-01/flows.md); [MVP definition](../mvp.md) v0.3 §6.3; [target architecture](../../design-docs/target-architecture.md) v1.2 §9, §10, §13 (proposed direction, not the implemented [`ARCHITECTURE.md`](../../../ARCHITECTURE.md)).
@@ -50,7 +50,7 @@ stateDiagram-v2
     HOLD --> PENDING_PAYMENT_REVIEW: timely evidence routed to human review
     HOLD --> EXPIRED: deadline after applicable evidence checks
     HOLD --> CANCELLED: withdrawn (proposal)
-    PENDING_PAYMENT_REVIEW --> CONFIRMED: credit verified and manually allocated to required threshold
+    PENDING_PAYMENT_REVIEW --> CONFIRMED: credit verified and allocated to required threshold
     PENDING_PAYMENT_REVIEW --> CANCELLED: guarded rejection cancellation without verified partial funds, before start
     PENDING_PAYMENT_REVIEW --> CANCELLED: explicit authorized cancellation; finances resolved separately
     PENDING_PAYMENT_REVIEW --> PENDING_PAYMENT_REVIEW: first human rejection opens correction window; timely evidence follows screening rules
@@ -76,11 +76,11 @@ stateDiagram-v2
 | ∅ → `CONFIRMED` | No | If role permits | Yes, also existing deposit exception | No | Free slot and applicable funds/policy conditions; BLOCKED CRM customer allowed to booking-capable personnel with warning/attribution, restriction unchanged. | Follow-up P-16; BR-SEN-09 |
 | ∅ → `PENDING_PAYMENT_REVIEW` | No | Yes | Yes | No | CRM booking with a transfer receipt not yet verified; slot free. | Confirmed (UC-01 Confirmed Decisions; BR-SEN-09) |
 | `HOLD` → `CONFIRMED` (no deposit) | Yes, explicit confirmation | Proposal | Proposal | No | No deposit required; HOLD still valid. | Confirmed for the customer (MVP §6.3.4); Proposal for personnel |
-| `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified and explicitly manually allocated by personnel while the HOLD is valid (e.g., paid at the counter). | Proposal |
+| `HOLD` → `CONFIRMED` (deposit verified directly) | No | Proposal | Proposal | No | Required amount verified and allocated under BR-COB-03 while the HOLD is valid (e.g., paid at the counter). | Proposal |
 | `HOLD` → `PENDING_PAYMENT_REVIEW` | Yes, by sending evidence | — | — | No | Timely evidence routed to human review under BR-SEN-12, BR-SEN-14–16; first clearly unrelated file instead prompts replacement. | Product-owner agreement 2026-11-09 |
 | `HOLD` → `EXPIRED` | No | No | No | **Yes** | Deadline reached, with no timely screening unresolved or human review and no protected partial funds. | BR-RES-08, BR-SEN-16 |
 | `HOLD` → `CANCELLED` | Yes | Yes | Yes | No | Withdrawn before confirmation. | Proposal (UC-01 does not cover withdrawing a HOLD) |
-| `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and manually allocated to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
+| `PENDING_PAYMENT_REVIEW` → `CONFIRMED` | No | Yes | Yes | **No** | Actual credit verified and allocated under BR-COB-03 to meet threshold; multiple partial payments may satisfy it, not before. | BR-SEN-07, BR-SEN-11 |
 | Initial evidence rejection / correction | New evidence or valid manual resolution | Authorized role | Yes | Guarded timeout only | BR-SEN-10 applies only without verified partial deposit; pending review suspends timeout, started slots require manual handling. Partial verified funds invoke BR-SEN-11, never automatic release. | Updated F-018; follow-up P-27 |
 | Pending review / partial-deposit waiting → `CANCELLED` | Explicit confirmation; accepted consequence if late | Applicable permission/policy | Yes | No financial timeout | Release immediately upon authorized cancellation; review/refund continues separately. | BR-CAN-04, BR-SEN-11 |
 | `CONFIRMED` → `CONFIRMED` (reschedule) | Yes; accepted consequence if late | Authorized role, same rule | Yes, also exceptions to the consequence with a reason | No | With a verified deposit that does not cover the destination, move atomically to free target then request difference; enforce `FULL_PREPAYMENT` and Admin exceptions. Late reschedule with a lost deposit: personnel resolve it (BR-CAN-14). | Product-owner decision F-006, F-010; BR-CAN-14 |
@@ -99,7 +99,7 @@ P-05, P-06 and P-16, and the customer-cancellation portion of P-24, were resolve
 |---|---|
 | `PENDING_PAYMENT_REVIEW` → `EXPIRED` never happens: review has no automatic timeout. | MVP §6.3.5, §9.2 |
 | Time never confirms, completes or marks a no-show. Initial-evidence automatic cancellation never releases verified partial-deposit, actually pending review, started or supplemental-reschedule occupancy. Explicit authorized cancellation is a separate operation. | BR-SEN-10–11, BR-CAN-04 |
-| `EXPIRED` and `CANCELLED` never return to an occupying state; a late payment never rebooks. | MVP §6.3.6 |
+| `EXPIRED` and `CANCELLED` never return to an occupying state; a late payment never rebooks automatically. A new booking for a released slot follows BR-SEN-17. | MVP §6.3.6; product-owner agreement 2026-11-12 |
 | The AI never performs a transition that requires verifying a payment or recording an outcome. | SYS-01 |
 
 A transition that appears in none of §2.1–§2.3 is outside the MVP; adding one requires a decision.
@@ -130,7 +130,7 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 
 **EJ-04 · No automatic close.** Given a `CONFIRMED` booking from 10:00 to 11:00, when it is 11:00 the next day, then it is still `CONFIRMED` and appears as *pending operational close*.
 
-**EJ-05 · Completing is not paying.** Given a $10,000 booking with a $3,000 verified deposit explicitly manually allocated to its charge, when authorized personnel complete it with balance due, then it is `COMPLETED` with $7,000 outstanding. Verification without allocation would leave $10,000 due.
+**EJ-05 · Completing is not paying.** Given a $10,000 booking with a $3,000 deposit verified and allocated to its charge in the same human action, when authorized personnel complete it with balance due, then it is `COMPLETED` with $7,000 outstanding.
 
 **EJ-06 · Audited correction.** Given a booking in `NO_SHOW`, when authorized personnel correct it to `COMPLETED`, the booking customer's no-show count drops by 1 and the correction records who, when and the previous state.
 
@@ -167,20 +167,22 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 | INV-SEN-01 | `HOLD` → `CONFIRMED` without a deposit requires an explicit confirmation recorded **while the HOLD is valid**, checked in the same transaction. | TX | BR-RES-04 |
 | INV-SEN-02 | Timeliness uses recorded evidence receipt time, not screening completion. Timely evidence routed to review protects the HOLD; a first clearly unrelated file instead requests replacement without renewal. Expiry cannot release against unresolved screening of timely evidence. | TX | BR-RES-06, BR-SEN-14–16 |
 | INV-SEN-03 | HOLD expiry is idempotent; if no longer HOLD, timely evidence is still being screened, already under review or protected by verified partial funds, it does not release. Current state, evidence, funds and occupancy are checked atomically. | JOB + TX | BR-RES-08, BR-SEN-11, BR-SEN-16 |
-| INV-SEN-04 | A receipt or payment that arrives **after** expiry never reactivates the booking or takes the slot; it is recorded as a financial incident. | TX | BR-COB-12 |
+| INV-SEN-04 | A late receipt or payment never reactivates the expired booking or reclaims its released slot; preserve it for human financial handling. Any new booking of that slot follows normal availability, including waitlist priority, and BR-SEN-17. | TX | BR-COB-12, BR-SEN-16–17; product-owner agreement 2026-11-12 |
 | INV-SEN-05 | A deposit becomes verified **only** through a recorded human verification. Nothing created by the AI or by an image is verified. | UC | BR-SEN-07, BR-COB-07 |
 | INV-SEN-06 | If expiry processing fails, it is recovered; an eligible expired HOLD does not occupy a slot indefinitely. Timely unresolved screening and human review remain protected under BR-SEN-16. | TX + JOB | ARQ §6.5, §10.3; BR-SEN-16 |
 | INV-SEN-07 | The required deposit is computed by the backend; with `FULL_PREPAYMENT` it is 100% of the charge. | UC | BR-SEN-04, BR-SEN-05 |
 | INV-SEN-08 | An `EXPIRED` HOLD never counts as a no-show. | UC | BR-RES-16 |
-| INV-SEN-09 | CRM deposit booking confirms only when verified/manual allocations meet threshold or Admin grants its existing exception; pending evidence occupies under review and verified insufficient deposit occupies unconfirmed under BR-SEN-11. Without funds/evidence/exception nothing occupies. | TX + UC | BR-SEN-09 |
+| INV-SEN-09 | CRM deposit booking confirms only when verified funds allocated under BR-COB-03 meet threshold or Admin grants its existing exception; pending evidence occupies under review and verified insufficient deposit occupies unconfirmed under BR-SEN-11. Without funds/evidence/exception nothing occupies. | TX + UC | BR-SEN-09 |
 | INV-SEN-10 | First human rejection of initial evidence without verified partial funds opens 15 minutes; timely evidence undergoing screening or human review prevents timeout against it. A permitted second-distinct-human-rejection/expiry cancellation is an atomic check-and-transition that rechecks current evidence, screening, review, verified funds, deadline, ownership and start. Partial verified funds, started appointments and supplemental reschedule deposits preclude automatic cancellation/release. | TX + JOB | BR-SEN-10–11, BR-SEN-14–16 |
-| INV-SEN-11 | Multiple verified partial deposits retain occupied unconfirmed capacity indefinitely pending manual resolution or explicit authorized cancellation. Show missing amount; no rejected later evidence or timer releases it. Threshold confirmation still requires explicit manual allocation; FULL_PREPAYMENT is not bypassed. | TX + UC | BR-SEN-11 |
+| INV-SEN-11 | Multiple verified partial deposits retain occupied unconfirmed capacity indefinitely pending manual resolution or explicit authorized cancellation. Show missing amount; no rejected later evidence or timer releases it. Threshold confirmation requires allocation under BR-COB-03; FULL_PREPAYMENT is not bypassed. | TX + UC | BR-SEN-11; product-owner agreement 2026-11-12 |
 | INV-SEN-12 | Preliminary relevance screening never verifies authenticity or credit; clearly unrelated attempts are not human financial rejections. Technical duplicates do not add attempts. Failure or uncertainty goes to human review, not unrelated classification or payment approval. | UC | BR-SEN-14–15 |
 | INV-SEN-13 | Neither replacement nor screening renews the HOLD or correction window. A timely second clearly unrelated attempt reaches human review without inactivity timeout, including when analysis finishes after the deadline. Explicit authorized cancellation and late-evidence safeguards still apply. | UC + TX | BR-SEN-14–16, BR-CAN-04 |
 
 **EJ-13 · Timely receipt.** Given a HOLD created at 15:00 (deadline 15:10), when plausible evidence arrives at 15:07 and enters human review, then the slot is still blocked at 15:30.
 
 **EJ-14 · Late receipt.** Given a HOLD that expired at 15:10 and the slot taken by another customer at 15:11, when the first customer's receipt arrives at 15:12, then a financial incident is recorded, the first booking stays `EXPIRED` and the other booking is untouched.
+
+**EJ-57 · Available slot after late evidence.** Given an expired HOLD and a later receipt, when the released slot passes normal availability including waitlist priority, the AI may offer a new HOLD on current terms with explicit customer confirmation and link the receipt to it for human verification. The old booking stays `EXPIRED`; the AI says the business will review the payment, not that it was received or accepted. If the slot is unavailable, personnel handle the retained late evidence instead.
 
 **EJ-15 · Expiry during screening.** Given evidence received at 15:09 and still being screened at the 15:10 deadline, expiry does not release it while screening is unresolved. A first unrelated result requests replacement without extending the deadline; subsequent expiry follows current-state checks. A plausible, uncertain or failed result enters human review instead.
 
@@ -190,11 +192,11 @@ A transition that appears in none of §2.1–§2.3 is outside the MVP; adding on
 
 **EJ-18 · Expiry is not absence.** Given a customer with one expired HOLD and one cancellation within policy, then their no-show booking count is 0.
 
-**EJ-49 · CRM booking with a deposit.** Given a $10,000 service with a $3,000 deposit, when authorized personnel book it in the CRM, record $3,000 in cash in an open session and explicitly manually allocate it to the charge to meet the deposit threshold, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it; in that case the booking records that no deposit was paid and a $10,000 balance due, with or without a reason.
+**EJ-49 · CRM booking with a deposit.** Given a $10,000 service with a $3,000 deposit, when authorized personnel book it in the CRM and record $3,000 in cash in an open session, allocating it to the charge in that action to meet the deposit threshold, then it is `CONFIRMED` with no HOLD; when they attach a transfer receipt not yet verified, then it is `PENDING_PAYMENT_REVIEW` and the slot is blocked; when nothing is paid, then it is not confirmed and the slot stays free, unless an Admin confirms it; in that case the booking records that no deposit was paid and a $10,000 balance due, with or without a reason.
 
 **EJ-55 · Second unrelated file near deadline.** Given a first clearly unrelated file and a distinct second one received before the deadline, when screening finishes after the deadline and finds it clearly unrelated, the customer is told to await human review; the review occupies without inactivity timeout. Neither attempt counts as a human rejection and the deadline was not renewed.
 
-**EJ-56 · Screening failure.** Given timely evidence whose screening fails or is uncertain, it goes to human review without being called unrelated or credited; no bank verification is claimed. Explicit inability to attach permits timely text fallback, while late evidence is retained for financial handling without rebooking.
+**EJ-56 · Screening failure.** Given timely evidence whose screening fails or is uncertain, it goes to human review without being called unrelated or credited; no bank verification is claimed. Explicit inability to attach permits timely text fallback, while late evidence is retained for financial handling and never reactivates the old booking (BR-SEN-17).
 
 ## 5. Payments and Balances
 
@@ -211,7 +213,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 
 | ID | Invariant | Where | Origin |
 |---|---|---|---|
-| INV-PAY-01 | Every `Payment` is verified commercial money with method and provenance; only valid explicit allocations reduce charge balances. Evidence review is separate. | UC | BR-COB-02, BR-COB-03, BR-COB-04 |
+| INV-PAY-01 | Every `Payment` is verified commercial money with method and provenance; only valid allocations reduce charge balances. Verification for an active booking allocates to its charge in the same human action up to the amount owed; excess remains unallocated, and late evidence follows BR-SEN-17. Evidence review is separate. | UC + TX | BR-COB-02–04, BR-SEN-17; product-owner agreement 2026-11-12 |
 | INV-PAY-02 | A **retry of the same operation** — the same request sent again, repeated approval of the same pending `PaymentReview`, a duplicated incoming message — never creates a second payment or approval. The operation carries an identifier (idempotency key, review ID or message ID); `Payment` represents verified money only. | DB + TX | BR-COB-16; ARQ §6.5, §9.3 |
 | INV-PAY-03 | A verified transfer records who verified it and when. | DB + UC | BR-COB-05 |
 | INV-PAY-04 | The AI may attach evidence to a pending `PaymentReview`, but cannot approve it or create a `Payment`; payments represent verified money only, not pending evidence. | UC | BR-COB-07 |
@@ -224,9 +226,9 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-PAY-11 | Freeze issued account instructions and collection modality/history. Missing professional account uses a business default/sequential account, never another professional's; no configured destination requires human resolution. A professional change preserves client credit without duplicate collection or automatic inter-account compensation. | TX + UC | BR-COB-19–20, BR-CAN-13 |
 | INV-PAY-12 | A recording correction appends reason/actor/time and financial history, recomputes valid allocations/debt without excess or negative balance, and does not itself create a refund, physical movement for nonexistent funds or automatic cancellation. Original records and closed cash sessions remain immutable; closed physical corrections require Admin. | TX + UC | BR-COB-21 |
 
-**EJ-19 · Mixed methods.** Given a $12,000 booking, when a $4,000 transfer deposit is verified and $8,000 is received in cash in an open session, then $12,000 remains due until authorized personnel explicitly manually allocate both payments to the charge. After those allocations the balance is $0; each payment keeps its method and responsible employee.
+**EJ-19 · Mixed methods.** Given a $12,000 booking, when a $4,000 transfer deposit is verified for it, $4,000 is allocated in that action and $8,000 remains due. When $8,000 is received and recorded in cash in an open session for the booking, it is allocated in that action and the balance is $0; each payment keeps its method and responsible employee.
 
-**EJ-20 · Double verification.** Given a pending `PaymentReview`, when two authorized employees approve the same review at the same moment, then there is one approval and at most one linked verified `Payment`. Verification alone does not change the charge balance or confirm the booking; explicit manual allocation meeting the required deposit threshold permits one transition to `CONFIRMED`, without duplicate allocations.
+**EJ-20 · Double verification.** Given a pending `PaymentReview` for an active booking, when two authorized employees approve the same review at the same moment, then there is one approval and at most one linked verified `Payment`. The successful verification allocates to the charge in the same action, without duplicate allocations; if the required deposit threshold is met, it permits one transition to `CONFIRMED`.
 
 **EJ-21 · Correction after close.** Given a cash payment whose physical cash session is closed, when a Staff member tries a post-close cash correction, then they get `forbidden`; when an Admin does, then a separate `CashAdjustment` is recorded and both the original payment and closed session are unchanged.
 
@@ -240,7 +242,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-CAN-02 | A failed reschedule (unavailable target, unauthorized exception or conflict) leaves the original booking intact. | TX | BR-CAN-08 |
 | INV-CAN-03 | A successful reschedule occupies the new slot and releases the old one **in the same transaction**. | TX | BR-CAN-12 |
 | INV-CAN-04 | After a reschedule, verified payments stay linked to the booking. | TX | BR-CAN-09 |
-| INV-CAN-05 | For an eligible reschedule of a `CONFIRMED` booking whose verified deposit does not cover the destination, move first and request the difference afterwards; it remains confirmed if unpaid. Prior authorization does not hold the target; `FULL_PREPAYMENT` still applies absent Admin exception. | TX + UC | BR-CAN-10 |
+| INV-CAN-05 | For an eligible reschedule of a `CONFIRMED` booking whose verified deposit does not cover the destination, move first and request the difference afterwards; it remains confirmed if unpaid. Personnel with payments permission may decide not to collect the supplement under BR-CAN-15 without changing the paid deposit, price or status. Prior authorization does not hold the target; `FULL_PREPAYMENT` still applies absent Admin exception. | TX + UC | BR-CAN-10, BR-CAN-15; product-owner agreement 2026-11-12 |
 | INV-CAN-06 | Cancelling or rescheduling voids the reminders scheduled for the old slot. | TX + JOB | BR-NOT-03 |
 | INV-CAN-07 | Customer commercial-policy exceptions require recorded Admin authorization/reason. Operational business cancellation is separately permitted to cancellation-capable personnel with reason and customer notification, not authority to grant customer exceptions. | UC | BR-CAN-03, BR-CAN-06 |
 | INV-CAN-08 | Authorized explicitly confirmed cancellation releases the claim and suppresses old reminders atomically, regardless of pending verification or partial deposit. Financial review/refund proceeds independently and cannot retain/recover the cancelled slot; all refunds remain manual/Admin-authorized. | TX | BR-CAN-04 |
@@ -254,9 +256,11 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 
 **EJ-25 · Reschedule without room.** Given a booking on Thursday 19:00, when the customer asks for Friday 19:00 and it is taken, then the Thursday booking is unchanged.
 
-**EJ-26 · Reschedule to a more expensive service.** Given $8,000 verified and explicitly manually allocated to a booking's charge, when it is rescheduled to a service with a $15,000 total and those allocations remain valid, then $7,000 is due and nothing is refunded. If the funds were unallocated, $15,000 would remain due until explicit manual allocation.
+**EJ-26 · Reschedule to a more expensive service.** Given $8,000 verified and allocated to a booking's charge, when it is rescheduled to a service with a $15,000 total and those allocations remain valid, then $7,000 is due and nothing is refunded.
 
 **EJ-27 · Extra deposit pending.** Given an eligible reschedule of a confirmed booking with a previously verified deposit and $2,000 additional deposit, when the move succeeds, the new slot is confirmed and the old slot released before requesting the difference; pending review or nonpayment does not reverse or cancel the move.
+
+**EJ-58 · Supplement not collected.** Given the reschedule in EJ-27, when personnel with payments permission decide not to collect the supplement, optionally recording a reason, the paid deposit, price and confirmed status stay unchanged. The AI says nothing more is owed in advance and the remainder is paid at the appointment, not that any amount was forgiven.
 
 ## 7. Waitlist and Exclusive Offers
 
@@ -301,14 +305,14 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-CLI-01 | The count derives solely from current `NO_SHOW` bookings by `Booking.customer_id`, once per booking even for third-party attendees; `CustomerIncident` is for other incidents. Correction recalculates the count. | UC | BR-CLI-06 |
 | INV-CLI-02 | The internal indicator appears from two no-shows and on its own restricts nothing. | UC | BR-CLI-07 |
 | INV-CLI-03 | BLOCKED forbids new WhatsApp bookings, but booking-capable CRM personnel may create an exceptional booking with warning and actor attribution, without removing the restriction or bypassing other policies/occupancy. | UC + TX | BR-CLI-09 |
-| INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified and explicitly manually allocated to its charge, unless an Admin exception from the CRM records that it was not paid and the outstanding balance (INV-SEN-09). | TX | BR-CLI-09, BR-SEN-09 |
+| INV-CLI-04 | With `FULL_PREPAYMENT`, no new booking reaches `CONFIRMED` without 100% verified and allocated to its charge under BR-COB-03, unless an Admin exception from the CRM records that it was not paid and the outstanding balance (INV-SEN-09). | TX | BR-CLI-09, BR-SEN-09 |
 | INV-CLI-05 | Every restriction change records actor and reason and requires the appropriate role permission. | UC | BR-CLI-08 |
 | INV-CLI-06 | Internal labels never appear in customer-facing messages. | UC | BR-AGT-03 |
 | INV-CLI-07 | The late-changes count derives from executed customer-requested late changes, once per change, and never feeds the no-show count or indicator. | UC | BR-CLI-12 |
 
 **EJ-33 · Label without sanction.** Given a customer with 2 no-show bookings and restriction `NONE`, when they book by WhatsApp, then the normal deposit rule applies and the CRM shows "Problematic customer".
 
-**EJ-34 · Full prepayment.** Given a `FULL_PREPAYMENT` customer and an $8,000 service with a 30% default deposit, when they book by WhatsApp, then $8,000 is required. Confirmation requires human verification and explicit manual allocation of that amount to the charge; while awaiting them, the applicable HOLD expiry or evidence-review/correction rules still apply.
+**EJ-34 · Full prepayment.** Given a `FULL_PREPAYMENT` customer and an $8,000 service with a 30% default deposit, when they book by WhatsApp, then $8,000 is required. Confirmation requires human verification and allocation under BR-COB-03 of that amount to the charge; while awaiting it, the applicable HOLD expiry or evidence-review/correction rules still apply.
 
 **EJ-35 · A friend's no-show.** Given a booking made by requester X for attendee "Ana", when authorized personnel record a no-show, X's count increases once from the booking; no no-show `CustomerIncident` is created.
 
@@ -345,6 +349,7 @@ This is the conceptual `PaymentReview` lifecycle; a directly verified CRM `Payme
 | INV-MSG-05 | With global AI disabled, the AI sends nothing in any conversation of the tenant. | UC | BR-HND-04 |
 | INV-MSG-06 | Messages sent by the bot never count as human replies, nor restart the 60-minute timer. | UC | BR-HND-05 |
 | INV-MSG-07 | Resuming the AI never changes the status of a payment. | UC | BR-HND-06 |
+| INV-MSG-08 | An unreported transfer is not detected by the system or a reason for the AI to initiate a message. A customer report follows the booking lookup and evidence flow in BR-AGT-07; only personnel verify the transfer. | UC | BR-AGT-07; product-owner agreement 2026-11-12 |
 
 **EJ-40 · Duplicate webhook.** Given an incoming message already processed, when Evolution delivers the same event again, then it is stored once and the AI answers once.
 
