@@ -26,7 +26,7 @@ pnpm discovers `apps/*` and `packages/*`. Turbo tasks depend on dependency build
 
 API uses ESM with NodeNext resolution and `.js` relative imports; web uses bundler resolution with `@/*` mapped to `src/*`. Workspace TypeScript strictness comes from `tsconfig.base.json`, with local overrides. No cross-app runtime imports are present.
 
-API unit tests check health and provider disposal without PostgreSQL. Supertest E2E overrides the database provider and checks the unchanged HTTP response. Dedicated database/API integration configurations test real PostgreSQL constraints, migrations, seed, concurrency and Nest connection/shutdown. No browser tests or CI workflows exist. See [AGENTS.md](AGENTS.md) for commands.
+API unit tests check health and provider disposal without PostgreSQL. Supertest E2E overrides the database provider and checks the unchanged HTTP response. Dedicated database/API integration configurations test real PostgreSQL constraints, migrations, seed, concurrency and Nest connection/shutdown. No browser tests exist. `.github/workflows/ci.yml` runs the root checks (`quality`) and both PostgreSQL suites against an ephemeral PostgreSQL 18 service (`database-integration`) on pull requests to `main`; see the [DOC-02 design](docs/design-docs/doc-02-quality-ci.md). See [AGENTS.md](AGENTS.md) for commands.
 
 ## Current implementation versus target direction
 
