@@ -193,7 +193,7 @@ type IntakeResult =
   | { kind: 'ignored'; reason: 'retired_connection' | 'unsupported_event' };
 ```
 
-`receivedAt` is assigned once by the trusted ingress clock, preserved across provider retries and persisted with the intake. Keep provider timestamps separately for display/correlation. Their validation and the exact deadline boundary are INT-Q-01. A `fromMe` flag identifies an outgoing direction, not whether a person or this bot authored it. Match known outbound references first. Unknown outgoing echoes cannot reset the human timer or become a customer command.
+Four instants are kept distinct. `providerOccurredAt` is the provider's event time: untrusted, used for display/correlation only. `receivedAt` is the trusted ingress receipt time, assigned once by the trusted ingress clock when the authenticated request first arrives, preserved across provider retries and persisted with the intake; it is the instant BR-SEN-16 uses to judge timeliness. Database commit/visibility time is when the intake becomes visible to other transactions; it is a technical delay and never decides timeliness. The business deadline (`holdExpiresAt`, or the correction deadline) is owned by the booking. Provider-timestamp validation and the exact deadline boundary are INT-Q-01. A `fromMe` flag identifies an outgoing direction, not whether a person or this bot authored it. Match known outbound references first. Unknown outgoing echoes cannot reset the human timer or become a customer command.
 
 | HTTP response | Meaning |
 |---|---|
@@ -213,6 +213,18 @@ The binding comes from the backend-issued payment-instruction context, a validat
 Proposed representation is intake/screening metadata associated with the existing `Message` and its issued-instruction correlation. `messaging` owns that row; `payments` defines the evidence meaning and the workflow coordinates updates through public APIs, following MOD-DM-06. These are proposed logical fields, absent from today's schema. T-04/T-05 must approve their exact binding and indexes before implementing receipt intake. Creating a human `PaymentReview` is reserved for the routing outcomes defined in UC-03.
 
 An expiry workflow can inspect this correlated pending state through owner queries inside its transaction. A provider call, a delayed graph run or a failed queue acknowledgement cannot hide a timely admitted receipt. While PAUSED or under human control, eligible evidence is routed to human review through the workflow, without invoking the conversational agent. The same original receipt/deadline safeguards apply.
+
+#### Serialization with HOLD and correction expiry
+
+Receipt intake and expiry can race: a receipt received before the deadline might not be committed when the expiry job runs. The protocol below keeps BR-SEN-16 (timeliness by receipt, never screening completion or commit time) without extending any deadline. The coordinating `workflows` composition owns it, as the cross-owner coordinator under MOD-DM-06 and MOD-DM-08: the bound-receipt intake workflow and the `booking.hold-expiry.v1` / `booking.correction-expiry.v1` workflows each open one transaction, take the tenant guard first, then lock the affected booking and dependent financial records in the CON-01 deterministic order, and revalidate booking status, deadline, funds and existing evidence state under that lock. `messaging`, `bookings` and `payments` each write their own rows through public owner APIs inside it. No provider call, media download, model inference or queue wait takes place in either transaction.
+
+- **Admission margin.** An expiry acts only once the current time is later than the deadline plus a bounded admission margin. The margin covers internal persistence delay for a receipt already received in time (ingress-to-commit latency, a retried commit, lock wait). It never grants the customer extra booking time: timeliness is still `receivedAt` against the deadline, a receipt received after the deadline is late whatever the margin, and the margin is not a renewal of the HOLD or correction window. Its value is a technical proposal pending pilot measurement (INT-Q-01).
+- **Interleaving (a): intake commits first.** The intake takes the booking lock, finds the booking still protected, with `receivedAt` not after the deadline, and commits the pending protection. Expiry, serialized behind it, sees the correlated pending intake and does not release. Screening and review continue under UC-03 BR-SEN-14–16, with the original deadline unchanged.
+- **Interleaving (b): expiry commits first.** This is possible only for a receipt received after the deadline, or one whose commit lands beyond the margin. Intake, serialized behind it, revalidates under lock, finds the booking already released and routes the evidence as late (BR-SEN-17, BR-COB-12, BR-SEN-16): retained for personnel, never reviving the booking or reclaiming the slot. If the slot is still available, the agent may offer the new-booking flow defined in BR-SEN-17. This applies to a timely receipt beyond the margin as well; that gap is a measured operational defect, not a customer right to the slot, so the margin and the commit-latency metrics are reviewed together.
+- **Authenticated duplicates.** A repeat of the same source message resolves to the stored intake (`duplicate`) before any claim or evidence-attempt creation. It never recreates protection, never counts an extra evidence attempt and keeps the original `receivedAt`.
+- **Crash and retry.** If the intake transaction fails, nothing is committed and the endpoint returns `503`, so the provider can retry; the retry keeps the same source identity and is judged under the arrival handling decided in INT-Q-01. A crash after commit but before the HTTP acknowledgement is a duplicate on retry. Redelivered screening or recovery work reuses the persisted intake and generation.
+- **Out-of-order screening.** A screening result for a later evidence item cannot be applied as the first or second attempt before an earlier distinct item is classified; the serialized evidence sequence of §7.1 orders them. A stale or repeated result is a no-op and does not recreate a claim or add an attempt.
+- **Independent timers.** The five-second conversation batching window (INT-DM-06) and the five-second screening budget (INT-DM-08) are independent of each other and of this protocol. Neither extends a deadline, delays the intake commit or substitutes for the margin.
 
 ### 4.3 Sending and status recovery
 
@@ -640,8 +652,8 @@ type JobKind =
 
 | Kind | Ingress / state owner | Due time and mandatory rechecks |
 |---|---|---|
-| `booking.hold-expiry.v1` | `workflows` / `bookings`, with `payments` and intake queries | Current original HOLD deadline, generation, timely correlated intake/screening/review, funds, start and occupancy |
-| `booking.correction-expiry.v1` | `workflows` / `bookings`, with `payments` | Current correction deadline, distinct human-rejection sequence, timely intake/review, partial funds, start and supplemental safeguard |
+| `booking.hold-expiry.v1` | `workflows` / `bookings`, with `payments` and intake queries | Original HOLD deadline plus the admission margin (§4.2), generation, timely correlated intake/screening/review revalidated under the booking lock, funds, start and occupancy |
+| `booking.correction-expiry.v1` | `workflows` / `bookings`, with `payments` | Correction deadline plus the admission margin (§4.2), distinct human-rejection sequence, timely intake/review revalidated under the booking lock, partial funds, start and supplemental safeguard |
 | Priority/progression/entry-expiry | `bookings` | Current round/generation, original priority schedule, eligibility/range/start; priority expiry preserves otherwise valid late invitations |
 | Capacity reevaluation | `bookings`, initiated by release or a catalog workflow | Actual resource/range availability after removal of a block or release, even without an earlier booking/round; exclude private remainders |
 | Notification dispatch/status recovery | `notifications` / `messaging` transport | Current kind-specific audience, consent, lifecycle, slot and validity; `rejected` (confirmed failure) vs `unknown` outcome |
@@ -667,7 +679,8 @@ The following are logical responsibilities for implementation under the existing
 |---|---|---|
 | Webhook repeated before/after acknowledgement | Stored source identity and intake result | One Message, same evidence identity and one logical set of follow-ups |
 | Message commit before graph processing | Persisted unprocessed IDs, batching generation and batch-ready work | Resume the batch without losing messages or admitting duplicate mutations |
-| Timely receipt at HOLD expiry | Correlated pending intake committed under the shared protocol | Expiry sees protection before media/model processing; original deadline remains |
+| Timely receipt at HOLD expiry | Trusted `receivedAt` and correlated pending intake committed under the booking lock (§4.2) | Intake first: expiry sees protection before media/model processing and the original deadline remains. Expiry first (receipt after the deadline or beyond the margin): intake sees the release and routes late evidence, never reclaiming the slot |
+| Intake commit fails or crashes before acknowledgement | Nothing committed (`503`), or the stored intake on a duplicate | Provider retry reuses the source identity and original `receivedAt` where stored; no extra claim or evidence attempt (arrival handling: INT-Q-01) |
 | Screening response lost or worker crashes | Intake generation and analysis cutoff | Timeout workflow creates the appropriate human route once; late result is stale |
 | Business mutation commits before graph checkpoint | Operation identity, fingerprint and result committed with business state | Replayed tool returns the original effect and reads its current condition |
 | Enqueue fails inside business transaction | Same database transaction | Both writes roll back; retry the whole operation |
@@ -770,6 +783,9 @@ The following scenarios are requirements for implementation tests. Their presenc
 | INT-E01 | Repeat an authenticated incoming event on two connections and across a restart | One stored message/evidence identity per source; no cross-tenant effect |
 | INT-E02 | Message claims tenant B or a requester/booking from another conversation | Trusted context wins; foreign record is not found and no data leaks |
 | INT-E03 | Receipt at 15:09:59, HOLD deadline 15:10:00, graph batching still pending | Correlated intake is visible to expiry; later processing uses original receipt time |
+| INT-E03a | **Future PostgreSQL test.** Two independent connections: receipt `receivedAt` 15:09:59 (deadline 15:10:00) with a forced pause before the intake commit; the expiry workflow starts after the deadline plus margin and waits on the booking lock | Intake commits first; expiry revalidates under lock, sees the protection and does not release; booking stays HOLD/protected and the deadline is unchanged |
+| INT-E03b | **Future PostgreSQL test.** Two independent connections: receipt with `receivedAt` after the deadline (and a variant beyond the margin) with a forced pause before the intake commit; expiry commits first | Intake revalidates under lock, finds the booking released and records late evidence under BR-SEN-17/BR-COB-12; the slot and any other customer's booking are never reclaimed or revived and no extra evidence attempt is counted |
+
 | INT-E04 | First unrelated file, then a distinct second one received on time but analyzed later | Same deadline; second routes to human review; neither is a human payment rejection |
 | INT-E05 | Analyzer fails, crashes or exceeds five seconds | Same intake routes conservatively once; no indefinitely unresolved analysis or verified payment |
 | INT-E06 | Explicit inability to attach and timely text evidence | Direct human review through the authorized fallback |
@@ -788,6 +804,8 @@ The following scenarios are requirements for implementation tests. Their presenc
 | INT-E19 | A job is redelivered after business commit, or due work is missing after restart | Existing effect is reused; owner reconciliation restores eligible work |
 | INT-E20 | Model supplies forbidden arguments or asks a restricted tool operation | Strict input/allowlist rejection before any business mutation |
 | INT-E21 | Customer already recorded refusal or another preference and later confirms/enrolls again | Current RECORDED preference is reused without asking again; an explicit requested change still works |
+
+INT-E03a/INT-E03b are implementation acceptance tests for the PostgreSQL integration suite (two independent connections, forced pause before the intake commit). They have not been executed and no pass is claimed here.
 
 The live pilot additionally checks actual sender/LID identity, per-instance header delivery, send/status mapping, native human replies, loss of provider responses, model/file compatibility and measured latency. Ordinary contract tests use synthetic data and doubles. PostgreSQL tests cover enqueue rollback, owner locking, sequence races, generations and recovery with separate connections. Cross-module rollback and context tests remain required by CON-01 and REP-03.
 
@@ -812,7 +830,7 @@ All INT-DM decisions are proposed for team review.
 
 | ID | Remaining decision / verification | Owner / blocks |
 |---|---|---|
-| INT-Q-01 | Trust policy for provider timestamps and the exact inclusive/exclusive receipt/deadline boundary, under retries and transport delay | Product/technical review with T-04 and CU-22; receipt/expiry implementation |
+| INT-Q-01 | Remaining after the §4.2 protocol: trust policy for provider timestamps; the inclusive/exclusive receipt/deadline boundary; the admission-margin value (technical proposal, pilot measurement); and arrival handling when the first intake commit fails (`503`) and the provider retries | Product/technical review with T-04 and CU-22; blocks receipt intake and expiry implementation |
 | INT-Q-02 | Ambiguous unquoted evidence with several outstanding booking expectations, including its effect at a deadline | Product and payments/messaging maintainers; ambiguous-evidence path |
 | INT-Q-03 | Dispatch reservation, takeover acknowledgement and treatment of an already submitted reply | Messaging maintainers and pilot, preserving INV-MSG-04; concurrent handoff/send implementation |
 | INT-Q-04 | Exact physical metadata/constraints for intake protection, operation dedupe, screening generations, dispatch states, confirmation and batch leases | T-04/T-05, API-Q-06 and affected owners; corresponding adapters/workers |
@@ -843,7 +861,7 @@ Primary sources inspected on 2026-11-11. Versioned repository references are use
 | MVP integrations and owners identified | §1, §4–§9 |
 | Issued instructions/evidence separated from manual verification/allocation | §6, §7 and canonical BR-SEN/BR-COB references |
 | Screening port, initial attempts/escalation, Gemini direction and latency objective | §7, INT-DM-08; later-round boundary retained as P-40 |
-| Timeliness, duplicates, technical uncertainty and preserved HOLD deadline | §3, §4.2, §7.1, INT-E03–07 |
+| Timeliness, duplicates, technical uncertainty and preserved HOLD deadline | §3, §4.2, §7.1, INT-E03/E03a/E03b, INT-E04-07 |
 | Messaging/media, lifecycle, human control and send correlation | §4, §5, §8, INT-E08/13/17 |
 | Durable work, recovery, invitation failures and current-state rechecks | §3, §9, §10, INT-E09–12/19 |
 | Allowed/prohibited tools and authorized context | §2, §6, INT-E02/20 |
