@@ -3637,7 +3637,7 @@ components:
           description: CONFIRMED and already ended; derived, not a status (BR-RES-13).
           type: boolean
         holdExpiresAt:
-          description: Never extended by a replacement or rescreening; may be past while timely evidence is still screened; the processing margin is in BR-SEN-16 and INV-SEN-03.
+          description: Never extended by a replacement or rescreening; may be past while timely evidence is still screened; the processing margin is in BR-RES-08 and INV-SEN-03; timeliness is in BR-SEN-16.
           oneOf:
             - $ref: '#/components/schemas/Instant'
             - type: 'null'
