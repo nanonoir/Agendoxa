@@ -353,7 +353,7 @@ Each case links to its UC-01 summary and diagram; what follows adds numbered ste
 4. Request PDF/image evidence before HOLD expiry; only on explicit inability to attach it accept transfer details by text within that same deadline. No AI interpretation verifies funds.
 5. Record evidence and receipt time. Screen image/PDF relevance under [BR-SEN-14–16](../uc-03/business-rules.md#9-deposits-sen): plausible, second clearly unrelated, uncertain or failed screening routes to human review; the first clearly unrelated file requests replacement. Explicit-inability text fallback goes directly to human review. Pending review occupies without inactivity timeout, appears in CRM, and the customer is told confirmation follows verification.
 6. Staff/Admin check the actual credit in the bank/wallet account ([CU-11](#cu-11)).
-7. Record verified Payment, actor and time, then explicit manual allocation. Confirm only at the required threshold. If insufficient, preserve occupied/unconfirmed partial-deposit waiting without automatic release; show missing amount/contact action and allow completion through more payments.
+7. Record verified Payment, actor and time, with explicit manual allocation to the active booking in the same human action (BR-SEN-07). Confirm only at the required threshold. If insufficient, preserve occupied/unconfirmed partial-deposit waiting without automatic release; show missing amount/contact action and allow completion through more payments.
 
 <a id="cu-03-crm"></a>
 #### Main Flow (CRM)
@@ -591,7 +591,7 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 - **A1b — Over the limit, or an exception to the late consequence:** Only an Admin can approve a documented exception.
 - **A2 — Candidate slot unavailable:** At step 2, alternatives are offered; the original booking stays intact.
 - **A3 — Extra deposit rejected, unpaid or pending:** After the eligible move, the new booking remains confirmed; resolve manually, without automatic cancellation or restoring the old slot. The initial-evidence rejection window does not apply.
-- **A4 — Lower deposit or price:** At step 3, retained valid allocations reduce the balance; unallocated verified funds require explicit manual allocation. Nothing is refunded automatically.
+- **A4 — Lower deposit or price:** At step 3, retained valid allocations reduce the balance; excess is resolved manually under BR-COB-15/17. Nothing is refunded automatically.
 - **A5 — Paid more than the new total:** At step 3, resolved manually by an Admin.
 - **A6 — Declined confirmation or concurrent conflict:** Before the move, the original booking stays intact.
 - **A7 — Professional changes after deposit:** Preserve client credit and original receiving account history; charge only the remaining amount under the booking's modality. Business/professionals compensate manually, never block an otherwise valid move, auto-refund/transfer or charge the deposit twice.
@@ -655,10 +655,10 @@ Staff/Admin book on behalf of the customer **without the 10-minute conversationa
 1. The employee reviews price, verified payments and amount due.
 2. The employee selects cash or transfer collection, including partial and mixed methods; evidence awaiting verification belongs to `PaymentReview`, not a pending `Payment`.
 3. For a transfer, the employee verifies the credit in the bank/wallet account; for cash, confirms physical receipt in an open session. Record the verified `Payment` with amount, method, date/time and employee. A cash payment and its linked cash movement represent the same money, not two incomes.
-4. Explicitly allocate verified funds to one or more charges, including across bookings, in partial amounts; never allocate automatically. No charge balance becomes negative and no allocation exceeds available funds or debt. Preserve corrections, with atomic and idempotent operations.
+4. Explicitly allocate verified funds to one or more charges, including across bookings, in partial amounts; never allocate automatically. For a transfer verified, or cash recorded, for a specific active booking, confirm allocation to its charge in that same human action (BR-SEN-07). No charge balance becomes negative and no allocation exceeds available funds or debt. Preserve corrections, with atomic and idempotent operations.
 
 #### Alternatives and Exceptions
-- **A1 — Pending receipt:** The `PaymentReview` from CU-03 step 5 (WhatsApp) or CRM step 2b is approved after human credit verification (CU-03 step 7) or rejected (CU-03 A3). Approval can link one verified `Payment`; explicit manual allocation is still required to reduce the charge balance and meet the confirmation threshold.
+- **A1 — Pending receipt:** The `PaymentReview` from CU-03 step 5 (WhatsApp) or CRM step 2b is approved after human credit verification (CU-03 step 7) or rejected (CU-03 A3). Approval can link one verified `Payment`; for an active booking, explicit manual allocation occurs in the same action under BR-SEN-07.
 - **A2 — Payment without an image:** Cash or a bank-verified transfer can be recorded with no attachment.
 - **A3 — Recording error:** Correction-capable personnel append mandatory reason/actor/time and linked immutable financial history, recomputing funds/valid allocations/debt. No fictitious refund, physical movement for nonexistent funds or automatic reservation cancellation. Transfers require no session; physical-cash correction uses its open session, with post-close Admin boundary in A4. Ledger representation remains T-03, not permission to overwrite originals.
 - **A4 — Correction after the cash close:** For physical-cash corrections only, an Admin appends a separate audited `CashAdjustment`; original payment and closed session are not rewritten. `CashAdjustment` is not a general financial log and `AuditEvent` does not replace a financial ledger.

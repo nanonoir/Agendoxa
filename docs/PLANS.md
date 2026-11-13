@@ -7,6 +7,7 @@ ExecPlans preserve the context, progress, and outcome of multi-step implementati
 - Create active plans in [exec-plans/active/](exec-plans/active/) with a descriptive kebab-case `.md` filename.
 - Update the plan as work progresses, including actual validation results and unresolved blockers.
 - Append the final implementation outcome before moving the same file to [exec-plans/completed/](exec-plans/completed/). Do not create a separate outcome document or mark blocked work complete.
+- Close the plan in the same PR that delivers it, before requesting review. Merge, CI runs on GitHub and other post-merge or owner-led steps are tracked in the Issue/Project, not by keeping the plan active. Later review changes update the completed plan in the same PR.
 - Keep concrete unresolved technical debt in the [debt tracker](exec-plans/tech-debt-tracker.md), not a speculative feature backlog.
 
 ## Minimum content

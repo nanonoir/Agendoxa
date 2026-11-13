@@ -108,10 +108,19 @@ Quien revise debe comprobar criterios de aceptación, corrección, legibilidad, 
 
 Integrá únicamente cuando se cumplan los criterios previos a la integración de la DoD, exista la aprobación requerida, no haya conflictos ni solicitudes de cambios pendientes, y los checks obligatorios que existan estén satisfechos. Usá un método de merge permitido por el repositorio y preservá commits útiles para la revisión. No saltees restricciones ni actives integración automática sin acuerdo. Después, verificá la integración y eliminá la rama remota solo si nadie depende de ella.
 
+### Verificaciones antes de integrar
+
+| PR | Verificación esperada |
+|---|---|
+| Tarea → `develop` | Controles focalizados del workspace afectado, según [AGENTS.md](AGENTS.md#focused-validation), informados en el PR. El CI no se ejecuta en estos PRs |
+| Promoción → `main` | El workflow de CI ejecuta los jobs `quality` (formato, lint, tipos, pruebas unitarias, build y metadata de migraciones) y `database-integration` (PostgreSQL 18 descartable). Ambos deben pasar |
+
+La [verificación completa del README](README.md#verificación-completa) reproduce el CI localmente. Si un check falla, corregí la causa: no lo saltees ni lo marques como exitoso. Que el CI esté en verde no implica que existan RLS, autorización, reglas de reservas ni despliegue.
+
 ## Organización y nomenclatura del código
 
 - Usá identificadores técnicos en inglés y nombres que expresen responsabilidad. Conservá el idioma de los documentos existentes.
-- Respetá el estilo y la configuración del workspace afectado. No introduzcas un formateador global ni reformatees archivos ajenos como parte de otra tarea.
+- Respetá el estilo y la configuración del workspace afectado. `pnpm format:check` verifica el formato de todo el repositorio con la configuración de Prettier de cada workspace; no reformatees archivos ajenos como parte de otra tarea.
 - Ubicá código según las responsabilidades descritas en [ARCHITECTURE.md](ARCHITECTURE.md). No importes internals de otra aplicación: los contratos portables se consumen desde `@agendoxa/shared`; la persistencia es solo servidor.
 - Seguí las convenciones locales de imports y resolución de módulos. Agregá módulos y capas cuando sean necesarios, no para reproducir estructuras propuestas.
 - Consultá las especificaciones antes de cambiar reglas de negocio y actualizá su fuente correspondiente cuando una decisión acordada las modifique. Evitá copiar reglas entre documentos, frontend y herramientas de IA.
@@ -163,4 +172,4 @@ Esta DoD evalúa el resultado final. Antes del merge, la plantilla del PR permit
 
 ## Evolución del acuerdo
 
-Proponé ajustes justificados mediante PR y revisión del equipo; no conviertas una preferencia personal en una regla unilateral. La configuración de Actions y checks automáticos corresponde a DOC-02; el proceso detallado de ADRs, a DOC-03. Este acuerdo no exige crear un Plan Maestro ni ExecPlans para completar DOC-01.
+Proponé ajustes justificados mediante PR y revisión del equipo; no conviertas una preferencia personal en una regla unilateral. Las decisiones de herramientas de calidad y CI están en el [diseño DOC-02](docs/design-docs/doc-02-quality-ci.md); el proceso detallado de ADRs, a DOC-03. Este acuerdo no exige crear un Plan Maestro ni ExecPlans para completar DOC-01.

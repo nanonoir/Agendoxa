@@ -1,6 +1,6 @@
 # REP-02 — First persistence increment
 
-**Status:** implementation proposal for review; references [Issue #15](https://github.com/nanonoir/Agendoxa/issues/15). This increment does not close the whole issue or ratify the remaining ERD decisions.
+**Status:** first increment merged into `develop` in [PR #29](https://github.com/nanonoir/Agendoxa/pull/29); [Issue #15](https://github.com/nanonoir/Agendoxa/issues/15) was manually closed. Neither event ratifies the remaining ERD decisions.
 
 ## Scope
 
@@ -90,4 +90,4 @@ The current PostgreSQL safeguards cover tenant-aware references. RLS adoption re
 
 The increment must demonstrate migration from an empty database, idempotent migration/seed commands, same-tenant references (including Tenant.resource_rotation_cursor), per-scope uniqueness, rejection of overlapping concurrent claims, acceptance of adjacent intervals, preservation of closed claims/events, and NestJS pool disposal. The existing /health contract stays a liveness check independent of database readiness.
 
-REP-02 remains open until the team agrees its final scope and assigns the deferred persistence increments. REP-03 also depends on CON-01/CON-02; this increment does not mark those dependencies complete. See the [active ExecPlan](../exec-plans/active/rep-02-core-persistence.md) for evidence and progress.
+Deferred tables are listed in the explicit schema boundaries above and are introduced with the feature work that needs them. REP-03 also depends on CON-01/CON-02; this increment does not mark those dependencies complete. See the [completed ExecPlan](../exec-plans/completed/rep-02-core-persistence.md) for evidence and follow-up links.

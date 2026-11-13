@@ -35,7 +35,8 @@ El diseño y sus límites están en la [propuesta de arquitectura](docs/design-d
 |---|---|
 | Node.js 24, pnpm workspaces, Turborepo, TypeScript | Trabajos con pg-boss |
 | Next.js, React y Tailwind CSS | Evolution API/Baileys y LangGraph para WhatsApp e IA |
-| NestJS, Zod, Vitest y Supertest; PostgreSQL 18, Drizzle y Compose local | CI/CD |
+| NestJS, Zod, Vitest y Supertest; PostgreSQL 18, Drizzle y Compose local | Despliegue continuo (CD) |
+| Prettier, ESLint (web), oxlint y workflow de CI en GitHub Actions para PRs a `main` | |
 
 ## Arranque local
 
@@ -69,15 +70,38 @@ Desde la raíz del repositorio:
 |---|---|
 | `pnpm dev` | Inicia web y API en desarrollo, después de compilar sus dependencias |
 | `pnpm build` | Compila shared, database, API y web |
-| `pnpm lint` | Ejecuta ESLint en web y oxlint en API/database |
+| `pnpm lint` | Ejecuta ESLint en web y oxlint con tipos en API, database y shared; las advertencias también fallan |
+| `pnpm format:check` / `pnpm format` | Verifica el formato con Prettier sin modificar archivos / lo corrige localmente |
 | `pnpm typecheck` | Comprueba tipos en shared, database, API y web |
 | `pnpm test` | Ejecuta las pruebas unitarias de la API; no incluye E2E |
 | `pnpm db:up` / `pnpm db:test:up` | Inicia PostgreSQL de desarrollo o el servicio separado de integración |
 | `pnpm db:migrate` / `pnpm db:seed` | Aplica migraciones o carga los dos negocios de ejemplo |
 | `pnpm db:generate` / `pnpm db:check` | Genera migraciones o verifica su metadata |
 | `pnpm test:db` | Ejecuta las pruebas de integridad/concurrencia sobre PostgreSQL real |
+| `pnpm test:integration` | Ejecuta las pruebas de PostgreSQL de database y de la conexión NestJS |
 
 Para validaciones específicas y preparación al ejecutar comandos con `--filter`, consultá [AGENTS.md](AGENTS.md).
+
+### Verificación completa
+
+Con el `.env` creado y Docker en ejecución, esta secuencia reproduce los controles del [workflow de CI](.github/workflows/ci.yml):
+
+```bash
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm db:check
+pnpm db:test:up
+pnpm test:integration
+```
+
+`pnpm db:test:up` inicia un PostgreSQL 18 descartable en `127.0.0.1:5433`, sin volumen persistente. Las pruebas leen `DATABASE_URL_TEST` del `.env` o del entorno; debe apuntar a una base terminada en `_test`, como el valor de [`.env.example`](.env.example). La suite de database crea y elimina una base hija con nombre único y aplica las migraciones versionadas en ella.
+
+El repositorio fija finales de línea LF mediante [`.gitattributes`](.gitattributes). Si un checkout de Windows anterior a esa regla muestra diferencias de formato en todos los archivos, ejecutá `pnpm format` o volvé a hacer checkout con el árbol de trabajo limpio.
+
+En los PRs hacia `main`, el workflow ejecuta los jobs `quality` y `database-integration`. Un CI en verde confirma estos controles; no significa que RLS, autorización, reglas de reservas o despliegue estén implementados. Las decisiones están en el [diseño DOC-02](docs/design-docs/doc-02-quality-ci.md).
 
 ## Estructura actual
 

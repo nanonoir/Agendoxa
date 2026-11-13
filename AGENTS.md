@@ -27,10 +27,10 @@ Manifests, lockfile, and configuration are authoritative for dependencies and ve
 | Workspace | Node.js 24 (`.nvmrc`), pnpm **12.16.1**, Turborepo 2, strict TypeScript 6.0.3 |
 | `apps/web` (`@agendoxa/web`) | Next.js **16.4.3** App Router, React **19.3.0**, Tailwind 4; routes in `src/app`, assets in `public`; no component library |
 | `apps/api` (`@agendoxa/api`) | NestJS 12, ESM/NodeNext; Vitest 4 and Supertest; oxlint with type analysis; local Prettier configuration |
-| `packages/shared` (`@agendoxa/shared`) | Portable Zod 4 contracts and inferred types; `src/index.ts` builds to `dist` |
+| `packages/shared` (`@agendoxa/shared`) | Portable Zod 4 contracts and inferred types; `src/index.ts` builds to `dist`; oxlint with type analysis |
 | `packages/database` (`@agendoxa/database`) | Server-only Drizzle 0.45.4/node-postgres 8.23.1, 17-entity core schema, versioned SQL, migration/seed scripts and Vitest integration tests |
 
-Compose provides PostgreSQL 18 for local development and a separate test profile. pg-boss, Evolution/Baileys, LangGraph, CI workflows and a `ui` package remain unimplemented. See [the bounded persistence design](docs/design-docs/rep-02-core-persistence.md); RLS, authorization and full reservation workflows are not delivered by the schema.
+Compose provides PostgreSQL 18 for local development and a separate test profile. `.github/workflows/ci.yml` runs jobs `quality` and `database-integration` on pull requests to `main` only ([DOC-02 design](docs/design-docs/doc-02-quality-ci.md)). pg-boss, Evolution/Baileys, LangGraph, deployment and a `ui` package remain unimplemented. See [the bounded persistence design](docs/design-docs/rep-02-core-persistence.md); RLS, authorization and full reservation workflows are not delivered by the schema.
 
 ## Commands and environment
 
@@ -41,9 +41,11 @@ Run from the repository root:
 | `pnpm install` | Install workspace dependencies |
 | `pnpm dev` | Build workspace dependencies and start web (3000) and API (3001 by default) |
 | `pnpm build` | Build shared, database, API, and web through Turbo |
-| `pnpm lint` | Web ESLint and API/database type-aware oxlint |
+| `pnpm lint` | Web ESLint and API/database/shared type-aware oxlint; warnings fail |
+| `pnpm format:check` / `pnpm format` | Read-only Prettier check of the repository / local rewrite |
 | `pnpm typecheck` | Shared/database/API TypeScript checks; web also runs `next typegen` |
 | `pnpm test` | API unit tests, not E2E |
+| `pnpm test:integration` | Database and API PostgreSQL suites through Turbo; requires DATABASE_URL_TEST |
 | `pnpm db:up` / `pnpm db:test:up` | Start local development/test PostgreSQL; requires root `.env` |
 | `pnpm db:migrate` / `pnpm db:seed` | Apply versioned SQL / load development fixtures |
 | `pnpm db:generate` / `pnpm db:check` | Generate schema migrations / check metadata consistency |
@@ -56,7 +58,7 @@ The API loads root `.env`, requires DATABASE_URL and listens on PORT or 3001. It
 ## Local conventions and boundaries
 
 - Keep API relative imports suffixed with `.js` for NodeNext/ESM. Web's `@/*` alias resolves to `src/*`.
-- Match the affected file: API uses single quotes; web/shared use double quotes. There is no root formatter. API's `format` script rewrites both `src` and `test`.
+- Match the affected file: API/database use single quotes; web/shared use double quotes. Root Prettier applies each workspace's configuration; `.prettierignore` excludes Markdown, the lockfile, build outputs and Drizzle migrations. Git normalizes line endings to LF.
 - Import portable contracts from `@agendoxa/shared`; do not import another app's internals. Shared is not a second booking engine and must not contain secrets. Web must not import NestJS internals or server-only database code.
 - Read the relevant product references before business work: UC-01 specifies an informational landing without web booking, human transfer verification, and one tenant-authorized booking core. Do not infer public booking, Mercado Pago, or other deferred integrations.
 - Keep technical identifiers in English and preserve the language of existing documents. Add modules, packages, and layers only when needed, not to reproduce proposed trees.
@@ -75,6 +77,7 @@ Choose checks for the affected workspace; do not run full suites by default on f
 | Database | `pnpm --filter @agendoxa/database lint`, `typecheck` and `build`; `pnpm db:check` |
 | Database integrity | `pnpm db:test:up` then `pnpm test:db`; creates/drops a uniquely named child database only |
 | NestJS/PostgreSQL | `pnpm --filter @agendoxa/api test:integration` with DATABASE_URL_TEST |
+| Formatting or tooling | `pnpm format:check`; for workflow changes also run the README full verification |
 | Documentation only | Verify paths, links, and commands; `git diff --check` (also inspect untracked files, which ordinary diffs omit) |
 
 For build/dependency changes, also run the relevant build, or `pnpm build` for monorepo-wide changes. API unit, E2E and PostgreSQL integration tests have separate configurations. E2E uses Supertest with an in-memory Nest app and overridden database provider. Web/shared have no test scripts. Database tests verify reference integrity and concurrency, not tenant authorization or complete use cases. SQL-only constraints/triggers are in custom migrations; do not replace them with drizzle-kit push.
