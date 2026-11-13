@@ -1687,9 +1687,10 @@ paths:
         Stored privately through assets, with no public link (DM-14). An upload proves nothing:
         it becomes evidence only when a review or a CRM booking references it. Accepted media
         types and size limits come from the CON-03 storage contract. `expiresAt` limits use of
-        an unlinked upload, not physical retention; no age-only automatic deletion is agreed.
-        Retention and deletion policy require product/legal resolution before deployment (API-Q-12,
-        INV-DAT-03).
+        an unlinked upload and never deletes the file. An unlinked upload follows the normal
+        receipt retention: no age-based automatic deletion, kept while it backs a review or a
+        payment, removed only through the data-deletion request workflow (API-Q-12 closed
+        2026-11-12, BR-DAT-10, INV-DAT-03).
       security:
         - sessionCookie: []
           csrfToken: []
@@ -4219,7 +4220,7 @@ components:
         uploadedAt:
           $ref: '#/components/schemas/Instant'
         expiresAt:
-          description: Last instant for using the unlinked upload; physical retention is separate and subject to API-Q-12 and INV-DAT-03.
+          description: Last instant for linking the upload to a review or a CRM booking. It never deletes the file; retention follows the normal receipt rules (BR-DAT-10, INV-DAT-03).
           allOf:
             - $ref: '#/components/schemas/Instant'
       additionalProperties: false
