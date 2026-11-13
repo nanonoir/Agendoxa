@@ -1946,7 +1946,7 @@ paths:
         screening (`arrivedVia: CRM_SUBMISSION`). Not for a HOLD, which receives evidence only
         over WhatsApp, nor for a released booking. Refusing this CRM association does not
         discard or reject WhatsApp composite intake: late-sent evidence is retained for
-        personnel, and timely evidence delivered after deadline release follows BR-SEN-20.
+        personnel, and timely evidence delivered after deadline release follows BR-SEN-20 (BR-SEN-19 and BR-SEN-20 are added to UC-03 by PR #34).
       security:
         - sessionCookie: []
           csrfToken: []
