@@ -1897,7 +1897,8 @@ paths:
         A human rejection, the only kind BR-SEN-10 counts. For initial evidence without verified
         partial funds, the first distinct rejection opens the 15-minute correction window and a
         second may cancel before start after rechecks; otherwise the booking does not change.
-        Exception: evidence resent after an allocation reversal (BR-SEN-18, INV-SEN-15) opens no
+        Exception: evidence resent after an allocation reversal (BR-SEN-18, INV-SEN-15; the
+        resend itself is cause-specific under UC-03 as updated by PR #34) opens no
         window and cancels nothing; the result is `bookingEffect: NONE` and the booking stays in
         PENDING_PAYMENT_REVIEW with depositState PARTIAL or UNALLOCATED. Creates no payment.
       security:
@@ -2016,7 +2017,8 @@ paths:
       summary: Close a supplemental deposit request without collecting it
       description: |
         Personnel with the payments permission decide not to collect the additional deposit requested
-        after a permitted reschedule (BR-CAN-15, INV-CAN-10, API-DM-26), under the
+        after a permitted reschedule (BR-CAN-15, INV-CAN-10 as updated by PR #34, which supersede the
+        current text until #34 merges on `FULL_PREPAYMENT` and `NOT_COLLECTED`; API-DM-26), under the
         `payments.allocate` permission. Only a request still `REQUESTED` can be closed. The decision is recorded once and immutably, with actor, time,
         the amount not collected and the optional reason, and `supplementalDepositState` becomes
         `NOT_COLLECTED`. It creates, alters, refunds or forgives no payment or charge and never
@@ -2284,7 +2286,9 @@ paths:
         (unconfirmed, occupying). Invalid-verification reversal queues a resend notice in the
         same transaction; reassignment of valid funds never requests another receipt from the
         payer, even for the same customer. The backend uses the trusted persisted correction
-        cause; private staff reasons are not exposed to the agent (BR-SEN-18, INV-SEN-15).
+        cause; private staff reasons are not exposed to the agent (BR-SEN-18, INV-SEN-15; the
+        cause-specific notice is UC-03 as updated by PR #34 and, until #34 merges, supersedes the
+        unconditional resend of the current BR-SEN-18).
         There is no correction window, expiry or automatic release, even after rejection of
         resent evidence. A started or completed booking retains its status and gets no resend
         notice; an Admin exception and the supplemental deposit are not changed. Multi-owner command of `workflows`; the response
@@ -2862,7 +2866,8 @@ components:
         BR-SEN-18, API-Q-14 closed, left none); 8 AWAITING_EVIDENCE (everything else with a
         deposit, including evidence still under preliminary screening). The allocated amount
         stays visible in `deposit.allocated` whichever value is selected. A not-yet-started booking so returned to PENDING_PAYMENT_REVIEW has no window, expiry or automatic release;
-        only invalid verification requests another receipt, not reassignment of valid funds. A
+        only invalid verification requests another receipt, not reassignment of valid funds
+        (UC-03 as updated by PR #34; until #34 merges this supersedes the current BR-SEN-18). A
         started or completed booking keeps its status, is not asked to resend, and shows PARTIAL
         or UNALLOCATED rather than a stale MET.
       type: string
@@ -3634,7 +3639,7 @@ components:
           description: CONFIRMED and already ended; derived, not a status (BR-RES-13).
           type: boolean
         holdExpiresAt:
-          description: Never extended by a replacement or rescreening; may be past while timely evidence is still screened (BR-SEN-16).
+          description: Never extended by a replacement or rescreening; may be past while timely evidence is still screened; the processing margin is UC-03 as updated by PR #34 (BR-SEN-16, INV-SEN-03; supersedes the current text until #34 merges).
           oneOf:
             - $ref: '#/components/schemas/Instant'
             - type: 'null'
@@ -4318,7 +4323,7 @@ components:
             text:
               type: [string, 'null']
             receivedAt:
-              description: When the evidence was received; timeliness is judged by it (BR-SEN-16).
+              description: Trusted instant recorded for the evidence. For WhatsApp, timeliness uses the provider-assigned send time, with trusted ingress arrival only as fallback (UC-03 BR-SEN-16 as updated by PR #34; until #34 merges, this supersedes the receipt-time wording of the current BR-SEN-16).
               allOf:
                 - $ref: '#/components/schemas/Instant'
           additionalProperties: false
