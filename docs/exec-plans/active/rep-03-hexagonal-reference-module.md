@@ -8,7 +8,7 @@ Complete when the endpoint serves real seed data to the web, the use case is tes
 
 ## Context
 
-- Branch `feat/REP-03-hexagonal-reference-module`, created from `docs/CON-02-api-contracts` because the CON-02 contracts are not merged yet.
+- Branch `feat/REP-03-hexagonal-reference-module`, created from `docs/CON-02-api-contracts` and rebased onto `develop` on 2026-11-14, after CON-01, CON-02, CON-03 and DOC-02 were merged.
 - Sources: [modules (CON-01)](../../design-docs/modules.md), [API contracts (CON-02)](../../design-docs/api-contracts.md) and its [OpenAPI](../../design-docs/api-contracts.openapi.yaml), [tenancy (DOM-02)](../../design-docs/tenancy.md), [REP-02](../../design-docs/rep-02-core-persistence.md). All are proposals in review.
 - The Issue cites `docs/architecture/*`; those documents live in `docs/design-docs/`.
 
@@ -68,6 +68,8 @@ Run on 2026-11-10 with Docker Desktop, PostgreSQL 18 (development and test servi
 | Tenant-filter mutation | Removing the `tenant_id` condition made 2 integration tests fail; restored |
 | Boundary grep over `modules/*/application` and `modules/*/contracts` | No Nest, Drizzle, database, Express or Zod imports |
 | Full flow | Seeded database, built API (`node dist/src/main.js`) and web (`next start`). `curl` returned the seeded services of `demo-barber` and `demo-club`, a `404` problem for an unknown slug and a `400` for `Bad_Slug`. `/businesses/demo-barber` rendered "Corte · 30 min · 7.500,00". Editing the row in PostgreSQL (description, price, then `is_active = false`) changed the page on reload; the seed values were restored |
+
+Rerun on 2026-11-14 after the rebase onto `develop`: `pnpm lint` (6/6), `pnpm typecheck` (6/6), `pnpm test` (6 tests), `pnpm build` (4/4), `pnpm db:check`, `pnpm test:integration` (database 90 tests, API 4 tests) and API E2E (5 tests) passed. `pnpm format:check` passes for every REP-03 file; it still reports `docs/design-docs/api-contracts.openapi.yaml`, which is unchanged from `develop` and left for its owners. The endpoint was compared with the merged CON-02 0.4.0 contract: path, `PublicService`, problem format, `404` and cache header match; the two pending corrections above remain.
 
 Not checked: browser rendering beyond server HTML; `pnpm dev` watch mode (production builds were used instead).
 

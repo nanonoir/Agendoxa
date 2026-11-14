@@ -31,7 +31,7 @@ pnpm discovers `apps/*` and `packages/*`. Turbo tasks depend on dependency build
 
 API uses ESM with NodeNext resolution and `.js` relative imports; web uses bundler resolution with `@/*` mapped to `src/*`. Workspace TypeScript strictness comes from `tsconfig.base.json`, with local overrides. No cross-app runtime imports are present.
 
-There are no implemented booking use cases, authentication, tenant authorization, messaging/AI integrations, payment processing or background jobs. The public catalog's tenant comes from the slug and selects what to display; it authorizes nothing. Database integrity is not authorization or RLS; constraints do not filter reads, so every adapter filters by `tenant_id`. The starter page's external links are not product integrations; its Geist fonts are bundled from the `geist` package, so the web build does not download fonts.
+API unit tests check health, provider disposal and the catalog use case with an in-memory port, without PostgreSQL. Supertest E2E overrides the database provider and ports, and checks the health response and the public services contract, including problem responses. Dedicated database/API integration configurations test real PostgreSQL constraints, migrations, seed, concurrency, Nest connection/shutdown and the public services endpoint against two tenants in a unique child database. No browser tests exist. `.github/workflows/ci.yml` runs the root checks (`quality`) and both PostgreSQL suites against an ephemeral PostgreSQL 18 service (`database-integration`) on pull requests to `main`; see the [DOC-02 design](docs/design-docs/doc-02-quality-ci.md). See [AGENTS.md](AGENTS.md) for commands.
 
 ## Current implementation versus target direction
 

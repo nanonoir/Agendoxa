@@ -78,7 +78,7 @@ Desde la raíz del repositorio:
 | `pnpm db:migrate` / `pnpm db:seed` | Aplica migraciones o carga los dos negocios de ejemplo |
 | `pnpm db:generate` / `pnpm db:check` | Genera migraciones o verifica su metadata |
 | `pnpm test:db` | Ejecuta las pruebas de integridad/concurrencia sobre PostgreSQL real |
-| `pnpm test:integration` | Ejecuta las pruebas de PostgreSQL de database y de la conexión NestJS |
+| `pnpm test:integration` | Ejecuta las pruebas de PostgreSQL de database y de la API (conexión NestJS y servicios públicos) |
 
 Para validaciones específicas y preparación al ejecutar comandos con `--filter`, consultá [AGENTS.md](AGENTS.md).
 
@@ -97,7 +97,7 @@ pnpm db:test:up
 pnpm test:integration
 ```
 
-`pnpm db:test:up` inicia un PostgreSQL 18 descartable en `127.0.0.1:5433`, sin volumen persistente. Las pruebas leen `DATABASE_URL_TEST` del `.env` o del entorno; debe apuntar a una base terminada en `_test`, como el valor de [`.env.example`](.env.example). La suite de database crea y elimina una base hija con nombre único y aplica las migraciones versionadas en ella.
+`pnpm db:test:up` inicia un PostgreSQL 18 descartable en `127.0.0.1:5433`, sin volumen persistente. Las pruebas leen `DATABASE_URL_TEST` del `.env` o del entorno; debe apuntar a una base terminada en `_test`, como el valor de [`.env.example`](.env.example). La suite de database y la de servicios públicos de la API crean y eliminan cada una su base hija con nombre único y aplican las migraciones versionadas en ella.
 
 El repositorio fija finales de línea LF mediante [`.gitattributes`](.gitattributes). Si un checkout de Windows anterior a esa regla muestra diferencias de formato en todos los archivos, ejecutá `pnpm format` o volvé a hacer checkout con el árbol de trabajo limpio.
 
