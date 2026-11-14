@@ -9,7 +9,9 @@ function formatAmount(price: string): string {
   return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${decimals}`;
 }
 
-export default async function BusinessServicesPage({ params }: PageProps<"/businesses/[slug]">) {
+export default async function BusinessServicesPage({
+  params,
+}: PageProps<"/businesses/[slug]">) {
   const { slug } = await params;
   const catalog = await listPublicServices(slug);
   if (!catalog) notFound();
@@ -22,19 +24,30 @@ export default async function BusinessServicesPage({ params }: PageProps<"/busin
       </header>
 
       {catalog.items.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">Este negocio todavía no publicó servicios.</p>
+        <p className="text-zinc-600 dark:text-zinc-400">
+          Este negocio todavía no publicó servicios.
+        </p>
       ) : (
         <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
           {catalog.items.map((service) => (
-            <li key={service.id} className="flex items-start justify-between gap-4 py-4">
+            <li
+              key={service.id}
+              className="flex items-start justify-between gap-4 py-4"
+            >
               <div className="flex flex-col gap-1">
                 <h2 className="font-medium">{service.name}</h2>
                 {service.description ? (
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{service.description}</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {service.description}
+                  </p>
                 ) : null}
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">{service.durationMinutes} min</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  {service.durationMinutes} min
+                </p>
               </div>
-              <p className="font-medium tabular-nums">{formatAmount(service.price)}</p>
+              <p className="font-medium tabular-nums">
+                {formatAmount(service.price)}
+              </p>
             </li>
           ))}
         </ul>

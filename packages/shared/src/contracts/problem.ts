@@ -24,7 +24,9 @@ export const problemSchema = z.object({
     .optional(),
   detail: z.string().optional(),
   requestId: z.string(),
-  errors: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+  errors: z
+    .array(z.object({ path: z.string(), message: z.string() }))
+    .optional(),
 });
 
 export type ProblemCode = z.infer<typeof problemCodeSchema>;
