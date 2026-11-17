@@ -10,7 +10,14 @@ import type { Problem, ProblemCode } from '@agendoxa/shared';
 import type { Request, Response } from 'express';
 import { RequestValidationException } from './request-validation.js';
 
-const categories: Record<number, { code: ProblemCode; title: string }> = {
+interface Category {
+  code: ProblemCode;
+  title: string;
+  reason?: string;
+}
+
+// Statuses with a CON-02 category of their own (API-DM-09 table).
+const categories: Record<number, Category> = {
   400: { code: 'validation', title: 'The request does not match the contract' },
   401: { code: 'unauthorized', title: 'Authentication required' },
   403: { code: 'forbidden', title: 'The operation is not allowed' },
@@ -22,7 +29,32 @@ const categories: Record<number, { code: ProblemCode; title: string }> = {
     title: 'A required external service failed',
   },
 };
-const internal = { code: 'internal' as const, title: 'Unexpected error' };
+
+// Framework 4xx statuses CON-02 does not list. The HTTP status is kept and the
+// closest of the eight categories is used; only reasons API-DM-09 defines are
+// used, except `rate_limited`, requested by the team (CON-02 gap).
+const frameworkCategories: Record<number, Category> = {
+  413: {
+    code: 'validation',
+    title: 'The request body is too large',
+    reason: 'file_too_large',
+  },
+  415: {
+    code: 'validation',
+    title: 'The media type is not supported',
+    reason: 'unsupported_media_type',
+  },
+  429: {
+    code: 'conflict',
+    title: 'Too many requests',
+    reason: 'rate_limited',
+  },
+};
+const otherClientError: Category = {
+  code: 'validation',
+  title: 'The request cannot be processed',
+};
+const internal: Category = { code: 'internal', title: 'Unexpected error' };
 const requestIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
@@ -43,9 +75,14 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const requestId =
       incoming && requestIdPattern.test(incoming) ? incoming : randomUUID();
 
-    const status =
+    const httpStatus =
       exception instanceof HttpException ? exception.getStatus() : 500;
-    const category = categories[status] ?? internal;
+    const category =
+      categories[httpStatus] ??
+      frameworkCategories[httpStatus] ??
+      (httpStatus >= 400 && httpStatus < 500 ? otherClientError : internal);
+    // Unlisted 5xx and non-HTTP errors are reported as a generic 500.
+    const status = category === internal ? 500 : httpStatus;
     if (category === internal) {
       this.logger.error(
         `Unhandled error for ${request.method} ${request.path} (${requestId})`,
@@ -53,16 +90,26 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       );
     }
 
+    // Titles are fixed per status: an exception message is never copied, since
+    // a problem carries no stack traces, SQL or secrets (API-DM-09).
     const problem: Problem = {
       type: `urn:agendoxa:problem:${category.code.replaceAll('_', '-')}`,
       title: category.title,
-      status: category === internal ? 500 : status,
+      status,
       code: category.code,
+      ...(category.reason ? { reason: category.reason } : {}),
       requestId,
       ...(exception instanceof RequestValidationException
         ? { errors: exception.issues }
         : {}),
     };
+
+    if (status === 429) {
+      const retryAfter = response.getHeader('Retry-After');
+      if (retryAfter !== undefined) {
+        response.setHeader('Retry-After', retryAfter);
+      }
+    }
 
     // Overrides any cache header a handler set before failing: errors are
     // never cached by shared caches.

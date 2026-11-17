@@ -111,6 +111,25 @@ describe('GET /api/v1/public/businesses/:slug/services (HTTP contract)', () => {
     expect(response.headers['x-request-id']).toBe(problem.requestId);
   });
 
+  it('keeps the status of a framework error as a problem', async () => {
+    // The JSON body parser rejects the oversized body before any route runs.
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/public/businesses/demo-barber/services')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ filler: 'x'.repeat(200_000) }))
+      .expect(413)
+      .expect('Content-Type', /application\/problem\+json/)
+      .expect('Cache-Control', 'no-store');
+
+    const problem = problemSchema.parse(response.body);
+    expect(problem).toMatchObject({
+      status: 413,
+      code: 'validation',
+      reason: 'file_too_large',
+    });
+    expect(response.headers['x-request-id']).toBe(problem.requestId);
+  });
+
   it('keeps GET /health outside the versioned prefix', async () => {
     await request(app.getHttpServer())
       .get('/health')
