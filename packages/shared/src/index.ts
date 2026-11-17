@@ -23,8 +23,12 @@ export {
   type PublicServiceList,
 } from "./contracts/catalog.js";
 export {
+  allocationLimitSchema,
+  lateChangeNoticeSchema,
   problemCodeSchema,
   problemSchema,
+  type AllocationLimit,
+  type LateChangeNotice,
   type Problem,
   type ProblemCode,
 } from "./contracts/problem.js";
