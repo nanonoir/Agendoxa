@@ -20,13 +20,14 @@ interface Captured {
   headers: Record<string, string | number | string[]>;
   type?: string;
   body?: string;
+  written: string[];
 }
 
 function run(
   exception: unknown,
   preset: Record<string, string> = {},
 ): { captured: Captured; problem: Problem } {
-  const captured: Captured = { headers: { ...preset } };
+  const captured: Captured = { headers: { ...preset }, written: [] };
   const response = {
     status(value: number) {
       captured.status = value;
@@ -34,6 +35,7 @@ function run(
     },
     getHeader: (name: string) => captured.headers[name],
     setHeader(name: string, value: string | number | string[]) {
+      captured.written.push(name);
       captured.headers[name] = value;
       return response;
     },
@@ -105,14 +107,14 @@ describe('ProblemDetailsFilter', () => {
     expect(problem.errors).toEqual([{ path: '/slug', message: 'Invalid' }]);
   });
 
-  it('maps 413 to validation/file_too_large and keeps the status', () => {
+  it('maps 413 to validation/payload_too_large and keeps the status', () => {
     const { captured, problem } = run(new HttpException('big', 413));
 
     expect(captured.status).toBe(413);
     expect(problem).toMatchObject({
       status: 413,
       code: 'validation',
-      reason: 'file_too_large',
+      reason: 'payload_too_large',
     });
   });
 
@@ -127,25 +129,36 @@ describe('ProblemDetailsFilter', () => {
     });
   });
 
-  it('maps 429 to conflict/rate_limited and propagates Retry-After', () => {
-    const { captured, problem } = run(new HttpException('slow down', 429), {
+  it('maps 429 to the rate_limited code without a reason', () => {
+    const { captured, problem } = run(new HttpException('slow down', 429));
+
+    expect(captured.status).toBe(429);
+    expect(captured.type).toBe('application/problem+json');
+    expect(captured.headers['Cache-Control']).toBe('no-store');
+    expect(problem).toMatchObject({
+      type: 'urn:agendoxa:problem:rate-limited',
+      status: 429,
+      code: 'rate_limited',
+      requestId: 'req_test_01',
+    });
+    expect(problem.reason).toBeUndefined();
+    expect(captured.body).not.toContain('slow down');
+  });
+
+  it('preserves a Retry-After that is already on the response', () => {
+    const { captured } = run(new HttpException('slow down', 429), {
       'Retry-After': '30',
     });
 
-    expect(captured.status).toBe(429);
     expect(captured.headers['Retry-After']).toBe('30');
-    expect(problem).toMatchObject({
-      status: 429,
-      code: 'conflict',
-      reason: 'rate_limited',
-    });
+    expect(captured.written).not.toContain('Retry-After');
   });
 
-  it('does not invent Retry-After for a 429 without it', () => {
+  it('does not invent Retry-After when it is absent', () => {
     const { captured } = run(new HttpException('slow down', 429));
 
-    expect(captured.status).toBe(429);
     expect(captured.headers).not.toHaveProperty('Retry-After');
+    expect(captured.written).not.toContain('Retry-After');
   });
 
   it.each([405, 406, 418])(

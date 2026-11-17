@@ -11,6 +11,7 @@ export const problemCodeSchema = z.enum([
   "conflict",
   "rule_violation",
   "external_dependency",
+  "rate_limited",
   "internal",
 ]);
 

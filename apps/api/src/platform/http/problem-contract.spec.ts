@@ -50,6 +50,32 @@ describe('problemSchema (CON-02 Problem)', () => {
     ).toBe(true);
   });
 
+  it('accepts rate_limited as a code of its own', () => {
+    expect(
+      problemSchema.safeParse({
+        ...base,
+        type: 'urn:agendoxa:problem:rate-limited',
+        status: 429,
+        code: 'rate_limited',
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(['payload_too_large', 'file_too_large', 'unsupported_media_type'])(
+    'accepts the validation reason %s',
+    (reason) => {
+      expect(
+        problemSchema.safeParse({
+          ...base,
+          type: 'urn:agendoxa:problem:validation',
+          status: reason === 'unsupported_media_type' ? 415 : 413,
+          code: 'validation',
+          reason,
+        }).success,
+      ).toBe(true);
+    },
+  );
+
   it('accepts currentRevision from zero', () => {
     expect(
       problemSchema.safeParse({ ...base, currentRevision: 0 }).success,
@@ -77,7 +103,7 @@ describe('problemSchema (CON-02 Problem)', () => {
     ['status above 599', { ...base, status: 600 }],
     ['a non-integer status', { ...base, status: 409.5 }],
     ['a reason that is not snake_case', { ...base, reason: 'Stale-Revision' }],
-    ['a code outside the enum', { ...base, code: 'rate_limited' }],
+    ['a code outside the enum', { ...base, code: 'too_many_requests' }],
     ['a missing requestId', { ...base, requestId: undefined }],
     ['a negative currentRevision', { ...base, currentRevision: -1 }],
     ['a fractional currentRevision', { ...base, currentRevision: 1.5 }],

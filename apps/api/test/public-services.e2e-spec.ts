@@ -111,7 +111,7 @@ describe('GET /api/v1/public/businesses/:slug/services (HTTP contract)', () => {
     expect(response.headers['x-request-id']).toBe(problem.requestId);
   });
 
-  it('keeps the status of a framework error as a problem', async () => {
+  it('keeps the status of an oversized JSON body as a problem', async () => {
     // The JSON body parser rejects the oversized body before any route runs.
     const response = await request(app.getHttpServer())
       .post('/api/v1/public/businesses/demo-barber/services')
@@ -125,7 +125,7 @@ describe('GET /api/v1/public/businesses/:slug/services (HTTP contract)', () => {
     expect(problem).toMatchObject({
       status: 413,
       code: 'validation',
-      reason: 'file_too_large',
+      reason: 'payload_too_large',
     });
     expect(response.headers['x-request-id']).toBe(problem.requestId);
   });

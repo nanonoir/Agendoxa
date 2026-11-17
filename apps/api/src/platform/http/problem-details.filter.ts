@@ -30,25 +30,21 @@ const categories: Record<number, Category> = {
   },
 };
 
-// Framework 4xx statuses CON-02 does not list. The HTTP status is kept and the
-// closest of the eight categories is used; only reasons API-DM-09 defines are
-// used, except `rate_limited`, requested by the team (CON-02 gap).
+// Framework 4xx statuses with a place in API-DM-09 but outside the usual one
+// of their category. The HTTP status is always kept. `file_too_large` is not
+// used here: it is reserved for uploaded files the application identifies.
 const frameworkCategories: Record<number, Category> = {
   413: {
     code: 'validation',
     title: 'The request body is too large',
-    reason: 'file_too_large',
+    reason: 'payload_too_large',
   },
   415: {
     code: 'validation',
     title: 'The media type is not supported',
     reason: 'unsupported_media_type',
   },
-  429: {
-    code: 'conflict',
-    title: 'Too many requests',
-    reason: 'rate_limited',
-  },
+  429: { code: 'rate_limited', title: 'Too many requests' },
 };
 const otherClientError: Category = {
   code: 'validation',
@@ -104,15 +100,9 @@ export class ProblemDetailsFilter implements ExceptionFilter {
         : {}),
     };
 
-    if (status === 429) {
-      const retryAfter = response.getHeader('Retry-After');
-      if (retryAfter !== undefined) {
-        response.setHeader('Retry-After', retryAfter);
-      }
-    }
-
     // Overrides any cache header a handler set before failing: errors are
-    // never cached by shared caches.
+    // never cached by shared caches. Other headers, such as an optional
+    // `Retry-After` set by a rate limiter, are left untouched.
     response
       .status(problem.status)
       .setHeader('Cache-Control', 'no-store')
