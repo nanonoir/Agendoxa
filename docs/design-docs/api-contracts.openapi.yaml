@@ -103,6 +103,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicServiceList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFound'
   /session:
