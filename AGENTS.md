@@ -59,7 +59,7 @@ The API loads root `.env`, requires DATABASE_URL and listens on PORT or 3001. It
 ## Local conventions and boundaries
 
 - Keep API relative imports suffixed with `.js` for NodeNext/ESM. Web's `@/*` alias resolves to `src/*`.
-- Match the affected file: API/database use single quotes; web/shared use double quotes. Root Prettier applies each workspace's configuration; `.prettierignore` excludes Markdown, the lockfile, build outputs and Drizzle migrations. Git normalizes line endings to LF.
+- Match the affected file: API/database use single quotes; web/shared use double quotes. Root Prettier applies each workspace's configuration; `.prettierignore` excludes Markdown, the lockfile, build outputs, Drizzle migrations and the hand-authored OpenAPI contract (`docs/design-docs/api-contracts.openapi.yaml`). Git normalizes line endings to LF.
 - Import portable contracts from `@agendoxa/shared`; do not import another app's internals. Shared is not a second booking engine and must not contain secrets. Web must not import NestJS internals or server-only database code.
 - Read the relevant product references before business work: UC-01 specifies an informational landing without web booking, human transfer verification, and one tenant-authorized booking core. Do not infer public booking, Mercado Pago, or other deferred integrations.
 - Keep technical identifiers in English and preserve the language of existing documents. Add modules, packages, and layers only when needed, not to reproduce proposed trees.

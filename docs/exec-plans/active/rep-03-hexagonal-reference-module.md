@@ -35,7 +35,12 @@ Complete when the endpoint serves real seed data to the web, the use case is tes
 - [x] Steps 1–9.
 - [x] `.gitignore` rule `out/` (Next.js export) also ignored `adapters/out/`; scoped to `/out/` and `/apps/*/out/`.
 - [x] Problem responses inherited the endpoint's `Cache-Control: public` because Nest applies `@Header` before the handler; the filter now sends `no-store`.
-- [ ] Team review of the module conventions and of the pending CON-02 corrections below.
+- [x] Review round on PR #37 (2026-11-16, additional commits, no change of functional scope):
+  - [x] The problem filter keeps the HTTP status of framework client errors (`413`, `415`, `429`, `405`, `406`, any other `4xx`) as `application/problem+json`; unlisted `5xx` and unexpected errors stay a generic `500 internal`.
+  - [x] OpenAPI `listPublicServices` declares the `400` response (`components/responses/ValidationError`).
+  - [x] `problemSchema` mirrors the full CON-02 `Problem` (strict; `lateChange`, `currentRevision`, `allocationLimit`), tested from `apps/api` because `packages/shared` has no test runner.
+  - [x] `.prettierignore` excludes the OpenAPI contract, now stated in AGENTS.md and DOC-02.
+- [ ] Team review of the module conventions and of the pending CON-02 points below.
 
 ## Decisions
 
@@ -45,11 +50,15 @@ Complete when the endpoint serves real seed data to the web, the use case is tes
 | Use case takes `{ tenantId }`, not `slug` | Entry points resolve the tenant (TEN-DM-07, modules §6.5); the CRM and agent tools can reuse it |
 | Minimal `tenants` module for the slug lookup | `Tenant` is owned by `tenants` (MOD-DM-02); `catalog` may not read its table. Agreed with the requester |
 | No `catalog/domain/` | The query has no business invariant; see the reference guide §4 |
-| Invalid slug returns `400 validation` | API-DM-09 general rule; the OpenAPI omits it. Agreed with the requester |
+| Invalid slug returns `400 validation` | API-DM-09 general rule; the OpenAPI now declares it (review round, 2026-11-16) |
+| Framework `4xx` keep their HTTP status | `413` → `validation`/`file_too_large`, `415` → `validation`/`unsupported_media_type`, `429` → `conflict`/`rate_limited` with `Retry-After`, other `4xx` → `validation` without a reason. Only the eight CON-02 codes are used; the status does not follow the usual one of the code |
+| `problemSchema` is strict | Mirrors `additionalProperties: false` of the OpenAPI `Problem` |
 | Relational query API in adapters | `apps/api` needs no direct `drizzle-orm` dependency |
 | `parseRequest` uses a structural schema type | `apps/api` needs no direct `zod` dependency |
 
-**Pending for CON-02 (not edited here):** the OpenAPI of `listPublicServices` lacks the `400` response; `PublicService` (and `PublicBusinessProfile`) carry no currency, so the landing cannot show a symbol.
+**Resolved in the review round:** the `400` response of `listPublicServices`, the complete `Problem` schema in `@agendoxa/shared`, and the Prettier handling of the OpenAPI file.
+
+**Pending for CON-02 (not edited here):** `PublicService` (and `PublicBusinessProfile`) carry no currency, so the landing cannot show a symbol; CON-02 defines no category for `413` and `429` (the mapping above is a stopgap, and `rate_limited` is not among the documented reasons).
 
 ## Validation
 
@@ -69,7 +78,9 @@ Run on 2026-11-10 with Docker Desktop, PostgreSQL 18 (development and test servi
 | Boundary grep over `modules/*/application` and `modules/*/contracts` | No Nest, Drizzle, database, Express or Zod imports |
 | Full flow | Seeded database, built API (`node dist/src/main.js`) and web (`next start`). `curl` returned the seeded services of `demo-barber` and `demo-club`, a `404` problem for an unknown slug and a `400` for `Bad_Slug`. `/businesses/demo-barber` rendered "Corte · 30 min · 7.500,00". Editing the row in PostgreSQL (description, price, then `is_active = false`) changed the page on reload; the seed values were restored |
 
-Rerun on 2026-11-14 after the rebase onto `develop`: `pnpm lint` (6/6), `pnpm typecheck` (6/6), `pnpm test` (6 tests), `pnpm build` (4/4), `pnpm db:check`, `pnpm test:integration` (database 90 tests, API 4 tests) and API E2E (5 tests) passed. `pnpm format:check` passes for every REP-03 file; it still reports `docs/design-docs/api-contracts.openapi.yaml`, which is unchanged from `develop` and left for its owners. The endpoint was compared with the merged CON-02 0.4.0 contract: path, `PublicService`, problem format, `404` and cache header match; the two pending corrections above remain.
+Rerun on 2026-11-14 after the rebase onto `develop`: `pnpm lint` (6/6), `pnpm typecheck` (6/6), `pnpm test` (6 tests), `pnpm build` (4/4), `pnpm db:check`, `pnpm test:integration` (database 90 tests, API 4 tests) and API E2E (5 tests) passed. `pnpm format:check` passed for every REP-03 file; it then reported `docs/design-docs/api-contracts.openapi.yaml`, since excluded in `.prettierignore`. The endpoint was compared with the merged CON-02 0.4.0 contract: path, `PublicService`, problem format, `404` and cache header match; the two pending corrections above remain.
+
+Rerun on 2026-11-16 for the review round (PostgreSQL 18 test service running): `pnpm --filter @agendoxa/api lint` and `typecheck`, `pnpm --filter @agendoxa/shared typecheck` and `build`, `pnpm build` (4/4), `pnpm format:check` and `git diff --check` passed; `pnpm test` (API unit, 5 files, 45 tests), `pnpm --filter @agendoxa/api test:e2e` (2 files, 6 tests, including a framework `413` problem) and `pnpm --filter @agendoxa/api test:integration` (2 files, 4 tests) passed. The slug `400` (`errors[].path` `/slug`) matches the new OpenAPI response. Redocly was not run here; the contract lint is left to a maintainer: `pnpm dlx --package=@redocly/cli redocly lint docs/design-docs/api-contracts.openapi.yaml`.
 
 Not checked: browser rendering beyond server HTML; `pnpm dev` watch mode (production builds were used instead).
 

@@ -129,7 +129,7 @@ RLS is not active ([REP-02](../design-docs/rep-02-core-persistence.md)). Only th
 
 - **`configureHttp(app)`** sets the `/api/v1` prefix, excluding `GET /health`, and the problem filter. `main.ts` and every HTTP test call it, so tests serve the same contract as production.
 - **Validation:** request parts are validated with the shared schemas through `parseRequest(schema, value, '/pointer')`. A failure becomes a `400 validation` problem with JSON Pointer paths. `apps/api` does not depend on `zod` directly: it only uses schemas exported by `@agendoxa/shared`.
-- **Errors:** throw Nest's HTTP exceptions (`NotFoundException`, …) or `RequestValidationException`. The filter maps the status to the CON-02 `code`. Any other error becomes a generic `500 internal` that is logged and never exposes stack traces or SQL. Problems are `no-store`, which overrides a `@Header` cache policy that Nest applies before the handler runs.
+- **Errors:** throw Nest's HTTP exceptions (`NotFoundException`, …) or `RequestValidationException`. The filter maps the status to the CON-02 `code`. Other client errors of the framework keep their HTTP status: `413` and `415` become `validation` with `file_too_large` and `unsupported_media_type`, `429` becomes `conflict` / `rate_limited` and forwards `Retry-After` when present, and any other `4xx` becomes `validation` without a reason. The `title` is fixed per status; an exception message is never copied. Any other error, including an unlisted `5xx`, becomes a generic `500 internal` that is logged and never exposes stack traces or SQL. Problems are `no-store`, which overrides a `@Header` cache policy that Nest applies before the handler runs.
 - **Responses** are built from the use-case result field by field, then parsed with the shared schema, so a contract drift fails loudly instead of leaking extra fields such as `tenant_id`.
 
 ## 8. Composition in Nest
@@ -149,7 +149,7 @@ RLS is not active ([REP-02](../design-docs/rep-02-core-persistence.md)). Only th
 | Level | File | Proves | Command |
 |---|---|---|---|
 | Use case, isolated | [`list-active-services.spec.ts`](../../apps/api/src/modules/catalog/application/use-cases/list-active-services.spec.ts) | Tenant passed through; empty context rejected before persistence. No Nest, HTTP or Drizzle | `pnpm --filter @agendoxa/api test src/modules/catalog` |
-| HTTP contract, in memory | [`public-services.e2e-spec.ts`](../../apps/api/test/public-services.e2e-spec.ts) | 200 body and cache header; 404 and 400 problems; `/health` outside the prefix. Ports overridden with fakes | `pnpm --filter @agendoxa/api test:e2e test/public-services.e2e-spec.ts` |
+| HTTP contract, in memory | [`public-services.e2e-spec.ts`](../../apps/api/test/public-services.e2e-spec.ts) | 200 body and cache header; 404 and 400 problems; a framework `413` kept as a problem; `/health` outside the prefix. Ports overridden with fakes | `pnpm --filter @agendoxa/api test:e2e test/public-services.e2e-spec.ts` |
 | PostgreSQL integration | [`public-services.integration-spec.ts`](../../apps/api/test/public-services.integration-spec.ts) | Real `AppModule`, migrations and HTTP against a unique child database. Two tenants alternated A/B/A/B on one reused connection, an inactive service that would sort first, an empty tenant and an unknown slug | `pnpm db:test:up`, then `pnpm --filter @agendoxa/api test:integration` |
 
 The integration test creates `agendoxa_api_it_<uuid>` from `DATABASE_URL_TEST`, applies the versioned SQL with `packages/database/scripts/migrate.ts`, and drops the database afterwards. Removing the `tenant_id` filter from the adapter makes it fail, which was checked when it was written.
@@ -179,6 +179,6 @@ Open `http://localhost:3000/businesses/demo-barber` or `…/demo-club`, or call 
 
 - `GET /public/businesses/{slug}` (profile, hours and WhatsApp link) is not implemented; the page shows the slug as its heading. Its location is open ([API-Q-10](../design-docs/api-contracts.md#13-decisions-and-open-questions), D-6).
 - `PublicService` has no currency, so the page shows amounts without a symbol.
-- The OpenAPI of `listPublicServices` does not list the `400` response the implementation returns for an invalid slug ([API-DM-09](../design-docs/api-contracts.md#api-dm-09-one-problem-format-with-stable-codes-and-reasons)).
+- CON-02 defines no category for `413` and `429`. The filter keeps their HTTP status and uses `validation` / `file_too_large` and `conflict` / `rate_limited`; the team has not yet decided whether CON-02 should list them. Nothing in the API produces a `429` yet: rate limiting is not implemented.
 - `/businesses/[slug]` is a provisional landing route: TEN-DM-07 leaves public routing open.
 - Import boundaries are checked by review and the grep above, not by lint ([MOD-Q-03](../design-docs/modules.md#10-decisions-and-open-questions)).
