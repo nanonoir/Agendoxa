@@ -87,7 +87,7 @@ The backend derives `CustomerContext` from the authenticated provider connection
 
 `controlRevision` is an opaque routing generation issued by `messaging`. Takeover, relevant AI-mode/lifecycle changes and conversation retirement invalidate earlier authorizations. It is rechecked before executing a new tool mutation and before dispatching a reply. Physical revision and work-claim fields are implementation choices under T-04/T-05.
 
-Technical provider errors are distinct from business refusals. Tools reuse CON-02's `code`/`reason` meanings, then produce a customer-safe projection. Internal labels, SQL, stacks, provider bodies and credentials never become customer-visible explanations. `rule_violation` and `internal` remain proposed CON-02 extensions to the architecture's error catalog.
+Technical provider errors are distinct from business refusals. Tools reuse CON-02's `code`/`reason` meanings, then produce a customer-safe projection. Internal labels, SQL, stacks, provider bodies and credentials never become customer-visible explanations. [CON-02 API-DM-09](./api-contracts.md#api-dm-09-one-problem-format-with-stable-codes-and-reasons) owns the categories. `RefusalCode` is deliberately the subset a use case can return to a tool; it omits `rate_limited`, which throttles HTTP callers at the API edge and is not a use-case refusal. A provider that throttles Agendoxa is an `IntegrationFailureCode` `rate_limited`, not a refusal.
 
 ## 3. Idempotency, transactions and recovery
 
