@@ -36,8 +36,7 @@ describe('publicServiceSchema and publicServiceListSchema (CON-02)', () => {
 
   it('rejects an unknown field at the list level', () => {
     expect(
-      publicServiceListSchema.safeParse({ items: [service], total: 1 })
-        .success,
+      publicServiceListSchema.safeParse({ items: [service], total: 1 }).success,
     ).toBe(false);
   });
 });
