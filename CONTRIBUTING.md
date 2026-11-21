@@ -117,6 +117,16 @@ Integrá únicamente cuando se cumplan los criterios previos a la integración d
 
 La [verificación completa del README](README.md#verificación-completa) reproduce el CI localmente. Si un check falla, corregí la causa: no lo saltees ni lo marques como exitoso. Que el CI esté en verde no implica que existan RLS, autorización, reglas de reservas ni despliegue.
 
+### Tamaño recomendado
+
+Referencia (no es un límite obligatorio):
+
+- Hasta 400 líneas de código: tamaño recomendado.
+- Entre 401 y 800: evaluá si conviene dividir el PR.
+- Más de 800: justificá el tamaño o considerá dividirlo.
+
+Las pruebas y la documentación se evalúan por separado, priorizando siempre la coherencia y la facilidad de revisión.
+
 ## Organización y nomenclatura del código
 
 - Usá identificadores técnicos en inglés y nombres que expresen responsabilidad. Conservá el idioma de los documentos existentes.

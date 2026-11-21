@@ -383,7 +383,7 @@ Do not extend priority or send stale offers due to outages/restarts. The only au
 - AI tools are **application adapters** that call authorized use cases, not a separately exposed public administrative API.
 - Public unauthenticated endpoints, if needed, expose **read-only landing information**; they do not authorize booking creation, cancellation or rescheduling.
 - Validate DTOs at inbound boundaries; keep business-policy and tenant/role checks in application/domain paths.
-- Use stable error meanings (`validation`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `external_dependency`) without leaking secrets or cross-tenant data.
+- Use stable error meanings without leaking secrets or cross-tenant data. The categories, reasons and HTTP statuses are owned by [CON-02 API-DM-09](./api-contracts.md#api-dm-09-one-problem-format-with-stable-codes-and-reasons).
 - Verify message webhooks and map business-WhatsApp connection to tenant; deduplicate retries. There are **no Mercado Pago webhooks** in the MVP.
 - **Not in scope:** A published external booking REST API/SDK, third-party booking widgets, ecommerce webhooks or external systems writing directly to Agendoxa tables. These can be designed later with explicit authorization and ownership rules.
 

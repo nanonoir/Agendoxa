@@ -30,7 +30,7 @@ oxlint configuration stays per workspace. Only the API customizes rules, so a sh
 - Prettier runs once from the root (`pnpm format:check` = `prettier --check .`), not through Turbo, because it is fast and workspace-independent. `pnpm format` is the opt-in writer; CI never writes.
 - Prettier becomes a root dev dependency with the API's existing range, so it resolves to the version already in the lockfile. The API keeps its own dependency and `format` script.
 - Existing quote styles are preserved: the API and the database keep single quotes and trailing commas through package-local configuration, while the root defaults (double quotes) apply to web, shared and root files. The audit showed that the database already follows the API style and only three JSON files lacked a final newline, so there is no baseline exclusion of application source.
-- `.prettierignore` excludes dependencies, build and cache outputs, the lockfile, generated Drizzle migrations/metadata, `next-env.d.ts` and Markdown. Markdown is excluded because the documentation set is authored by hand and reformatting it would create review churn unrelated to code quality.
+- `.prettierignore` excludes dependencies, build and cache outputs, the lockfile, generated Drizzle migrations/metadata, `next-env.d.ts`, Markdown and the OpenAPI contract `docs/design-docs/api-contracts.openapi.yaml`. Markdown is excluded because the documentation set is authored by hand and reformatting it would create review churn unrelated to code quality; the OpenAPI contract is hand-authored and kept in its reviewed form.
 
 ### D3 — LF line endings in Git
 

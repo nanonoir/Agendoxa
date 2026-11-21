@@ -160,23 +160,36 @@ Clients never compute availability, prices or deposits; they display what the AP
 
 ### API-DM-09: One problem format with stable codes and reasons
 
-- **Defined:** Error meanings are `validation`, `unauthorized`, `forbidden`, `not_found`, `conflict` and `external_dependency`, without leaking secrets or cross-tenant data ([architecture §11](./target-architecture.md#11-internal-api-and-integration-boundaries)).
+- **Defined:** Error meanings are `validation`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `external_dependency` and, added by this contract, `rule_violation` and `rate_limited` (plus `internal` for unexpected failures), without leaking secrets or cross-tenant data ([architecture §11](./target-architecture.md#11-internal-api-and-integration-boundaries)).
 - **Rule (Proposed):**
   - Every error uses [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details with `Content-Type: application/problem+json` and the `Problem` schema: `type`, `title`, `status`, `code`, optional `reason`, `detail` and `errors`, and `requestId`, also sent as the `X-Request-Id` header.
-  - `code` is one of the categories below and decides the HTTP status. `reason` is a stable `snake_case` value within the code, so clients branch on `code` and `reason`, never on `title` or `detail`, which are human text and may change.
-  - This contract adds one category, `rule_violation`, which the architecture list does not have ([API-Q-09](#13-decisions-and-open-questions)). It separates "the request is valid but a business rule refuses it" from a race on current state.
+  - `code` is one of the categories below. Each category has one HTTP status, except `validation`, which covers `400`, `413` and `415` depending on the cause; the correspondence is the table below, and a client never infers the status from `code` alone. `reason` is a stable `snake_case` value within the code, so clients branch on `code` and `reason`, never on `title` or `detail`, which are human text and may change.
+  - This contract adds two categories that the architecture's original list did not have; architecture §11 now refers here. `rule_violation` ([API-Q-09](#13-decisions-and-open-questions)) separates "the request is valid but a business rule refuses it" from a race on current state. `rate_limited` (`429`) is for a caller that sent too many requests; it is a contract only: no operation declares `429` yet and no rate limiting is implemented, so a `Retry-After` header is optional and, when present, is the one the rate limiter set.
   - A problem never contains another tenant's data, stack traces, SQL or secrets (BR-TEN-05).
 
 | `code` | HTTP | Use | Reasons in this increment |
 |---|---|---|---|
-| `validation` | 400 | The request does not match the schema or a cross-field rule; `errors[]` lists each `path` (JSON Pointer) and message | — (uses `errors`); `range_too_large`, `unsupported_media_type`, `file_too_large` |
+| `validation` | 400, 413, 415 | `400`: the request does not match the schema or a cross-field rule; `errors[]` lists each `path` (JSON Pointer) and message. `413`: the body exceeds a size limit. `415`: the media type is not accepted | `400`: — (uses `errors`); `range_too_large`. `413`: `payload_too_large` (any body; the generic reason, used for example when the HTTP framework rejects an oversized JSON body) or `file_too_large` (only when the application identifies an uploaded file, such as a receipt). `415`: `unsupported_media_type` |
 | `unauthorized` | 401 | No valid session, or wrong credentials | `session_required`, `invalid_credentials` |
 | `forbidden` | 403 | Valid membership, but the role lacks the permission or the operation is Admin-only | `missing_permission`, `admin_only`, `csrf_token_invalid` |
 | `not_found` | 404 | Does not exist, belongs to another tenant, or the caller has no active membership in the tenant | — |
 | `conflict` | 409 | Current state prevents it now; refreshing or choosing another slot may succeed | `slot_unavailable`, `state_changed`, `idempotency_key_reused`, `idempotency_request_in_progress`, `phone_already_registered`, `calendar_has_exceptions`, `opening_in_use`, `no_active_restriction`; money flows: `review_already_decided`, `upload_already_used`, `evidence_unavailable`, `allocation_already_reversed`, `cash_session_not_open`, `cash_session_already_open`, `cash_session_not_closed`, `stale_revision`, `no_open_supplemental_deposit` *(2026-11-12)* |
 | `rule_violation` | 422 | A business rule refuses the request as sent; it needs other input, an acceptance or an exception | `late_change_requires_acceptance`, `deposit_required`, `customer_blocked_requires_acknowledgement`, `future_booking_limit_reached`, `booking_lead_not_met`, `slot_in_past`, `outside_open_hours`, `incompatible_resource`, `inactive_service`, `inactive_resource`, `too_early_for_outcome`, `reschedule_limit_reached`, `not_in_private_remainder`, `phone_change_not_supported`; money flows: `allocation_exceeds_charge_balance`, `allocation_exceeds_available_funds`, `allocation_required` *(2026-11-12)*, `evidence_upload_expired`, `hold_evidence_via_whatsapp`, `booking_released`, `receiving_account_required`, `opening_difference_requires_reason` |
 | `external_dependency` | 503 | A required external service failed. No operation in this increment depends on WhatsApp or the LLM (BR-CH-06) | — |
+| `rate_limited` | 429 | The caller sent too many requests. Not declared by any operation yet; `Retry-After` is optional | — |
 | `internal` | 500 | Unexpected failure; the client may retry with the same idempotency key | — |
+
+HTTP status, `code` and `reason` for the statuses the API can produce outside the per-operation reasons:
+
+| HTTP | `code` | `reason` |
+|---|---|---|
+| 400 | `validation` | Depends on the validation (`errors[]`, or `range_too_large`) |
+| 413 | `validation` | `payload_too_large`; `file_too_large` for an identified file |
+| 415 | `validation` | `unsupported_media_type` |
+| 429 | `rate_limited` | Optional; none defined |
+| 500 | `internal` | None |
+
+Any other framework `4xx` without a category of its own (for example `405` or `406`) is reported as `validation` without a `reason`, keeping its HTTP status. This does not change the shared `ValidationError` response of the OpenAPI, which remains `400`.
 
 - **Which statuses each operation can return** *(added 2026-11-12, after auditing every operation).* `401` wherever a session is needed. `404` for a tenant without an active membership and for another tenant's record. `403` is declared only where a delegable permission, an Admin-only check or the CSRF token is checked: every CRM operation except `getSession` and `getTenantContext`, which need only a session or an active membership. `409` for idempotency conflicts (`idempotency_key_reused`, `idempotency_request_in_progress`) is declared on every `POST` that requires `Idempotency-Key`, besides its state conflicts. `400`, `422` and the other `409` reasons appear only on the operations whose inputs or rules can produce them. The per-operation matrix is not repeated here; the OpenAPI responses are the contract.
 - **Example:** A Staff member cancels inside the notice window without the customer's acceptance. The API answers `422`, `rule_violation`, reason `late_change_requires_acceptance`, with a `lateChange` object holding the notice and the deposit policy so the CRM can state the consequence (BR-CAN-14). Sending again with `acceptLateConsequence: true` cancels. [§8](#8-representative-examples) shows the full body.
@@ -1391,7 +1404,7 @@ Every decision is **Proposed for team review**.
 | [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie) | Opaque server-side session cookie with a CSRF token |
 | [API-DM-07](#api-dm-07-the-tenant-is-a-path-segment-revalidated-on-every-request) | Tenant in the path, revalidated per request; `404` outside the caller's memberships |
 | [API-DM-08](#api-dm-08-permissions-are-checked-per-operation-admin-only-operations-stay-admin-only) | One permission per operation; Admin-only exceptions return `403 admin_only` |
-| [API-DM-09](#api-dm-09-one-problem-format-with-stable-codes-and-reasons) | RFC 9457 problems with stable `code` and `reason`; adds `rule_violation` |
+| [API-DM-09](#api-dm-09-one-problem-format-with-stable-codes-and-reasons) | RFC 9457 problems with stable `code` and `reason`; adds `rule_violation` and `rate_limited` |
 | [API-DM-10](#api-dm-10-state-changing-posts-require-an-idempotency-key) | `Idempotency-Key` on state-changing POSTs, kept 24 hours |
 | [API-DM-11](#api-dm-11-commands-are-checked-against-current-state-configuration-is-last-write-wins) | Commands rechecked against current state; configuration last-write-wins |
 | [API-DM-12](#api-dm-12-each-endpoint-belongs-to-the-module-that-owns-its-operation) | Endpoints are tagged by owner; multi-owner commands go through `workflows`, cross-owner reads through compositions *(reconciled 2026-11-10)* |
@@ -1448,7 +1461,7 @@ These questions are flagged, not resolved here.
 | Receipt screening | BR-SEN-14–16, INV-SEN-12–13 (product-owner agreement 2026-11-09) | [§10.1](#101-receipt-evidence-screening-is-not-human-review), API-DM-13 meanings, §11.1 | **Reconciled** 2026-11-10; P-40 open; API-Q-11 closed 2026-11-12 |
 | Authentication method | CU-17 leaves it to a CON task | [API-DM-06](#api-dm-06-the-crm-uses-an-opaque-server-side-session-cookie), chosen with the team; open parts in API-Q-08 | Proposed |
 | Booking statuses | UC-02 §1 and UC-03 §0 call them conceptual labels; REP-02 implemented `booking_status`, and the architecture proposal now says so | The seven values, plus derived fields for conditions that are not statuses ([API-DM-13](#api-dm-13-seven-statuses-with-derived-conditions-as-separate-fields)), as in [modules §11](./modules.md#11-reconciliation-with-sources) | Consistent |
-| Error categories | Architecture §11 lists six | Adds `rule_violation` and `internal` | Open (API-Q-09) |
+| Error categories | Architecture §11 listed six; it now refers to API-DM-09 | Adds `rule_violation`, `rate_limited` and `internal` | Open (API-Q-09) |
 | Landing location | MVP §5.1 and §7.2 and the rewritten #11 show location | Public address text and optional Maps link, proposed on `Tenant` in the [ERD](./erd.md#tenant) (2026-11-12) and not migrated | Proposed; pending ERD/DOM-01 adoption (API-Q-01) |
 | Weekly hours | The schema stores `weekday` 0–6 without a convention | Names in the API | Open (API-Q-07) |
 | Agreed-price change | CU-11 A5 is a payment case | `agreed_price` is a `Booking` field, so its endpoint is tagged `bookings` and goes through `workflows` because it changes the charge ([§11.2](#112-next-contract-increment)) | Proposed |

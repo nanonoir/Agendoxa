@@ -103,6 +103,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicServiceList'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFound'
   /session:
@@ -2899,7 +2901,7 @@ components:
           maximum: 599
         code:
           type: string
-          enum: [validation, unauthorized, forbidden, not_found, conflict, rule_violation, external_dependency, internal]
+          enum: [validation, unauthorized, forbidden, not_found, conflict, rule_violation, external_dependency, rate_limited, internal]
         reason:
           description: Stable snake_case reason within the code, listed per endpoint in the document.
           type: string

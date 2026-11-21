@@ -2,7 +2,7 @@
 
 **Reservas inteligentes. Gestión más simple.** Agendoxa es una propuesta de plataforma multi-tenant para reservas y atención al cliente, desarrollada en equipo en el contexto del bootcamp Devlights.
 
-> **Estado actual:** página web inicial, API de salud, contrato compartido y primer incremento de persistencia PostgreSQL/Drizzle con 17 entidades, migraciones y pruebas. Todavía no implementa casos de uso de reservas, CRM, autenticación ni integraciones de WhatsApp, IA o pagos.
+> **Estado actual:** página web inicial, API de salud, contratos compartidos, primer incremento de persistencia PostgreSQL/Drizzle con 17 entidades, migraciones y pruebas, y un módulo de referencia de punta a punta: la consulta pública de servicios activos de un negocio. Todavía no implementa casos de uso de reservas, CRM, autenticación ni integraciones de WhatsApp, IA o pagos.
 
 ## Propuesta y alcance
 
@@ -12,7 +12,7 @@ El alcance y las decisiones están en revisión. La reconciliación del 4 de nov
 
 ## Arquitectura
 
-La web y la API consumen `@agendoxa/shared`. NestJS también consume `@agendoxa/database`, con un pool administrado por su ciclo de vida. La web muestra una página inicial y no consulta la API. Ver [arquitectura actual](ARCHITECTURE.md) y [alcance de persistencia](docs/design-docs/rep-02-core-persistence.md).
+La web y la API consumen `@agendoxa/shared`. NestJS también consume `@agendoxa/database`, con un pool administrado por su ciclo de vida. La web consulta la API por HTTP para listar los servicios activos de un negocio. Ver [arquitectura actual](ARCHITECTURE.md), [alcance de persistencia](docs/design-docs/rep-02-core-persistence.md) y la [guía del módulo de referencia](docs/references/backend-module-reference.md), que explica cómo construir módulos del backend.
 
 **Dirección objetivo propuesta, no implementada:**
 
@@ -57,10 +57,10 @@ En PowerShell, se puede usar `Copy-Item .env.example .env` en lugar de `cp`. Tur
 
 | Aplicación | Dirección |
 |---|---|
-| Web | http://localhost:3000 |
-| API | http://localhost:3001; `GET /health` devuelve `{"status":"ok"}` |
+| Web | http://localhost:3000; con el seed, http://localhost:3000/businesses/demo-barber y `/businesses/demo-club` muestran sus servicios |
+| API | http://localhost:3001; `GET /health` devuelve `{"status":"ok"}` y `GET /api/v1/public/businesses/{slug}/services`, los servicios activos |
 
-La API carga el `.env` de la raíz si existe, requiere DATABASE_URL y usa PORT o el puerto 3001. La web usa `apps/web/.env.local`. PostgreSQL se publica en loopback, puerto 5432 por defecto; cambiá POSTGRES_PORT y DATABASE_URL juntos si está ocupado. Las credenciales del ejemplo son solo para desarrollo local. El seed no crea contraseñas ni un login funcional. No subas credenciales reales al repositorio.
+La API carga el `.env` de la raíz si existe, requiere DATABASE_URL y usa PORT o el puerto 3001. La web usa `apps/web/.env.local`; `API_BASE_URL` (solo del servidor) apunta a la API y vale `http://localhost:3001` por defecto. PostgreSQL se publica en loopback, puerto 5432 por defecto; cambiá POSTGRES_PORT y DATABASE_URL juntos si está ocupado. Las credenciales del ejemplo son solo para desarrollo local. El seed no crea contraseñas ni un login funcional. No subas credenciales reales al repositorio.
 
 ### Comandos
 
@@ -78,7 +78,7 @@ Desde la raíz del repositorio:
 | `pnpm db:migrate` / `pnpm db:seed` | Aplica migraciones o carga los dos negocios de ejemplo |
 | `pnpm db:generate` / `pnpm db:check` | Genera migraciones o verifica su metadata |
 | `pnpm test:db` | Ejecuta las pruebas de integridad/concurrencia sobre PostgreSQL real |
-| `pnpm test:integration` | Ejecuta las pruebas de PostgreSQL de database y de la conexión NestJS |
+| `pnpm test:integration` | Ejecuta las pruebas de PostgreSQL de database y de la API (conexión NestJS y servicios públicos) |
 
 Para validaciones específicas y preparación al ejecutar comandos con `--filter`, consultá [AGENTS.md](AGENTS.md).
 
@@ -97,7 +97,7 @@ pnpm db:test:up
 pnpm test:integration
 ```
 
-`pnpm db:test:up` inicia un PostgreSQL 18 descartable en `127.0.0.1:5433`, sin volumen persistente. Las pruebas leen `DATABASE_URL_TEST` del `.env` o del entorno; debe apuntar a una base terminada en `_test`, como el valor de [`.env.example`](.env.example). La suite de database crea y elimina una base hija con nombre único y aplica las migraciones versionadas en ella.
+`pnpm db:test:up` inicia un PostgreSQL 18 descartable en `127.0.0.1:5433`, sin volumen persistente. Las pruebas leen `DATABASE_URL_TEST` del `.env` o del entorno; debe apuntar a una base terminada en `_test`, como el valor de [`.env.example`](.env.example). La suite de database y la de servicios públicos de la API crean y eliminan cada una su base hija con nombre único y aplican las migraciones versionadas en ella.
 
 El repositorio fija finales de línea LF mediante [`.gitattributes`](.gitattributes). Si un checkout de Windows anterior a esa regla muestra diferencias de formato en todos los archivos, ejecutá `pnpm format` o volvé a hacer checkout con el árbol de trabajo limpio.
 
@@ -107,10 +107,10 @@ En los PRs hacia `main`, el workflow ejecuta los jobs `quality` y `database-inte
 
 ```text
 apps/
-  web/               # Aplicación Next.js inicial
-  api/               # API NestJS con GET /health
+  web/               # Aplicación Next.js inicial y vista pública de servicios
+  api/               # API NestJS: GET /health, módulos catalog y tenants, plataforma HTTP
 packages/
-  shared/            # Contrato de salud compartido
+  shared/            # Contratos HTTP compartidos (Zod)
   database/          # Esquema, cliente, migraciones y pruebas de persistencia
 infra/               # Compose local de PostgreSQL y servicio de integración
 docs/
