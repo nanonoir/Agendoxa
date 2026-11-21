@@ -2,7 +2,8 @@ import { z } from "zod";
 import { moneySchema, uuidSchema } from "./common.js";
 
 // Respuesta de GET /api/v1/public/businesses/{slug}/services (listPublicServices).
-export const publicServiceSchema = z.object({
+// Estrictos como `additionalProperties: false` del OpenAPI.
+export const publicServiceSchema = z.strictObject({
   id: uuidSchema,
   name: z.string(),
   description: z.string().nullable(),
@@ -10,7 +11,7 @@ export const publicServiceSchema = z.object({
   price: moneySchema,
 });
 
-export const publicServiceListSchema = z.object({
+export const publicServiceListSchema = z.strictObject({
   items: z.array(publicServiceSchema),
 });
 
