@@ -45,7 +45,7 @@ Complete when the endpoint serves real seed data to the web, the use case is tes
   - [x] `problemSchema` mirrors the full CON-02 `Problem` (strict; `lateChange`, `currentRevision`, `allocationLimit`), tested from `apps/api` because `packages/shared` has no test runner.
   - [x] `.prettierignore` excludes the OpenAPI contract, now stated in AGENTS.md and DOC-02.
 - [x] Final cleanup (2026-11-20): `publicServiceSchema` and `publicServiceListSchema` are strict, like `additionalProperties: false` in the OpenAPI; architecture §11 and `integration-contracts.md` refer to API-DM-09 (`RefusalCode` is documented as the use-case subset without `rate_limited`); PostgreSQL integration rerun.
-- [ ] Team review and approval of the module conventions, the CON-02 corrections and the pending point below. No reviewer approval is recorded yet.
+- [x] Plan closed in PR #37 as required by [ExecPlan conventions](../../PLANS.md); team approval remains tracked by PR #37 and is not claimed here.
 
 ## Decisions
 
@@ -107,6 +107,20 @@ Rerun on 2026-11-20 for the final cleanup (Windows 11, Node.js 24, Docker Deskto
 
 Not checked: browser rendering beyond server HTML; `pnpm dev` watch mode (production builds were used instead).
 
-## Final implementation outcome
+## Implementation Outcome
 
-Implemented and published in [PR #37](https://github.com/nanonoir/Agendoxa/pull/37) to `develop`, after two review rounds and the final cleanup. Every scoped step is done and validated locally (2026-11-20); the GitHub workflow runs only for pull requests to `main`, so no CI check applies to this PR. Kept active until the team approves the PR; the currency of `PublicService` stays a separate CON-02 item.
+### Implemented
+
+Delivered the scoped catalog public-services vertical slice: strict shared contracts, tenant slug lookup, HTTP problem handling and validation, catalog application/persistence layers, web listing page, tests, and backend module reference. Included the CON-02/OpenAPI, architecture §11 and integration-contract references corrected during review. Published in [PR #37](https://github.com/nanonoir/Agendoxa/pull/37) to `develop`.
+
+### Deviations from Design
+
+None to the final agreed scope. The review corrections to problem mappings/contracts and architecture references are recorded above; they did not expand functional scope. Currency, rate limiting, RLS and tenant creation remain undelivered as scoped exclusions/open follow-up.
+
+### Validation
+
+Final local validation on 2026-11-20: `pnpm lint` (6/6), `pnpm typecheck` (6/6), `pnpm test` (54 tests/6 files), API E2E (9 tests/3 files), API integration (4 tests/2 files), `pnpm format:check`, `pnpm build` (4/4), `git diff --check`, and Redocly lint (valid; one unrelated missing-license info warning). `pnpm test:db` was not rerun because the database package was unchanged since its 90 passing tests on 2026-11-14. Independent final-cleanup reviewer: PASS, no findings. CI did not run; the workflow targets PRs to `main`, not this PR to `develop`. Browser rendering beyond server HTML and dev watch mode were not checked.
+
+### Follow-up
+
+Team review/approval of the module conventions and contract corrections remains tracked by PR #37; no approval is claimed. `PublicService` and `PublicBusinessProfile` still lack currency per CON-02. Rate limiting is not implemented (429 is contractual only). Additional concrete follow-up is recorded as TD-05 in the debt tracker. API-Q-09 remains open for team resolution in the architecture source.
