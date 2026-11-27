@@ -1,6 +1,6 @@
 # Agent guide
 
-Agendoxa is a modular booking and customer-service platform. This repository contains a starter web page, health API, shared contract and first PostgreSQL/Drizzle persistence increment. Product workflows are not implemented.
+Agendoxa is a modular booking and customer-service platform. This repository contains a starter web page, health API, shared contracts, a first PostgreSQL/Drizzle persistence increment and one end-to-end reference module (`catalog` public services). Booking and other product workflows are not implemented.
 
 ## Start here
 
@@ -15,6 +15,7 @@ Read and follow [CONTRIBUTING.md](CONTRIBUTING.md) before making changes. It is 
 | What technical direction is proposed? | [Design docs index](docs/design-docs/index.md) |
 | How should implementation plans be maintained? | [ExecPlan conventions](docs/PLANS.md) |
 | What unresolved technical debt is recorded? | [Debt tracker](docs/exec-plans/tech-debt-tracker.md) |
+| How should a backend module and its layers be built? | [Backend module reference](docs/references/backend-module-reference.md) |
 
 Existing product and target-architecture documents remain proposals/in review. The 2026-11-04 handoff is historical provenance; later product-owner agreements in canonical UC-03 supersede incompatible portions (progressive/broadcast invitations, partial-deposit protection, reusable consent choices and professional/business collection modes). Current rules/unresolved questions are in UC-03, with complementary sources under their indexes. Product-owner agreement is not collective approval or implementation; illustrative trees/conceptual labels are not physical schema.
 
@@ -53,12 +54,12 @@ Run from the repository root:
 
 Turbo tasks depend on `^build`. Direct `pnpm --filter` commands bypass that preparation: run `pnpm --filter @agendoxa/shared build` first when its output is missing or changed.
 
-The API loads root `.env`, requires DATABASE_URL and listens on PORT or 3001. Its database pool is lazy; /health is liveness, not database readiness. Web variables belong in `apps/web/.env.local`. See [the environment example](.env.example). The database package must also be built before direct filtered API commands.
+The API loads root `.env`, requires DATABASE_URL and listens on PORT or 3001. Its database pool is lazy; /health is liveness, not database readiness. Endpoints live under `/api/v1` (except `/health`) through `configureHttp`, which HTTP tests must also apply. Web variables belong in `apps/web/.env.local`; the server-only `API_BASE_URL` defaults to `http://localhost:3001`. See [the environment example](.env.example). The database package must also be built before direct filtered API commands.
 
 ## Local conventions and boundaries
 
 - Keep API relative imports suffixed with `.js` for NodeNext/ESM. Web's `@/*` alias resolves to `src/*`.
-- Match the affected file: API/database use single quotes; web/shared use double quotes. Root Prettier applies each workspace's configuration; `.prettierignore` excludes Markdown, the lockfile, build outputs and Drizzle migrations. Git normalizes line endings to LF.
+- Match the affected file: API/database use single quotes; web/shared use double quotes. Root Prettier applies each workspace's configuration; `.prettierignore` excludes Markdown, the lockfile, build outputs, Drizzle migrations and the hand-authored OpenAPI contract (`docs/design-docs/api-contracts.openapi.yaml`). Git normalizes line endings to LF.
 - Import portable contracts from `@agendoxa/shared`; do not import another app's internals. Shared is not a second booking engine and must not contain secrets. Web must not import NestJS internals or server-only database code.
 - Read the relevant product references before business work: UC-01 specifies an informational landing without web booking, human transfer verification, and one tenant-authorized booking core. Do not infer public booking, Mercado Pago, or other deferred integrations.
 - Keep technical identifiers in English and preserve the language of existing documents. Add modules, packages, and layers only when needed, not to reproduce proposed trees.
@@ -72,12 +73,13 @@ Choose checks for the affected workspace; do not run full suites by default on f
 | API | `pnpm --filter @agendoxa/api lint` and `pnpm --filter @agendoxa/api typecheck` |
 | API unit behavior | `pnpm --filter @agendoxa/api test src/app.controller.spec.ts` (replace with relevant file) |
 | Health HTTP contract | `pnpm --filter @agendoxa/api test:e2e test/app.e2e-spec.ts` |
+| Public services HTTP contract | `pnpm --filter @agendoxa/api test:e2e test/public-services.e2e-spec.ts` |
 | Web | `pnpm --filter @agendoxa/web lint` and `pnpm --filter @agendoxa/web typecheck` |
 | Shared | `pnpm --filter @agendoxa/shared typecheck` and `pnpm --filter @agendoxa/shared build`; check affected consumers |
 | Database | `pnpm --filter @agendoxa/database lint`, `typecheck` and `build`; `pnpm db:check` |
 | Database integrity | `pnpm db:test:up` then `pnpm test:db`; creates/drops a uniquely named child database only |
-| NestJS/PostgreSQL | `pnpm --filter @agendoxa/api test:integration` with DATABASE_URL_TEST |
+| NestJS/PostgreSQL | `pnpm db:test:up` then `pnpm --filter @agendoxa/api test:integration` with DATABASE_URL_TEST; the catalog test migrates and drops its own child database |
 | Formatting or tooling | `pnpm format:check`; for workflow changes also run the README full verification |
 | Documentation only | Verify paths, links, and commands; `git diff --check` (also inspect untracked files, which ordinary diffs omit) |
 
-For build/dependency changes, also run the relevant build, or `pnpm build` for monorepo-wide changes. API unit, E2E and PostgreSQL integration tests have separate configurations. E2E uses Supertest with an in-memory Nest app and overridden database provider. Web/shared have no test scripts. Database tests verify reference integrity and concurrency, not tenant authorization or complete use cases. SQL-only constraints/triggers are in custom migrations; do not replace them with drizzle-kit push.
+For build/dependency changes, also run the relevant build, or `pnpm build` for monorepo-wide changes. API unit, E2E and PostgreSQL integration tests have separate configurations. E2E uses Supertest with an in-memory Nest app and overridden database provider and ports. Web/shared have no test scripts. Database tests verify reference integrity and concurrency, not tenant authorization or complete use cases. SQL-only constraints/triggers are in custom migrations; do not replace them with drizzle-kit push.

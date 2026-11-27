@@ -13,3 +13,6 @@ packages/database/drizzle/
 
 # Hand-authored documentation is not reformatted
 *.md
+
+# Hand-authored API contract kept in its reviewed form
+docs/design-docs/api-contracts.openapi.yaml

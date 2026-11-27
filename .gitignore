@@ -5,7 +5,8 @@ node_modules/
 dist/
 .next/
 .turbo/
-out/
+/out/
+/apps/*/out/
 coverage/
 
 # Entorno y secretos
